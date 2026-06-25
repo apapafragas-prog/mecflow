@@ -1,0 +1,24 @@
+version: "3.8"
+
+services:
+  cbre:
+    build: .
+    container_name: cbre-reporting
+    restart: unless-stopped
+    ports:
+      - "3300:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATA_DIR=/data
+      - JWT_SECRET=${JWT_SECRET:-CHANGE-THIS-TO-A-LONG-RANDOM-STRING}
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

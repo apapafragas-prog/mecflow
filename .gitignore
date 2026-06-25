@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+frontend/dist/
+
+# Secrets & data — NEVER COMMIT
+.env
+.env.local
+.env.*.local
+data/
+backups/
+*.db
+*.db-shm
+*.db-wal
+
+# Backups & logs
+*.bak
+*.bak.*
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
