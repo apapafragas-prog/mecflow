@@ -302,17 +302,17 @@ export default function App() {
         else if(key==="rev_pjm") sc(pWS,pr,col,null,st,`SUMIFS('CBRE Invoices'!$E:$E,'CBRE Invoices'!$D:$D,"CLIENT REVENUE - PJMs",'CBRE Invoices'!$C:$C,${C}3)`);
         else if(key==="rev_total") sc(pWS,pr,col,null,st,`${C}${pr-2}+${C}${pr-1}+${C}${pr}`);
         else if(key==="lab") sc(pWS,pr,col,lab[m]?Object.values(lab[m]).reduce((s,v)=>s+(Number(v)||0),0):0,st);
-        else if(key==="lab_total") sc(pWS,pr,col,null,st,`${C}${pr}`);
+        else if(key==="lab_total") sc(pWS,pr,col,null,st,`${C}9`);
         else if(key==="sub_core") sc(pWS,pr,col,null,st,`SUMIFS('Sub Invoices'!$J:$J,'Sub Invoices'!$C:$C,"*CORE*",'Sub Invoices'!$B:$B,${C}3)`);
         else if(key==="sub_ew") sc(pWS,pr,col,null,st,`SUMIFS('Sub Invoices'!$J:$J,'Sub Invoices'!$C:$C,"*Extra*",'Sub Invoices'!$B:$B,${C}3)`);
         else if(key==="sub_pjm") sc(pWS,pr,col,null,st,`SUMIFS('Sub Invoices'!$J:$J,'Sub Invoices'!$C:$C,"*PJM*",'Sub Invoices'!$B:$B,${C}3)`);
         else if(key==="sub_total") sc(pWS,pr,col,null,st,`${C}${pr-2}+${C}${pr-1}+${C}${pr}`);
         else if(key==="gm") sc(pWS,pr,col,null,st,`${C}${pr-10}-${C}${pr-6}-${C}${pr-1}`);
-        else if(key==="gm_core") sc(pWS,pr,col,null,st,`${C}${pr-14}-${C}${pr-11}-${C}${pr-7}`);
-        else if(key==="gm_core_pct") sc(pWS,pr,col,null,pps,`IF(${C}${pr-15}=0,"",${C}${pr}/${C}${pr-15})`);
-        else if(key==="gm_ew") sc(pWS,pr,col,null,st,`${C}${pr-16}-${C}${pr-12}-${C}${pr-8}`);
-        else if(key==="gm_ew_pct") sc(pWS,pr,col,null,pps,`IF(${C}${pr-17}=0,"",${C}${pr}/${C}${pr-17})`);
-        else if(key==="gm_pjm") sc(pWS,pr,col,null,st,`${C}${pr-18}-${C}${pr-14}-${C}${pr-9}`);
+        else if(key==="gm_core") sc(pWS,pr,col,null,st,`${C}4-${C}11-${C}13`);
+        else if(key==="gm_core_pct") sc(pWS,pr,col,null,pps,`IF(${C}4=0,"",${C}20/${C}4)`);
+        else if(key==="gm_ew") sc(pWS,pr,col,null,st,`${C}5-${C}14`);
+        else if(key==="gm_ew_pct") sc(pWS,pr,col,null,pps,`IF(${C}5=0,"",${C}22/${C}5)`);
+        else if(key==="gm_pjm") sc(pWS,pr,col,null,st,`${C}6-${C}15`);
       });
       pr++;
     });
@@ -1294,6 +1294,7 @@ function Scan({onAdd,onAddAR,goTo,year,client}) {
   const [prog, setProg] = useState("");
   const [drag, setDrag] = useState(false);
   const [mode, setMode] = useState("AP"); // "AP" = Sub Invoices, "AR" = CBRE Invoices
+  const [autoMode, setAutoMode] = useState(false); // bulk folder scan: auto-detect AP/AR per invoice
   const [targetMonth, setTargetMonth] = useState(""); // optional override
   const [approved, setApproved] = useState({sub:0, inv:0}); // post-approve destination summary
   const [preview, setPreview] = useState(null); // {url,name,isPdf} local-blob preview before approve
@@ -1380,14 +1381,14 @@ function Scan({onAdd,onAddAR,goTo,year,client}) {
     const inp = document.createElement("input");
     inp.type = "file"; inp.multiple = false; inp.accept = ".pdf,.zip,image/*";
     inp.style.display = "none"; document.body.appendChild(inp);
-    inp.onchange = (e) => { setFiles([]); setResults([]); setApproved({sub:0,inv:0}); addFiles(e.target.files); inp.remove(); };
+    inp.onchange = (e) => { setAutoMode(false); setFiles([]); setResults([]); setApproved({sub:0,inv:0}); addFiles(e.target.files); inp.remove(); };
     inp.click();
   };
   const pickFolder = () => {
     const inp = document.createElement("input");
     inp.type = "file"; inp.multiple = true; inp.webkitdirectory = true;
     inp.style.display = "none"; document.body.appendChild(inp);
-    inp.onchange = (e) => { setFiles([]); setResults([]); setApproved({sub:0,inv:0}); addFiles(e.target.files); inp.remove(); };
+    inp.onchange = (e) => { setAutoMode(true); setFiles([]); setResults([]); setApproved({sub:0,inv:0}); addFiles(e.target.files); inp.remove(); };
     inp.click();
   };
 
@@ -1547,7 +1548,9 @@ function Scan({onAdd,onAddAR,goTo,year,client}) {
       const f = files[i];
       setProg(`🤖 AI reading ${i+1}/${files.length}: ${f.name}`);
       try {
-        const ex = await api.extractInvoice(f, mode);
+        const scanMode = autoMode ? "AUTO" : mode;
+        const ex = await api.extractInvoice(f, scanMode);
+        const rMode = autoMode ? (String(ex.direction||"").toUpperCase()==="AR" ? "AR" : "AP") : mode;
         const isCredit = !!ex.is_credit_note;
         let net = Number(ex.net_amount)||0;
         let vat = Number(ex.vat_amount)||0;
@@ -1572,7 +1575,7 @@ function Scan({onAdd,onAddAR,goTo,year,client}) {
         // Cost/revenue category guess from description
         const desc = (ex.description||"").toLowerCase();
         let cat;
-        if(mode==="AR") {
+        if(rMode==="AR") {
           if(desc.includes("pjm")||desc.includes("project")) cat = REV_CATS.find(c=>c.toLowerCase().includes("pjm"))||REV_CATS[0];
           else if(desc.includes("extra")) cat = REV_CATS.find(c=>c.toLowerCase().includes("extra"))||REV_CATS[0];
           else cat = REV_CATS.find(c=>c.toLowerCase().includes("core"))||REV_CATS[0];
@@ -1604,7 +1607,7 @@ function Scan({onAdd,onAddAR,goTo,year,client}) {
           service_category: svcCat,
           _file: f.name,
           _st: "ready",
-          _mode: mode,
+          _mode: rMode,
           _isCredit: isCredit,
           _fileObj: f
         });
@@ -1637,6 +1640,11 @@ function Scan({onAdd,onAddAR,goTo,year,client}) {
   };
 
   const upd = (i,k,v) => setResults(p => p.map((r,j) => j===i?{...r,[k]:v}:r));
+  const flipMode = (i) => setResults(p => p.map((r,j) => {
+    if(j!==i) return r;
+    const nm = (r._mode||"AP")==="AR" ? "AP" : "AR";
+    return {...r, _mode:nm, cost_category: nm==="AR"?REV_CATS[0]:COST_CATS[0]};
+  }));
   const approve = async (i) => {
     const r = results[i]; if(r._st!=="ready") return;
     // Use targetMonth if set, otherwise the row's month, otherwise block
@@ -1704,13 +1712,15 @@ function Scan({onAdd,onAddAR,goTo,year,client}) {
       </div>
       <div style={{display:"flex",justifyContent:"center",gap:10,marginBottom:16}}>
         <button type="button" onClick={pickFiles} style={{background:P.em,color:"#fff",border:"none",padding:"10px 24px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:700}}>📄 Select a file</button>
+        <button type="button" onClick={pickFolder} style={{background:"#0277BD",color:"#fff",border:"none",padding:"10px 24px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:700}}>📁 Σάρωση φακέλου (auto AP/AR)</button>
       </div>
+      {autoMode && <div style={{textAlign:"center",marginBottom:14,padding:"8px 14px",background:"#E1F5FE",border:"1px solid #0277BD",borderRadius:6,fontSize:12,color:"#01579B",fontWeight:600}}>🔍 Auto-ανίχνευση ΕΝΕΡΓΗ — κάθε τιμολόγιο ταξινομείται μόνο του σε 📥 AP (κόστος) ή 📤 AR (έσοδο). Έλεγξε/διόρθωσε το badge κάθε κάρτας (κλικ ⇄) πριν το Approve.</div>}
       {files.length > 0 && (
         <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:14,marginBottom:16}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
             <span style={{fontSize:13,fontWeight:600,color:P.em}}>{files.length} file(s)</span>
             <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>setFiles([])} style={{background:"none",border:"1px solid "+P.bd,padding:"5px 12px",borderRadius:4,cursor:"pointer",fontSize:12}}>Clear</button>
+              <button onClick={()=>{setFiles([]);setAutoMode(false);}} style={{background:"none",border:"1px solid "+P.bd,padding:"5px 12px",borderRadius:4,cursor:"pointer",fontSize:12}}>Clear</button>
               <button onClick={scan} disabled={busy} style={{background:P.em,color:"#fff",border:"none",padding:"7px 20px",borderRadius:6,cursor:busy?"wait":"pointer",fontSize:13,fontWeight:600,opacity:busy?0.5:1}}>{busy?"AI processing...":"🤖 Extract All with AI"}</button>
             </div>
           </div>
@@ -1738,7 +1748,7 @@ function Scan({onAdd,onAddAR,goTo,year,client}) {
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <span style={{fontSize:11,color:P.tm}}>{r._file}</span>
-                  <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10,color:"#fff",background:(r._mode||"AP")==="AR"?"#0277BD":"#00897B"}}>{(r._mode||"AP")==="AR"?"📤 AR":"📥 AP"}</span>
+                  <button onClick={()=>r._st==="ready"&&flipMode(i)} title="Κλικ για εναλλαγή AP/AR" style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10,color:"#fff",border:"none",cursor:r._st==="ready"?"pointer":"default",background:(r._mode||"AP")==="AR"?"#0277BD":"#00897B"}}>{(r._mode||"AP")==="AR"?"📤 AR":"📥 AP"}{r._st==="ready"?" ⇄":""}</button>
                   <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10,color:"#fff",background:r._st==="done"?P.gn:r._st==="error"?P.rd:r._st==="rejected"?P.rd:P.em}}>{r._st==="done"?"✓ APPROVED":r._st==="saving"?"⏳ SAVING…":r._st==="error"?"ERROR":r._st==="rejected"?"✗ REJECTED":"READY"}</span>
                   {r.afm&&<span style={{fontSize:10,color:P.tm}}>ΑΦΜ: {r.afm}</span>}
                 </div>

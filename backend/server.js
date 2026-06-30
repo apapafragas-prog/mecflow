@@ -254,10 +254,12 @@ How to identify the CUSTOMER (recipient — NOT the supplier):
   - "Πελάτης" / "Customer"
 • If "CBRE HELLAS" appears under any of these → CBRE is the CUSTOMER, not the supplier.
 
-For ${mode === "AR" ? "AR mode (CBRE-issued client invoices)" : "AP mode (supplier invoices billed TO CBRE)"}:
-${mode === "AR"
-  ? "→ supplier_name = CBRE Hellas or Atria (the issuer at the top header)"
-  : "→ supplier_name = the VENDOR who billed CBRE (the company at the TOP HEADER). It is NEVER 'CBRE Hellas'."}
+For ${mode === "AUTO" ? "AUTO mode (mixed folder — you MUST detect the direction of EACH invoice)" : mode === "AR" ? "AR mode (CBRE-issued client invoices)" : "AP mode (supplier invoices billed TO CBRE)"}:
+${mode === "AUTO"
+  ? "→ DIRECTION DETECTION (critical): supplier_name = the ISSUER at the top header (always). Set direction=\"AR\" ONLY IF that ISSUER is CBRE Hellas itself (e.g. \"CBRE Hellas Μονοπροσωπή ΑΕ\" or \"CBRE Hellas Single Member SA\") — that is the ONLY AR case (CBRE billing a client = revenue). For EVERY other issuer — including ATRIA / Atria and any vendor or subcontractor — set direction=\"AP\" (cost to CBRE). ATRIA is NOT CBRE; an ATRIA-issued invoice is ALWAYS AP."
+  : mode === "AR"
+  ? "→ supplier_name = CBRE Hellas (the issuer at the top header, e.g. \"CBRE Hellas Μονοπροσωπή ΑΕ\" / \"CBRE Hellas Single Member SA\"). Set direction=\"AR\"."
+  : "→ supplier_name = the VENDOR who billed CBRE (the company at the TOP HEADER). It is NEVER 'CBRE Hellas'. Set direction=\"AP\"."}
 
 ═══════════════════════════════════════════════════════════
 INVOICE NUMBER — always present, never leave blank
@@ -337,6 +339,7 @@ OUTPUT FORMAT (JSON only, no markdown)
 
 {
   "supplier_name": "name of ISSUER (top header). Greek or English. Max 60 chars.",
+  "direction": "AP or AR — AR ONLY if the ISSUER is CBRE Hellas itself (Μονοπροσωπή ΑΕ / Single Member SA). ATRIA and every other issuer = AP. Always include this field.",
   "afm": "issuer's 9-digit ΑΦΜ (no EL prefix, no spaces)",
   "invoice_number": "full invoice number with prefix as printed (e.g. ΤΠΥ-08408, Α-ΤΙΜ0129366)",
   "invoice_date": "DD/MM/YYYY",
