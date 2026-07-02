@@ -35,8 +35,14 @@ describe("validateAmounts", () => {
     expect(r.warnings.some(w => w.includes("≠"))).toBe(true);
   });
 
-  it("Rule 5: flags statement-balance hijack (PITFALL 2 regression — Rainbow Waters)", () => {
+  it("PITFALL 2 (Rainbow Waters): balance-as-vat NEVER passes silently — some warning must fire", () => {
+    // Rule 1 swaps first (vat>net), then Rule 4 flags the arithmetic mismatch → reviewer attention
     const r = validateAmounts({ net_amount: 112.32, vat_amount: 6066.15, total_amount: 139.28, vat_rate: 24 });
+    expect(r.warnings.length).toBeGreaterThan(0);
+  });
+
+  it("Rule 5: flags hijack when vat is absurd but still below net (no swap path)", () => {
+    const r = validateAmounts({ net_amount: 10000, vat_amount: 9000, total_amount: 19000, vat_rate: 24 });
     expect(r.warnings.some(w => w.includes("hijack"))).toBe(true);
   });
 
