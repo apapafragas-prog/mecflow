@@ -5,18 +5,27 @@ import jwt from "jsonwebtoken";
 import Database from "better-sqlite3";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
-import { randomUUID } from "crypto";
+import { randomUUID, createHmac } from "crypto";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import fs from "fs";
 import "dotenv/config";
 import Anthropic from "@anthropic-ai/sdk";
+import { validateAmounts } from "./lib/validate.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.DATA_DIR || "/data";
 const FILES_DIR = join(DATA_DIR, "files");
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || "change-me-in-production";
+
+// ── JWT secret: fail hard on missing/known-weak values (never boot silently insecure) ──
+const JWT_SECRET = process.env.JWT_SECRET || "";
+const KNOWN_BAD_SECRETS = ["change-me-in-production", "CHANGE-THIS-TO-A-LONG-RANDOM-STRING"];
+if (JWT_SECRET.length < 32 || KNOWN_BAD_SECRETS.includes(JWT_SECRET)) {
+  console.error("FATAL: JWT_SECRET is missing, too short (<32 chars) or a known placeholder.");
+  console.error("Set a strong random JWT_SECRET in .env, e.g.: openssl rand -hex 48");
+  process.exit(1);
+}
 const PUBLIC_DIR = join(__dirname, "public");
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -25,6 +34,23 @@ if (!fs.existsSync(FILES_DIR)) fs.mkdirSync(FILES_DIR, { recursive: true });
 const db = new Database(join(DATA_DIR, "cbre.db"));
 db.pragma("journal_mode = WAL");
 
+// ── Boot migrations (idempotent) ──
+const tableCols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map(c => c.name);
+if (!tableCols("users").includes("must_change_password")) db.exec("ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0");
+if (!tableCols("users").includes("token_version")) db.exec("ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 0");
+if (!tableCols("client_data").includes("version")) db.exec("ALTER TABLE client_data ADD COLUMN version INTEGER DEFAULT 0");
+// Flag any account still on the seeded default password → force change on next login
+try {
+  for (const u of db.prepare("SELECT id, password_hash, must_change_password FROM users").all()) {
+    if (!u.must_change_password && bcrypt.compareSync("ChangeMe!2026", u.password_hash)) {
+      db.prepare("UPDATE users SET must_change_password = 1 WHERE id = ?").run(u.id);
+      console.warn(`⚠ User id=${u.id} still uses the default password — flagged must_change_password`);
+    }
+  }
+} catch (e) { console.warn("Default-password scan failed:", e.message); }
+// Audit-log retention: keep 18 months
+db.prepare("DELETE FROM audit_log WHERE timestamp < ?").run(Math.floor(Date.now() / 1000) - 18 * 30 * 24 * 3600);
+
 // Anthropic client (for AI invoice/contract extraction)
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
@@ -32,7 +58,9 @@ if (!anthropic) console.warn("⚠ ANTHROPIC_API_KEY not set — AI extraction en
 
 const app = express();
 app.set('trust proxy', 1);
-app.use(cors({ origin: process.env.CORS_ORIGIN || "*", credentials: true }));
+// CORS: explicit origin allowlist from env; default = same-origin only (frontend is served by this server)
+const CORS_ORIGINS = (process.env.CORS_ORIGIN || "").split(",").map(s => s.trim()).filter(s => s && s !== "*");
+app.use(cors(CORS_ORIGINS.length ? { origin: CORS_ORIGINS, credentials: true } : { origin: false }));
 app.use(express.json({ limit: "20mb" }));
 
 // Rate limit on login
@@ -47,7 +75,11 @@ const auth = (req, res, next) => {
   const token = req.headers.authorization?.replace("Bearer ", "") || req.query.token;
   if (!token) return res.status(401).json({ error: "No token" });
   try {
-    req.user = jwt.verify(token, JWT_SECRET);
+    const payload = jwt.verify(token, JWT_SECRET);
+    // Session revocation: user must still exist and token_version must match
+    const u = db.prepare("SELECT id, token_version FROM users WHERE id = ?").get(payload.id);
+    if (!u || (u.token_version || 0) !== (payload.tv || 0)) return res.status(401).json({ error: "Session expired" });
+    req.user = payload;
     next();
   } catch { res.status(401).json({ error: "Invalid token" }); }
 };
@@ -67,9 +99,9 @@ app.post("/api/auth/login", loginLimiter, (req, res) => {
     return res.status(401).json({ error: "Invalid credentials" });
   }
   const clients = u.clients === "ALL" ? "ALL" : JSON.parse(u.clients);
-  const token = jwt.sign({ id: u.id, username: u.username, name: u.name, role: u.role, clients }, JWT_SECRET, { expiresIn: "24h" });
+  const token = jwt.sign({ id: u.id, username: u.username, name: u.name, role: u.role, clients, tv: u.token_version || 0 }, JWT_SECRET, { expiresIn: "24h" });
   audit(u.username, "login_success", null, req);
-  res.json({ token, user: { username: u.username, name: u.name, role: u.role, clients } });
+  res.json({ token, user: { username: u.username, name: u.name, role: u.role, clients, must_change_password: !!u.must_change_password } });
 });
 
 app.post("/api/auth/change-password", auth, (req, res) => {
@@ -77,12 +109,22 @@ app.post("/api/auth/change-password", auth, (req, res) => {
   if (!nextPwd || nextPwd.length < 8) return res.status(400).json({ error: "Password must be 8+ chars" });
   const u = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
   if (!bcrypt.compareSync(current, u.password_hash)) return res.status(401).json({ error: "Current password wrong" });
-  db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(bcrypt.hashSync(nextPwd, 10), req.user.id);
+  if (nextPwd === current) return res.status(400).json({ error: "New password must differ from current" });
+  // Bump token_version → all existing sessions for this user are revoked immediately
+  db.prepare("UPDATE users SET password_hash = ?, must_change_password = 0, token_version = COALESCE(token_version,0) + 1 WHERE id = ?")
+    .run(bcrypt.hashSync(nextPwd, 10), req.user.id);
+  const fresh = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+  const clients = fresh.clients === "ALL" ? "ALL" : JSON.parse(fresh.clients);
+  // Issue a new token so THIS session continues seamlessly
+  const token = jwt.sign({ id: fresh.id, username: fresh.username, name: fresh.name, role: fresh.role, clients, tv: fresh.token_version }, JWT_SECRET, { expiresIn: "24h" });
   audit(req.user.username, "password_changed", null, req);
-  res.json({ ok: true });
+  res.json({ ok: true, token });
 });
 
-app.get("/api/auth/me", auth, (req, res) => res.json(req.user));
+app.get("/api/auth/me", auth, (req, res) => {
+  const u = db.prepare("SELECT must_change_password FROM users WHERE id = ?").get(req.user.id);
+  res.json({ ...req.user, must_change_password: !!(u && u.must_change_password) });
+});
 
 // ── User management (admin only) ──
 app.get("/api/users", auth, requireRole("admin"), (req, res) => {
@@ -118,20 +160,30 @@ const canAccess = (user, client) => user.clients === "ALL" || (Array.isArray(use
 app.get("/api/data/:year/:client", auth, (req, res) => {
   const { year, client } = req.params;
   if (!canAccess(req.user, client)) return res.status(403).json({ error: "Access denied for this client" });
-  const row = db.prepare("SELECT data, updated_at, updated_by FROM client_data WHERE year = ? AND client = ?").get(year, client);
-  if (!row) return res.json({ data: null });
-  res.json({ data: JSON.parse(row.data), updated_at: row.updated_at, updated_by: row.updated_by });
+  const row = db.prepare("SELECT data, version, updated_at, updated_by FROM client_data WHERE year = ? AND client = ?").get(year, client);
+  if (!row) return res.json({ data: null, version: 0 });
+  res.json({ data: JSON.parse(row.data), version: row.version || 0, updated_at: row.updated_at, updated_by: row.updated_by });
 });
 
+// Optimistic locking: client sends { data, baseVersion }. Version mismatch → 409 (no silent overwrite).
+// Legacy body shape (raw data object, no baseVersion) is still accepted without the check.
 app.put("/api/data/:year/:client", auth, (req, res) => {
   const { year, client } = req.params;
   if (!canAccess(req.user, client)) return res.status(403).json({ error: "Access denied" });
-  const data = JSON.stringify(req.body);
-  const upsert = db.prepare(`INSERT INTO client_data (year, client, data, updated_at, updated_by)
-    VALUES (?, ?, ?, strftime('%s','now'), ?)
-    ON CONFLICT(year, client) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at, updated_by=excluded.updated_by`);
-  upsert.run(year, client, data, req.user.username);
-  res.json({ ok: true });
+  const hasEnvelope = req.body && typeof req.body === "object" && req.body.data !== undefined && ("baseVersion" in req.body);
+  const payload = hasEnvelope ? req.body.data : req.body;
+  const baseVersion = hasEnvelope ? Number(req.body.baseVersion) : undefined;
+  const row = db.prepare("SELECT version FROM client_data WHERE year = ? AND client = ?").get(year, client);
+  const currentVersion = row ? (row.version || 0) : 0;
+  if (baseVersion !== undefined && !Number.isNaN(baseVersion) && row && currentVersion !== baseVersion) {
+    return res.status(409).json({ error: "Data was modified by another user", version: currentVersion });
+  }
+  const newVersion = currentVersion + 1;
+  const upsert = db.prepare(`INSERT INTO client_data (year, client, data, version, updated_at, updated_by)
+    VALUES (?, ?, ?, ?, strftime('%s','now'), ?)
+    ON CONFLICT(year, client) DO UPDATE SET data=excluded.data, version=excluded.version, updated_at=excluded.updated_at, updated_by=excluded.updated_by`);
+  upsert.run(year, client, JSON.stringify(payload), newVersion, req.user.username);
+  res.json({ ok: true, version: newVersion });
 });
 
 app.get("/api/data/:year", auth, (req, res) => {
@@ -175,9 +227,38 @@ app.get("/api/files/:year/:client", auth, (req, res) => {
   res.json(docs);
 });
 
-app.get("/api/files/:year/:client/:id/download", auth, (req, res) => {
+// ── Signed, short-lived download links (no JWT in URLs → nothing sensitive in logs/history) ──
+const signDownload = (id, exp) => createHmac("sha256", JWT_SECRET).update(`dl.${id}.${exp}`).digest("base64url");
+
+app.post("/api/files/:year/:client/:id/link", auth, (req, res) => {
   const { year, client, id } = req.params;
   if (!canAccess(req.user, client)) return res.status(403).json({ error: "Access denied" });
+  const doc = db.prepare("SELECT id FROM documents WHERE id = ? AND year = ? AND client = ?").get(id, year, client);
+  if (!doc) return res.status(404).json({ error: "Not found" });
+  const exp = Math.floor(Date.now() / 1000) + 120; // 2 minutes
+  const sig = signDownload(id, exp);
+  const dl = req.body && req.body.dl ? "&dl=1" : "";
+  res.json({ url: `/api/files/${encodeURIComponent(year)}/${encodeURIComponent(client)}/${encodeURIComponent(id)}/download?exp=${exp}&sig=${sig}${dl}` });
+});
+
+app.get("/api/files/:year/:client/:id/download", (req, res) => {
+  const { year, client, id } = req.params;
+  const { exp, sig } = req.query;
+  if (exp && sig) {
+    // Signed-link path: issued by an authorized user moments ago
+    if (Math.floor(Date.now() / 1000) > Number(exp) || sig !== signDownload(id, String(exp))) {
+      return res.status(403).json({ error: "Link expired" });
+    }
+  } else {
+    // Legacy path: Bearer token (header or query) + access check
+    const token = req.headers.authorization?.replace("Bearer ", "") || req.query.token;
+    if (!token) return res.status(401).json({ error: "No token" });
+    let payload;
+    try { payload = jwt.verify(token, JWT_SECRET); } catch { return res.status(401).json({ error: "Invalid token" }); }
+    const u = db.prepare("SELECT id, token_version FROM users WHERE id = ?").get(payload.id);
+    if (!u || (u.token_version || 0) !== (payload.tv || 0)) return res.status(401).json({ error: "Session expired" });
+    if (!canAccess(payload, client)) return res.status(403).json({ error: "Access denied" });
+  }
   const doc = db.prepare("SELECT * FROM documents WHERE id = ? AND year = ? AND client = ?").get(id, year, client);
   if (!doc) return res.status(404).json({ error: "Not found" });
   if (req.query.dl) return res.download(join(FILES_DIR, doc.storage_path), doc.name);
@@ -202,7 +283,10 @@ app.get("/api/audit", auth, requireRole("admin"), (req, res) => {
 });
 
 // ── AI Extraction (Anthropic Claude proxy) ──
-const extractLimiter = rateLimit({ windowMs: 60 * 1000, max: 30 }); // 30 extractions/min/user
+const extractLimiter = rateLimit({
+  windowMs: 60 * 1000, max: 30, // 30 extractions/min per USER (not per shared office IP)
+  keyGenerator: (req) => (req.user ? `u${req.user.id}` : req.ip)
+});
 const extractUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } }); // 20MB max
 
 const callClaudeExtract = async (file, prompt) => {
@@ -358,56 +442,8 @@ Convert EU decimals: "1.234,56" → 1234.56`;
   try {
     const data = await callClaudeExtract(req.file, prompt);
 
-    // ── Server-side validation & auto-correction ──
-    const warnings = [];
-    let net = Number(data.net_amount) || 0;
-    let vat = Number(data.vat_amount) || 0;
-    let total = Number(data.total_amount) || 0;
-    const rate = Number(data.vat_rate) || 24;
-    const isCredit = !!data.is_credit_note;
-    const absNet = Math.abs(net), absVat = Math.abs(vat), absTotal = Math.abs(total);
-
-    // Rule 1: net must be > vat (Greek VAT max 24%)
-    if (absVat > absNet && absNet > 0) {
-      warnings.push(`vat(${absVat}) > net(${absNet}) — swapped automatically`);
-      [net, vat] = [vat, net];
-    }
-
-    // Rule 2: if net=0 but total>0 → derive
-    if (Math.abs(net) === 0 && Math.abs(total) > 0) {
-      warnings.push("net=0 with total>0 — derived from total/vat_rate");
-      const derivedNet = total / (1 + rate / 100);
-      const derivedVat = total - derivedNet;
-      net = Math.round(derivedNet * 100) / 100;
-      vat = Math.round(derivedVat * 100) / 100;
-    }
-
-    // Rule 3: if total=0 but net+vat>0
-    if (Math.abs(total) === 0 && (Math.abs(net) > 0 || Math.abs(vat) > 0)) {
-      warnings.push("total=0 — derived from net+vat");
-      total = net + vat;
-    }
-
-    // Rule 4: arithmetic sanity
-    const sumCheck = Math.abs(Math.abs(net) + Math.abs(vat) - Math.abs(total));
-    if (sumCheck > 0.05) {
-      warnings.push(`net+vat ≠ total (diff=${sumCheck.toFixed(2)})`);
-    }
-
-    // Rule 5: detect "previous balance" hijack — vat absurdly bigger than net×rate
-    if (Math.abs(net) > 0 && rate > 0) {
-      const expectedVat = Math.abs(net) * (rate / 100);
-      if (Math.abs(vat) > expectedVat * 2.5) {
-        warnings.push(`vat(${Math.abs(vat)}) far exceeds net×rate(${expectedVat.toFixed(2)}) — possible statement-balance hijack`);
-      }
-    }
-
-    // Restore sign for credit notes
-    if (isCredit) {
-      if (net > 0) net = -net;
-      if (vat > 0) vat = -vat;
-      if (total > 0) total = -total;
-    }
+    // ── Server-side validation & auto-correction (pure fn — unit-tested in lib/validate.js) ──
+    const { net, vat, total, warnings } = validateAmounts(data);
 
     if (warnings.length) console.log(`[extract/invoice] warnings:`, warnings);
 

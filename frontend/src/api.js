@@ -23,7 +23,10 @@ const req = async (path, opts = {}) => {
   }
   if (!r.ok) {
     const err = await r.json().catch(() => ({ error: "Request failed" }));
-    throw new Error(err.error || "Request failed");
+    const e = new Error(err.error || "Request failed");
+    e.status = r.status;           // e.g. 409 = concurrent-edit conflict
+    e.serverVersion = err.version; // fresh version on 409
+    throw e;
   }
   return r.json();
 };
@@ -42,13 +45,18 @@ export const api = {
   // Data
   getYearData: (year) => req(`/data/${year}`),
   getClientData: (year, client) => req(`/data/${year}/${encodeURIComponent(client)}`),
-  saveClientData: (year, client, data) => req(`/data/${year}/${encodeURIComponent(client)}`, { method: "PUT", body: JSON.stringify(data) }),
-  saveClientDataBeacon: (year, client, data) => {
+  // baseVersion enables optimistic locking: server rejects with 409 instead of silently
+  // overwriting a colleague's changes. Omit baseVersion for legacy force-save.
+  saveClientData: (year, client, data, baseVersion) => req(`/data/${year}/${encodeURIComponent(client)}`, {
+    method: "PUT",
+    body: JSON.stringify(baseVersion === undefined ? data : { data, baseVersion })
+  }),
+  saveClientDataBeacon: (year, client, data, baseVersion) => {
     try {
       return fetch(`${API_BASE}/data/${year}/${encodeURIComponent(client)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify(data),
+        body: JSON.stringify(baseVersion === undefined ? data : { data, baseVersion }),
         keepalive: true
       });
     } catch(e) { /* best-effort on unload */ }
@@ -64,7 +72,11 @@ export const api = {
     return req(`/files/${year}/${encodeURIComponent(client)}`, { method: "POST", body: fd });
   },
   updateFileRef: (year, client, id, contractRef) => req(`/files/${year}/${encodeURIComponent(client)}/${id}`, { method: "PATCH", body: JSON.stringify({ contract_ref: contractRef }) }),
-  fileUrl: (year, client, id) => `${API_BASE}/files/${year}/${encodeURIComponent(client)}/${id}/download?token=${encodeURIComponent(token||"")}`,
+  // Short-lived signed link (2') — no JWT ever appears in a URL
+  getFileLink: async (year, client, id, dl) => {
+    const r = await req(`/files/${year}/${encodeURIComponent(client)}/${id}/link`, { method: "POST", body: JSON.stringify({ dl: dl ? 1 : 0 }) });
+    return r.url;
+  },
   deleteFile: (year, client, id) => req(`/files/${year}/${encodeURIComponent(client)}/${id}`, { method: "DELETE" }),
 
   // AI Extraction (proxied to Anthropic via backend)

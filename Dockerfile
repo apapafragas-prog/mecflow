@@ -10,13 +10,14 @@ RUN npm run build
 FROM node:20-alpine
 WORKDIR /app
 
-# Install build tools for better-sqlite3
-RUN apk add --no-cache python3 make g++ py3-pip && pip3 install openpyxl --break-system-packages
+# Build tools needed only for the better-sqlite3 native module
+RUN apk add --no-cache python3 make g++
 
 COPY backend/package.json ./
-RUN npm install --production
+RUN npm install --omit=dev
 
-COPY backend/server.js backend/init-db.js backend/excel_report.py ./
+COPY backend/server.js backend/init-db.js ./
+COPY backend/lib ./lib
 COPY --from=frontend /app/dist ./public
 
 # Create data dir

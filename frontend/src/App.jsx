@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import { api, setToken, getToken } from "./api.js";
 import * as XLSX from "xlsx";
+// Bundled locally (no CDN dependency): zip handling + PDF rendering for the scanner
+import JSZip from "jszip";
+import * as pdfjsLib from "pdfjs-dist";
+import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.js?url";
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+if (typeof window !== "undefined") { window.JSZip = JSZip; window.pdfjsLib = pdfjsLib; }
 
 // Legacy client-side USERS/PIN array removed — authentication is backend JWT (api.login).
 
@@ -29,8 +35,52 @@ const logoUrl2 = (c) => LOGOS[c] ? `https://www.google.com/s2/favicons?domain=${
 
 const REPORT_STATUS = [{v:"draft",l:"Draft",color:"#78909C",bg:"#ECEFF1"},{v:"submitted",l:"Submitted by User",color:"#F57F17",bg:"#FFF8E1"},{v:"approved",l:"Approved by Finance",color:"#2E7D32",bg:"#E8F5E9"},{v:"rejected",l:"Rejected — Revise",color:"#C62828",bg:"#FFEBEE"}];
 
-const MONTHS = ["2026-01","2026-02","2026-03","2026-04","2026-05","2026-06","2026-07","2026-08","2026-09","2026-10","2026-11","2026-12"];
-const ML = {"2026-01":"Jan-26","2026-02":"Feb-26","2026-03":"Mar-26","2026-04":"Apr-26","2026-05":"May-26","2026-06":"Jun-26","2026-07":"Jul-26","2026-08":"Aug-26","2026-09":"Sep-26","2026-10":"Oct-26","2026-11":"Nov-26","2026-12":"Dec-26"};
+// ── Fiscal months are DERIVED from the selected FY (no more hardcoded year) ──
+// MONTHS/ML keep stable references (mutated in place) so every component sees the active FY.
+const MNAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const fyToMonths = (fy) => {
+  const yy = 2000 + (parseInt(String(fy).replace(/\D/g, ""), 10) || 26);
+  return Array.from({ length: 12 }, (_, i) => `${yy}-${String(i + 1).padStart(2, "0")}`);
+};
+const MONTHS = fyToMonths("FY26");
+const ML = {};
+const rebuildML = () => {
+  Object.keys(ML).forEach(k => delete ML[k]);
+  MONTHS.forEach(m => { const [y, mm] = m.split("-"); ML[m] = `${MNAMES[+mm - 1]}-${y.slice(2)}`; });
+};
+rebuildML();
+let CURRENT_FY = "FY26";
+const setFiscalYear = (fy) => {
+  if (fy === CURRENT_FY) return;
+  CURRENT_FY = fy;
+  MONTHS.splice(0, MONTHS.length, ...fyToMonths(fy));
+  rebuildML();
+};
+// Remap any month key of a different calendar year onto the active FY (keeps the MM part).
+// Heals data saved while months were hardcoded to 2026 — lossless, month index preserved.
+const remapMonth = (m) => {
+  if (typeof m !== "string" || !/^\d{4}-\d{2}/.test(m)) return m;
+  const target = MONTHS[+m.slice(5, 7) - 1];
+  return target || m;
+};
+const normalizeClientData = (c) => {
+  if (!c || typeof c !== "object") return c;
+  const out = { ...c };
+  if (Array.isArray(out.inv)) out.inv = out.inv.map(r => ({ ...r, month: remapMonth(r.month) }));
+  if (Array.isArray(out.sub)) out.sub = out.sub.map(r => ({ ...r, month: remapMonth(r.month) }));
+  for (const key of ["lab", "acc"]) {
+    const src = out[key];
+    if (!src || typeof src !== "object") continue;
+    const fixed = {};
+    MONTHS.forEach(m => { fixed[m] = {}; });
+    for (const [m, vals] of Object.entries(src)) {
+      const t = remapMonth(m);
+      if (fixed[t]) fixed[t] = { ...fixed[t], ...vals };
+    }
+    out[key] = fixed;
+  }
+  return out;
+};
 const SITES = ["Site 1","Site 2","Site 3","Site 4","Site 5"];
 const REV_CATS = ["CLIENT REVENUE - FM Core","CLIENT REVENUE - FM Extra Works","CLIENT REVENUE - PJMs"];
 const COST_CATS = ["Subcontractors cost - FM Core","Subcontractors cost - FM Extra Works","Subcontractors cost - PJMs"];
@@ -59,7 +109,7 @@ export default function App() {
   useEffect(() => {
     if(getToken()) {
       api.me().then(u => {
-        setUser({user:u.username, name:u.name, role:u.role, clients:u.clients});
+        setUser({user:u.username, name:u.name, role:u.role, clients:u.clients, mustChange:!!u.must_change_password});
       }).catch(() => setToken(null)).finally(() => setAuthChecking(false));
     } else {
       setAuthChecking(false);
@@ -70,6 +120,7 @@ export default function App() {
 
   const [client, setClient] = useState(null);
   const [year, setYear] = useState("FY26");
+  setFiscalYear(year); // render-safe (idempotent): keeps MONTHS/ML aligned with the selected FY
   const [tab, setTab] = useState("contracts");
   const [tabOrder, setTabOrder] = useState([
     {id:"contracts",lb:"📋 Contracts & POs"},
@@ -102,6 +153,7 @@ export default function App() {
   const cd = client ? yd[client] : null;
   const [hydratedKeys,setHydratedKeys] = useState({});
   const [saveState,setSaveState] = useState("idle"); // idle | saving | saved | error
+  const versionsRef = useRef({}); // ckey -> server version (optimistic locking)
   const dirtyRef = useRef(false);
   const ctxRef = useRef(null);
   ctxRef.current = (client && cd) ? {year, client, cd} : null;
@@ -115,8 +167,10 @@ export default function App() {
     (async () => {
       try {
         const r = await api.getClientData(year, client).catch(()=>null);
-        if(!cancelled && r && r.data) {
-          setAllData(p=>({...p,[year]:{...p[year],[client]:{...p[year][client],...r.data}}}));
+        if(!cancelled) {
+          versionsRef.current[ckey] = (r && r.version) || 0;
+          // normalize month keys onto the selected FY (heals data saved under hardcoded 2026 months)
+          setAllData(p=>({...p,[year]:{...p[year],[client]: normalizeClientData({...p[year][client], ...((r && r.data) || {})})}}));
         }
         const files = await api.listFiles(year, client).catch(()=>[]);
         if(!cancelled && files && files.length) {
@@ -128,8 +182,7 @@ export default function App() {
             fileType: f.file_type,
             size: f.size,
             date: new Date(f.uploaded_at*1000).toLocaleDateString(),
-            url: api.fileUrl(year, client, f.id),
-            _persisted: true
+            _persisted: true // opened via short-lived signed links (api.getFileLink) — no token in URLs
           }));
           setAllData(p=>({...p,[year]:{...p[year],[client]:{...p[year][client],docs}}}));
         }
@@ -138,18 +191,28 @@ export default function App() {
     })();
     return () => { cancelled = true; };
   // eslint-disable-next-line
-  }, [client,year]);
+  }, [client,year,hydratedKeys]);
 
-  // Persist with visible status + one retry
+  // Persist with visible status + one retry. On 409 (someone else saved first)
+  // we NEVER overwrite — reload the latest server copy instead.
   const doSave = async (yr, cl, data) => {
     setSaveState("saving");
+    const ckey = `${yr}:${cl}`;
     for(let attempt=0; attempt<2; attempt++) {
       try {
-        await api.saveClientData(yr, cl, data);
+        const resp = await api.saveClientData(yr, cl, data, versionsRef.current[ckey] ?? 0);
+        versionsRef.current[ckey] = (resp && resp.version) || ((versionsRef.current[ckey] ?? 0) + 1);
         dirtyRef.current = false;
         setSaveState("saved");
         return true;
       } catch(e) {
+        if(e && e.status === 409) {
+          dirtyRef.current = false;
+          setSaveState("error");
+          alert("⚠️ Αυτός ο πελάτης ενημερώθηκε από άλλον χρήστη.\n\nΗ οθόνη θα φορτώσει τώρα την τελευταία αποθηκευμένη έκδοση. Οι πολύ πρόσφατες αλλαγές σου ΔΕΝ αποθηκεύτηκαν — ξαναπέρασέ τες.");
+          setHydratedKeys(p=>{ const n={...p}; delete n[ckey]; return n; }); // triggers re-hydration
+          return false;
+        }
         if(attempt===1) { console.warn("Save failed:",e); setSaveState("error"); return false; }
         await new Promise(r=>setTimeout(r,700));
       }
@@ -161,7 +224,7 @@ export default function App() {
     const {year:yr, client:cl, cd:c} = ctxRef.current;
     const {docs, ...rest} = c;
     dirtyRef.current = false;
-    if(beacon) { api.saveClientDataBeacon(yr, cl, rest); }
+    if(beacon) { api.saveClientDataBeacon(yr, cl, rest, versionsRef.current[`${yr}:${cl}`] ?? 0); }
     else { return doSave(yr, cl, rest); }
   };
   // Save main data on change (debounced 500ms)
@@ -188,6 +251,7 @@ export default function App() {
 
   if (authChecking) return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Segoe UI,sans-serif",color:"#003F2D",fontSize:14}}>Loading…</div>;
   if (!user) return <Login onLogin={setUser} />;
+  if (user.mustChange) return <ForcePw onDone={()=>setUser(p=>({...p,mustChange:false}))} onLogout={logout} />;
   if (!client) return <ClientPicker user={user} year={year} setYear={setYear} onSelect={c=>{setClient(c);setTab("contracts");}} onLogout={logout} allData={yd} />;
 
   const inv=cd.inv; const sub=cd.sub; const lab=cd.lab; const acc=cd.acc; const contracts=cd.contracts; const docs=cd.docs||[];
@@ -682,16 +746,9 @@ export default function App() {
                         await api.deleteFile(year, client, f.id).catch(()=>{});
                       }
                     } catch(e) { console.warn("File cleanup failed:",e); }
-                    // Reset local state
+                    // Reset local state — the debounced auto-save persists it with proper versioning
                     setInv([]); setSub([]); setLab(mkLab()); setAcc(mkAcc()); setContracts([]); setDocs([]);
                     upClient("status","draft"); upClient("submittedBy",""); upClient("submittedAt","");
-                    // Save cleared state to backend
-                    try {
-                      await api.saveClientData(year, client, {
-                        inv:[],sub:[],lab:mkLab(),acc:mkAcc(),contracts:[],docs:[],
-                        status:"draft",submittedBy:"",submittedAt:""
-                      });
-                    } catch(e) { console.warn("Save cleared state failed:",e); }
                   }} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",border:"none",background:"none",cursor:"pointer",fontSize:13,color:P.rd,fontWeight:600,textAlign:"left"}}>
                     <span style={{fontSize:16}}>🗑️</span><div><div>Clear All Data</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>Wipe this client/year completely</div></div>
                   </button>
@@ -870,6 +927,50 @@ function LogoImg({name,size,radius}) {
   return <img src={src} alt="" style={{width:sz,height:sz,borderRadius:rd,objectFit:"contain",background:"#f5f5f5",padding:2,flexShrink:0}} onError={fallback} />;
 }
 
+// Mandatory password change screen — shown when the account still uses a seeded/default password.
+function ForcePw({onDone,onLogout}) {
+  const [cur,setCur] = useState("");
+  const [n1,setN1] = useState("");
+  const [n2,setN2] = useState("");
+  const [err,setErr] = useState("");
+  const [busy,setBusy] = useState(false);
+  const go = async () => {
+    if(!cur||!n1||!n2) { setErr("Συμπλήρωσε όλα τα πεδία"); return; }
+    if(n1!==n2) { setErr("Οι νέοι κωδικοί δεν ταιριάζουν"); return; }
+    if(n1.length<8) { setErr("Ο νέος κωδικός πρέπει να έχει 8+ χαρακτήρες"); return; }
+    if(n1===cur) { setErr("Ο νέος κωδικός πρέπει να διαφέρει από τον τρέχοντα"); return; }
+    setBusy(true); setErr("");
+    try {
+      const r = await api.changePassword(cur, n1);
+      if(r && r.token) setToken(r.token); // server rotated the session — keep this one alive
+      onDone();
+    } catch(e) { setErr(e.message||"Αποτυχία αλλαγής κωδικού"); }
+    finally { setBusy(false); }
+  };
+  const inp = {width:"100%",padding:"11px 14px",border:"1px solid "+P.bd,borderRadius:6,fontSize:14,outline:"none",background:"#fff",boxSizing:"border-box"};
+  return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#F7F9F8",fontFamily:"Segoe UI,Tahoma,sans-serif"}}>
+      <div style={{width:380,background:"#fff",border:"1px solid "+P.bd,borderRadius:10,padding:"34px 34px 28px"}}>
+        <div style={{fontSize:20,fontWeight:700,color:P.em}}>🔒 Απαιτείται αλλαγή κωδικού</div>
+        <div style={{fontSize:12.5,color:P.tm,margin:"8px 0 22px",lineHeight:1.5}}>Ο λογαριασμός σου χρησιμοποιεί ακόμη τον προεπιλεγμένο κωδικό. Όρισε δικό σου για να συνεχίσεις.</div>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <div><label style={{fontSize:11,fontWeight:600,color:P.tm,display:"block",marginBottom:4}}>Τρέχων κωδικός</label>
+            <input type="password" value={cur} onChange={e=>{setCur(e.target.value);setErr("");}} style={inp} /></div>
+          <div><label style={{fontSize:11,fontWeight:600,color:P.tm,display:"block",marginBottom:4}}>Νέος κωδικός (8+ χαρακτήρες)</label>
+            <input type="password" value={n1} onChange={e=>{setN1(e.target.value);setErr("");}} style={inp} /></div>
+          <div><label style={{fontSize:11,fontWeight:600,color:P.tm,display:"block",marginBottom:4}}>Επιβεβαίωση νέου κωδικού</label>
+            <input type="password" value={n2} onChange={e=>{setN2(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()} style={inp} /></div>
+          {err && <div style={{color:P.rd,fontSize:12}}>{err}</div>}
+          <button onClick={go} disabled={busy} style={{width:"100%",background:P.em,color:"#fff",border:"none",padding:"12px",borderRadius:6,fontSize:14,fontWeight:600,cursor:busy?"wait":"pointer",opacity:busy?0.6:1}}>
+            {busy?"Αποθήκευση...":"Αλλαγή κωδικού & είσοδος"}
+          </button>
+          <button onClick={onLogout} style={{background:"none",border:"none",color:P.tm,fontSize:12,cursor:"pointer",textDecoration:"underline"}}>Αποσύνδεση</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Login({onLogin}) {
   const [u,setU] = useState("");
   const [c,setC] = useState("");
@@ -881,7 +982,7 @@ function Login({onLogin}) {
     try {
       const r = await api.login(u.trim().toLowerCase(), c);
       if(r.token) setToken(r.token);
-      onLogin({user: r.user.username, name: r.user.name, role: r.user.role, clients: r.user.clients});
+      onLogin({user: r.user.username, name: r.user.name, role: r.user.role, clients: r.user.clients, mustChange: !!r.user.must_change_password});
     } catch(e) {
       setErr(e.message || "Invalid credentials");
     } finally {
@@ -970,8 +1071,7 @@ function ContractTab({data,set,inv,docs,setDocs,year,client}) {
           contract_ref: docContract,
           fileType: f.type,
           date: new Date().toLocaleDateString(),
-          url: api.fileUrl(year, client, uploaded.id),
-          _persisted: true
+          _persisted: true // opened via signed links — no token-bearing URL stored
         };
       } catch(e) {
         console.error("Upload failed:",e);
@@ -1082,7 +1182,7 @@ function ContractTab({data,set,inv,docs,setDocs,year,client}) {
                       {docs.filter(d=>d.contract_ref===c.ref).map((d,j)=>(
                         <div key={j} style={{display:"flex",alignItems:"center",gap:6,padding:"2px 0",fontSize:11,color:P.tm}}>
                           <span>📄</span><span style={{flex:1}}>{d.name}</span>
-                          {d.url&&<a href={d.url} target="_blank" rel="noopener noreferrer" style={{background:P.em,color:"#fff",padding:"1px 8px",borderRadius:4,fontSize:10,fontWeight:600,textDecoration:"none"}}>Open</a>}
+                          {(d._persisted&&d.id)?<a href="#" onClick={async e=>{e.preventDefault();try{window.open(await api.getFileLink(year,client,d.id),"_blank");}catch{alert("Could not open file");}}} style={{background:P.em,color:"#fff",padding:"1px 8px",borderRadius:4,fontSize:10,fontWeight:600,textDecoration:"none"}}>Open</a>:d.url?<a href={d.url} target="_blank" rel="noopener noreferrer" style={{background:P.em,color:"#fff",padding:"1px 8px",borderRadius:4,fontSize:10,fontWeight:600,textDecoration:"none"}}>Open</a>:null}
                         </div>
                       ))}
                     </div>
@@ -1096,7 +1196,7 @@ function ContractTab({data,set,inv,docs,setDocs,year,client}) {
                   {docs.filter(d=>d.type===t.v&&!d.contract_ref).map((d,j)=>(
                     <div key={j} style={{display:"flex",alignItems:"center",gap:6,padding:"2px 0",fontSize:11,color:P.tm}}>
                       <span>📄</span><span style={{flex:1}}>{d.name}</span>
-                      {d.url&&<a href={d.url} target="_blank" rel="noopener noreferrer" style={{background:P.em,color:"#fff",padding:"1px 8px",borderRadius:4,fontSize:10,fontWeight:600,textDecoration:"none"}}>Open</a>}
+                      {(d._persisted&&d.id)?<a href="#" onClick={async e=>{e.preventDefault();try{window.open(await api.getFileLink(year,client,d.id),"_blank");}catch{alert("Could not open file");}}} style={{background:P.em,color:"#fff",padding:"1px 8px",borderRadius:4,fontSize:10,fontWeight:600,textDecoration:"none"}}>Open</a>:d.url?<a href={d.url} target="_blank" rel="noopener noreferrer" style={{background:P.em,color:"#fff",padding:"1px 8px",borderRadius:4,fontSize:10,fontWeight:600,textDecoration:"none"}}>Open</a>:null}
                     </div>
                   ))}
                 </div>
@@ -1236,7 +1336,7 @@ function ContractTab({data,set,inv,docs,setDocs,year,client}) {
                   <td style={{padding:"7px 10px",borderBottom:"1px solid "+P.bd,color:P.tm}}>{d.date}</td>
                   <td style={{padding:"7px 10px",borderBottom:"1px solid "+P.bd}}>
                     <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
-                      {d.url&&<a href={d.url} target="_blank" rel="noopener noreferrer" style={{background:P.em,color:"#fff",padding:"3px 10px",borderRadius:4,fontSize:11,fontWeight:600,textDecoration:"none"}}>Open</a>}
+                      {(d._persisted&&d.id)?<a href="#" onClick={async e=>{e.preventDefault();try{window.open(await api.getFileLink(year,client,d.id),"_blank");}catch{alert("Could not open file");}}} style={{background:P.em,color:"#fff",padding:"3px 10px",borderRadius:4,fontSize:11,fontWeight:600,textDecoration:"none"}}>Open</a>:d.url?<a href={d.url} target="_blank" rel="noopener noreferrer" style={{background:P.em,color:"#fff",padding:"3px 10px",borderRadius:4,fontSize:11,fontWeight:600,textDecoration:"none"}}>Open</a>:null}
                       <button onClick={async()=>{const doc=docs[i];if(doc._persisted&&doc.id){try{await api.deleteFile(year,client,doc.id);}catch(e){console.warn("Delete failed:",e);}}setDocs(p=>p.filter((_,j)=>j!==i));}} style={{background:"#FFEBEE",color:P.rd,border:"none",padding:"3px 10px",borderRadius:4,fontSize:11,fontWeight:600,cursor:"pointer"}}>Remove</button>
                     </div>
                   </td>
@@ -1303,38 +1403,18 @@ function Scan({onAdd,onAddAR,goTo,year,client}) {
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
 
-  // Load required libraries dynamically
+  // pdf.js + JSZip are bundled locally (imported at module top) — instantly ready, no CDN.
+  // Tesseract (rare OCR fallback) stays lazy-loaded but pinned with an SRI integrity hash.
   useEffect(() => {
-    const loadScript = (src, check, key) => new Promise((res) => {
-      if(check()) { setLibsReady(p=>({...p,[key]:true})); return res(); }
-      const s = document.createElement("script");
-      s.src = src;
-      s.async = true;
-      s.onload = () => { setLibsReady(p=>({...p,[key]:true})); res(); };
-      s.onerror = () => res();
-      document.head.appendChild(s);
-    });
-
-    (async () => {
-      // PDF.js (must set workerSrc after load)
-      await loadScript(
-        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
-        ()=>!!window.pdfjsLib, "pdf"
-      );
-      if(window.pdfjsLib && !window.pdfjsLib.GlobalWorkerOptions.workerSrc) {
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-      }
-      // Tesseract.js for OCR
-      await loadScript(
-        "https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js",
-        ()=>!!window.Tesseract, "ocr"
-      );
-      // JSZip
-      await loadScript(
-        "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
-        ()=>!!window.JSZip, "zip"
-      );
-    })();
+    setLibsReady(p=>({...p, pdf: !!window.pdfjsLib, zip: !!window.JSZip}));
+    if (window.Tesseract) { setLibsReady(p=>({...p, ocr:true})); return; }
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js";
+    s.integrity = "sha512-2wYKf5SRmHOMuTUmSsOkTTwejJrRcL6oHK5zHw/8MPUwZgTEekmapU6UOkxs0KFy20eWWmCiL30fZoVrtRkcPQ==";
+    s.crossOrigin = "anonymous";
+    s.async = true;
+    s.onload = () => setLibsReady(p=>({...p, ocr:true}));
+    document.head.appendChild(s);
   }, []);
 
   // Enable folder selection on the hidden folder input (React doesn't pass webkitdirectory reliably)
@@ -2014,7 +2094,7 @@ function InvTab({data,set,contracts,year,client}) {
         {k:"comments",l:"Comments",edit:true,mw:100},
         {k:"act_acc",l:"Act/Acc",opts:[{v:"ACTUAL",l:"ACTUAL"},{v:"ACCRUAL",l:"ACCRUAL"}],mw:90},
         {k:"po_no",l:"PO No",opts:poOpts,mw:100},
-        {k:"docId",l:"File",mw:80,r:(v,row)=>row&&row.docId?(<span style={{whiteSpace:"nowrap"}}><a href={api.fileUrl(year,client,row.docId)} target="_blank" rel="noopener noreferrer" title="Preview" style={{textDecoration:"none",marginRight:8,fontSize:15}}>👁</a><a href={api.fileUrl(year,client,row.docId)+"&dl=1"} title="Download" style={{textDecoration:"none",fontSize:15}}>⬇</a></span>):<span style={{color:P.tm}}>—</span>}
+        {k:"docId",l:"File",mw:80,r:(v,row)=>row&&row.docId?(<span style={{whiteSpace:"nowrap"}}><a href="#" onClick={async e=>{e.preventDefault();try{window.open(await api.getFileLink(year,client,row.docId),"_blank");}catch{alert("Could not open file");}}} title="Preview" style={{textDecoration:"none",marginRight:8,fontSize:15}}>👁</a><a href="#" onClick={async e=>{e.preventDefault();try{window.location.assign(await api.getFileLink(year,client,row.docId,true));}catch{alert("Could not download file");}}} title="Download" style={{textDecoration:"none",fontSize:15}}>⬇</a></span>):<span style={{color:P.tm}}>—</span>}
       ]} data={data} del={id=>set(p=>p.filter(x=>x.id!==id))} onEdit={(id,k,v)=>set(p=>p.map(r=>r.id===id?{...r,[k]:v,total:k==="amt"||k==="vat"?(k==="amt"?parseFloat(v)||0:r.amt)+(k==="vat"?parseFloat(v)||0:r.vat):r.total}:r))} />
     </div>
   );
@@ -2065,7 +2145,7 @@ function SubTab({data,set,contracts,year,client}) {
         {k:"cbre_bill",l:"CBRE Billing €",a:"right",r:fmt},
         {k:"act_acc",l:"Act/Acc",opts:[{v:"ACTUAL",l:"ACTUAL"},{v:"ACCRUAL",l:"ACCRUAL"}],mw:90},
         {k:"comments",l:"Comments",edit:true,mw:100},
-        {k:"docId",l:"File",mw:80,r:(v,row)=>row&&row.docId?(<span style={{whiteSpace:"nowrap"}}><a href={api.fileUrl(year,client,row.docId)} target="_blank" rel="noopener noreferrer" title="Preview" style={{textDecoration:"none",marginRight:8,fontSize:15}}>👁</a><a href={api.fileUrl(year,client,row.docId)+"&dl=1"} title="Download" style={{textDecoration:"none",fontSize:15}}>⬇</a></span>):<span style={{color:P.tm}}>—</span>}
+        {k:"docId",l:"File",mw:80,r:(v,row)=>row&&row.docId?(<span style={{whiteSpace:"nowrap"}}><a href="#" onClick={async e=>{e.preventDefault();try{window.open(await api.getFileLink(year,client,row.docId),"_blank");}catch{alert("Could not open file");}}} title="Preview" style={{textDecoration:"none",marginRight:8,fontSize:15}}>👁</a><a href="#" onClick={async e=>{e.preventDefault();try{window.location.assign(await api.getFileLink(year,client,row.docId,true));}catch{alert("Could not download file");}}} title="Download" style={{textDecoration:"none",fontSize:15}}>⬇</a></span>):<span style={{color:P.tm}}>—</span>}
       ]} data={data} del={id=>set(p=>p.filter(x=>x.id!==id))} onEdit={edit} />
     </div>
   );

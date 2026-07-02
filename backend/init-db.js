@@ -22,6 +22,8 @@ db.exec(`
     name TEXT NOT NULL,
     role TEXT NOT NULL CHECK(role IN ('admin','ops','finance')),
     clients TEXT NOT NULL DEFAULT '[]',
+    must_change_password INTEGER DEFAULT 0,
+    token_version INTEGER DEFAULT 0,
     created_at INTEGER DEFAULT (strftime('%s','now'))
   );
 
@@ -30,6 +32,7 @@ db.exec(`
     year TEXT NOT NULL,
     client TEXT NOT NULL,
     data TEXT NOT NULL,
+    version INTEGER DEFAULT 0,
     updated_at INTEGER DEFAULT (strftime('%s','now')),
     updated_by TEXT,
     UNIQUE(year, client)
@@ -75,7 +78,8 @@ const defaultUsers = [
     clients: ["FedEx","Foundever","LNW Hellas","Minerva SA","Dacia","BP Hellas","GE","Uber"] },
 ];
 
-const insert = db.prepare(`INSERT OR IGNORE INTO users (username, password_hash, name, role, clients) VALUES (?, ?, ?, ?, ?)`);
+// Seeded accounts are forced to change the default password on first login
+const insert = db.prepare(`INSERT OR IGNORE INTO users (username, password_hash, name, role, clients, must_change_password) VALUES (?, ?, ?, ?, ?, 1)`);
 for (const u of defaultUsers) {
   const hash = bcrypt.hashSync(u.password, 10);
   const clients = u.clients === "ALL" ? "ALL" : JSON.stringify(u.clients);

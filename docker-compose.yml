@@ -11,8 +11,8 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - DATA_DIR=/data
-      - JWT_SECRET=${JWT_SECRET:-CHANGE-THIS-TO-A-LONG-RANDOM-STRING}
-      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required — set it in .env (e.g. openssl rand -hex 48)}
+      - CORS_ORIGIN=${CORS_ORIGIN:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
     volumes:
       - ./data:/data
