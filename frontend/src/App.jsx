@@ -85,6 +85,16 @@ const normalizeClientData = (c) => {
     }
     out[key] = fixed;
   }
+  // Labour segment allocation: always present with month keys on the active FY, default 100% Core
+  const alloc = {};
+  MONTHS.forEach(m => { alloc[m] = { core:100, ew:0, pjm:0 }; });
+  if (out.labAlloc && typeof out.labAlloc === "object") {
+    for (const [m, v] of Object.entries(out.labAlloc)) {
+      const t = remapMonth(m);
+      if (alloc[t] && v && typeof v === "object") alloc[t] = { core:Number(v.core)||0, ew:Number(v.ew)||0, pjm:Number(v.pjm)||0 };
+    }
+  }
+  out.labAlloc = alloc;
   return out;
 };
 const SITES = ["Site 1","Site 2","Site 3","Site 4","Site 5"];
@@ -99,6 +109,17 @@ const ACST_UER = [{k:"acc_uer_core",l:"FM Core"},{k:"acc_uer_ew",l:"FM Extra Wor
 
 function mkLab() { const o = {}; MONTHS.forEach(m => { o[m] = {}; LAB_ROWS.forEach(r => { o[m][r.k] = 0; }); }); return o; }
 function mkAcc() { const o = {}; const allKeys=[...AREV_UBR,...AREV_UER,...ACST_UBR,...ACST_UER]; MONTHS.forEach(m => { o[m] = {}; allKeys.forEach(r => { o[m][r.k] = 0; }); }); return o; }
+// Per-month allocation of total labour across the 3 segments (weights, default all to Core
+// so existing numbers are unchanged until finance allocates). Segments: core / ew / pjm.
+function mkAlloc() { const o = {}; MONTHS.forEach(m => { o[m] = {core:100,ew:0,pjm:0}; }); return o; }
+// Read a month's allocation as normalized fractions that ALWAYS sum to 1 (proportional to the
+// weights) so the split can never change the total labour cost. Empty/zero → 100% Core.
+const allocFractions = (labAlloc, m) => {
+  const a = labAlloc && labAlloc[m];
+  const core = a ? Number(a.core)||0 : 100, ew = a ? Number(a.ew)||0 : 0, pjm = a ? Number(a.pjm)||0 : 0;
+  const s = core + ew + pjm;
+  return s > 0 ? {core:core/s, ew:ew/s, pjm:pjm/s} : {core:1, ew:0, pjm:0};
+};
 
 
 const P = { em:"#003F2D",ep:"#E8F5E9",wh:"#fff",of:"#F7F9F8",bd:"#D5DDD8",tx:"#1A2E23",tm:"#5F7567",rd:"#C62828",gn:"#2E7D32",al:"#F0F5F2",ip:"#FFFFF0" };
@@ -145,7 +166,7 @@ export default function App() {
     const d = {};
     YEARS.forEach(y => {
       d[y] = {};
-      CLIENTS.forEach(c => { d[y][c] = {inv:[],sub:[],lab:mkLab(),acc:mkAcc(),contracts:[],docs:[],status:"draft",submittedBy:"",submittedAt:""}; });
+      CLIENTS.forEach(c => { d[y][c] = {inv:[],sub:[],lab:mkLab(),labAlloc:mkAlloc(),acc:mkAcc(),contracts:[],docs:[],status:"draft",submittedBy:"",submittedAt:""}; });
     });
     return d;
   });
@@ -244,7 +265,7 @@ export default function App() {
     const t = setTimeout(() => { doSave(year, client, rest); }, 500);
     return () => clearTimeout(t);
   // eslint-disable-next-line
-  }, [cd&&cd.inv,cd&&cd.sub,cd&&cd.lab,cd&&cd.acc,cd&&cd.contracts,cd&&cd.status,cd&&cd.submittedBy,cd&&cd.submittedAt,cd&&cd.rejectNote, client, year]);
+  }, [cd&&cd.inv,cd&&cd.sub,cd&&cd.lab,cd&&cd.labAlloc,cd&&cd.acc,cd&&cd.contracts,cd&&cd.status,cd&&cd.submittedBy,cd&&cd.submittedAt,cd&&cd.rejectNote, client, year]);
   // Flush on tab hide / close so nothing is lost
   useEffect(() => {
     const onVis = () => { if(document.visibilityState==="hidden") flushSave(true); };
@@ -261,9 +282,11 @@ export default function App() {
   if (!client) return <ClientPicker user={user} year={year} setYear={setYear} onSelect={c=>{setClient(c);setTab("contracts");}} onLogout={logout} allData={yd} />;
 
   const inv=cd.inv; const sub=cd.sub; const lab=cd.lab; const acc=cd.acc; const contracts=cd.contracts; const docs=cd.docs||[];
+  const labAlloc=cd.labAlloc||mkAlloc();
   const setInv=v=>upClient("inv",v);
   const setSub=v=>upClient("sub",v);
   const setLab=v=>upClient("lab",v);
+  const setLabAlloc=v=>upClient("labAlloc",v);
   const setAcc=v=>upClient("acc",v);
   const setContracts=v=>upClient("contracts",v);
   const setDocs=v=>upClient("docs",v);
@@ -344,7 +367,7 @@ export default function App() {
     const pnlLines = [
       ["CLIENT REVENUE - FM Core","rev_core"],["CLIENT REVENUE - FM Extra Works","rev_ew"],["CLIENT REVENUE - PJMs","rev_pjm"],
       ["Total Sales / Revenue","rev_total"],[],
-      ["Labour Cost - FM Core","lab"],[],["Total Labour Cost","lab_total"],[],
+      ["Labour Cost - FM Core","lab_core"],["Labour Cost - FM Extra Works","lab_ew"],["Labour Cost - FM PJMs","lab_pjm"],["Total Labour Cost","lab_total"],
       ["CLIENT Subcontractors cost - FM CORE","sub_core"],["CLIENT Subcontractors cost - FM Extra Works","sub_ew"],["CLIENT Subcontractors cost - PJMs","sub_pjm"],
       ["Total Subcontractor","sub_total"],[],
       ["GM - Total","gm"],[],
@@ -373,18 +396,18 @@ export default function App() {
         else if(key==="rev_ew") sc(pWS,pr,col,null,st,`SUMIFS('CBRE Invoices'!$E:$E,'CBRE Invoices'!$D:$D,"CLIENT REVENUE - FM Extra Works",'CBRE Invoices'!$C:$C,${C}3)`);
         else if(key==="rev_pjm") sc(pWS,pr,col,null,st,`SUMIFS('CBRE Invoices'!$E:$E,'CBRE Invoices'!$D:$D,"CLIENT REVENUE - PJMs",'CBRE Invoices'!$C:$C,${C}3)`);
         else if(key==="rev_total") sc(pWS,pr,col,null,st,`${C}${pr-2}+${C}${pr-1}+${C}${pr}`);
-        else if(key==="lab") sc(pWS,pr,col,lab[m]?Object.values(lab[m]).reduce((s,v)=>s+(Number(v)||0),0):0,st);
-        else if(key==="lab_total") sc(pWS,pr,col,null,st,`${C}9`);
+        else if(key==="lab_core"||key==="lab_ew"||key==="lab_pjm") { const lt=lab[m]?Object.values(lab[m]).reduce((s,v)=>s+(Number(v)||0),0):0; const fr=allocFractions(labAlloc,m); const f=key==="lab_core"?fr.core:key==="lab_ew"?fr.ew:fr.pjm; sc(pWS,pr,col,Math.round(lt*f*100)/100,st); }
+        else if(key==="lab_total") sc(pWS,pr,col,null,st,`${C}9+${C}10+${C}11`);
         else if(key==="sub_core") sc(pWS,pr,col,null,st,`SUMIFS('Sub Invoices'!$J:$J,'Sub Invoices'!$C:$C,"*CORE*",'Sub Invoices'!$B:$B,${C}3)`);
         else if(key==="sub_ew") sc(pWS,pr,col,null,st,`SUMIFS('Sub Invoices'!$J:$J,'Sub Invoices'!$C:$C,"*Extra*",'Sub Invoices'!$B:$B,${C}3)`);
         else if(key==="sub_pjm") sc(pWS,pr,col,null,st,`SUMIFS('Sub Invoices'!$J:$J,'Sub Invoices'!$C:$C,"*PJM*",'Sub Invoices'!$B:$B,${C}3)`);
         else if(key==="sub_total") sc(pWS,pr,col,null,st,`${C}${pr-2}+${C}${pr-1}+${C}${pr}`);
-        else if(key==="gm") sc(pWS,pr,col,null,st,`${C}${pr-10}-${C}${pr-6}-${C}${pr-1}`);
-        else if(key==="gm_core") sc(pWS,pr,col,null,st,`${C}4-${C}11-${C}13`);
+        else if(key==="gm") sc(pWS,pr,col,null,st,`${C}${pr-10}-${C}${pr-5}-${C}${pr-1}`);
+        else if(key==="gm_core") sc(pWS,pr,col,null,st,`${C}4-${C}9-${C}13`);
         else if(key==="gm_core_pct") sc(pWS,pr,col,null,pps,`IF(${C}4=0,"",${C}20/${C}4)`);
-        else if(key==="gm_ew") sc(pWS,pr,col,null,st,`${C}5-${C}14`);
+        else if(key==="gm_ew") sc(pWS,pr,col,null,st,`${C}5-${C}10-${C}14`);
         else if(key==="gm_ew_pct") sc(pWS,pr,col,null,pps,`IF(${C}5=0,"",${C}22/${C}5)`);
-        else if(key==="gm_pjm") sc(pWS,pr,col,null,st,`${C}6-${C}15`);
+        else if(key==="gm_pjm") sc(pWS,pr,col,null,st,`${C}6-${C}11-${C}15`);
       });
       pr++;
     });
@@ -756,6 +779,7 @@ export default function App() {
                     } catch(e) { console.warn("File cleanup failed:",e); }
                     // Reset local state — the debounced auto-save persists it with proper versioning
                     setInv([]); setSub([]); setLab(mkLab()); setAcc(mkAcc()); setContracts([]); setDocs([]);
+                    upClient("labAlloc",mkAlloc());
                     upClient("status","draft"); upClient("submittedBy",""); upClient("submittedAt","");
                   }} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",border:"none",background:"none",cursor:"pointer",fontSize:13,color:P.rd,fontWeight:600,textAlign:"left"}}>
                     <span style={{fontSize:16}}>🗑️</span><div><div>Clear All Data</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>Wipe this client/year completely</div></div>
@@ -797,11 +821,11 @@ export default function App() {
       <div style={{padding:20,maxWidth:1400,margin:"0 auto"}}>
         {tab==="contracts" && <ContractTab data={contracts} set={setContracts} inv={inv} docs={docs} setDocs={setDocs} year={year} client={client} />}
         {tab==="scan" && <Scan goTo={setTab} year={year} client={client} onAdd={items => setSub(p => [...p,...items.map(x => ({...x,id:uid()}))])} onAddAR={items => setInv(p => [...p,...items.map(x => ({...x,id:uid()}))])} />}
-        {tab==="pnl" && <PnL inv={inv} sub={sub} lab={lab} acc={acc} />}
+        {tab==="pnl" && <PnL inv={inv} sub={sub} lab={lab} acc={acc} labAlloc={labAlloc} />}
         {tab==="inv" && <InvTab data={inv} set={setInv} contracts={contracts} year={year} client={client} />}
         {tab==="sub" && <SubTab data={sub} set={setSub} contracts={contracts} year={year} client={client} />}
         {tab==="acc" && <AccTab inv={inv} sub={sub} />}
-        {tab==="lab" && <LabTab data={lab} set={setLab} />}
+        {tab==="lab" && <LabTab data={lab} set={setLab} alloc={labAlloc} setAlloc={setLabAlloc} />}
       </div>
     </div>
   );
@@ -1901,7 +1925,7 @@ function Scan({onAdd,onAddAR,goTo,year,client}) {
   );
 }
 
-function PnL({inv,sub,lab,acc}) {
+function PnL({inv,sub,lab,acc,labAlloc}) {
   const [drill,setDrill] = useState(null);
   const pnl = {};
   MONTHS.forEach(m => {
@@ -1911,9 +1935,13 @@ function PnL({inv,sub,lab,acc}) {
     const sc = sub.filter(i=>i.month===m&&(i.cat||"").toUpperCase().includes("CORE")).reduce((s,i)=>s+i.amt,0);
     const se = sub.filter(i=>i.month===m&&((i.cat||"").toUpperCase().includes("EXRA")||(i.cat||"").toUpperCase().includes("EXTRA"))).reduce((s,i)=>s+i.amt,0);
     const sp = sub.filter(i=>i.month===m&&(i.cat||"").toUpperCase().includes("PJM")).reduce((s,i)=>s+i.amt,0);
-    const lc = lab[m] ? Object.values(lab[m]).reduce((s,v)=>s+(Number(v)||0),0) : 0;
-    const lc_ew = 0;
-    const lc_pjm = 0;
+    // Total monthly labour, split across segments by the (proportional) allocation weights.
+    // Total is preserved exactly: lc + lc_ew + lc_pjm === labTotal for any weights.
+    const labTotal = lab[m] ? Object.values(lab[m]).reduce((s,v)=>s+(Number(v)||0),0) : 0;
+    const fr = allocFractions(labAlloc, m);
+    const lc = labTotal * fr.core;
+    const lc_ew = labTotal * fr.ew;
+    const lc_pjm = labTotal * fr.pjm;
     const lc_total = lc + lc_ew + lc_pjm;
     const tr = rc+re+rp;
     const sub_total = sc+se+sp;
@@ -1935,7 +1963,9 @@ function PnL({inv,sub,lab,acc}) {
       recs = sub.filter(i=>monthsScope.includes(i.month)&&matcher(i)).map(i=>({type:"Sub Cost",month:i.month,cat:i.cat,desc:i.inv_no,supplier:i.supplier,amt:i.amt,vat:i.vat,total:i.total,ref:"-",actAcc:i.act_acc,date:i.date}));
     } else if(["lc","lc_ew","lc_pjm","lc_total"].includes(key)) {
       monthsScope.forEach(m => {
-        if(lab[m]) Object.entries(lab[m]).forEach(([k,v])=>{ if(Number(v)) recs.push({type:"Labour",month:m,cat:k,desc:k,supplier:"-",amt:Number(v),vat:0,total:Number(v),ref:"-",actAcc:"-",date:"-"}); });
+        const fr = allocFractions(labAlloc, m);
+        const f = key==="lc"?fr.core:key==="lc_ew"?fr.ew:key==="lc_pjm"?fr.pjm:1;
+        if(f && lab[m]) Object.entries(lab[m]).forEach(([k,v])=>{ const a=Number(v)*f; if(Number(v)) recs.push({type:"Labour",month:m,cat:k,desc:k,supplier:"-",amt:a,vat:0,total:a,ref:"-",actAcc:"-",date:"-"}); });
       });
     } else if(["tc"].includes(key)) {
       // Sub + labour combined
@@ -1951,11 +1981,12 @@ function PnL({inv,sub,lab,acc}) {
       recs = inv.filter(i=>monthsScope.includes(i.month)&&revCats.includes(i.cat)).map(i=>({type:"Revenue",month:i.month,cat:i.cat,desc:i.inv_no,supplier:i.site,amt:i.amt,vat:i.vat,total:i.total,ref:i.po_no||"-",actAcc:i.act_acc,date:i.date}));
       const costRecs = sub.filter(i=>monthsScope.includes(i.month)&&costMatcher(i)).map(i=>({type:"Sub Cost",month:i.month,cat:i.cat,desc:i.inv_no,supplier:i.supplier,amt:-i.amt,vat:i.vat,total:-i.total,ref:"-",actAcc:i.act_acc,date:i.date}));
       recs = [...recs,...costRecs];
-      if(key==="gm") {
-        monthsScope.forEach(m => {
-          if(lab[m]) Object.entries(lab[m]).forEach(([k,v])=>{ if(Number(v)) recs.push({type:"Labour",month:m,cat:k,desc:k,supplier:"-",amt:-Number(v),vat:0,total:-Number(v),ref:"-",actAcc:"-",date:"-"}); });
-        });
-      }
+      // Labour attributable to this GM segment (full for total GM, allocated share for gc/ge/gp)
+      monthsScope.forEach(m => {
+        const fr = allocFractions(labAlloc, m);
+        const f = key==="gm"?1:key==="gc"?fr.core:key==="ge"?fr.ew:fr.pjm;
+        if(f && lab[m]) Object.entries(lab[m]).forEach(([k,v])=>{ const a=-Number(v)*f; if(Number(v)) recs.push({type:"Labour",month:m,cat:k,desc:k,supplier:"-",amt:a,vat:0,total:a,ref:"-",actAcc:"-",date:"-"}); });
+      });
     }
     return recs;
   };
@@ -2239,8 +2270,13 @@ function AccTab({inv,sub}) {
   );
 }
 
-function LabTab({data,set}) {
+function LabTab({data,set,alloc,setAlloc}) {
   const up = (m,k,v) => set(p => ({...p,[m]:{...p[m],[k]:parseFloat(v)||0}}));
+  const A = alloc || {};
+  const av = (m,seg) => { const a=A[m]; return a && a[seg]!==undefined ? a[seg] : (seg==="core"?100:0); };
+  const upA = (m,seg,v) => setAlloc && setAlloc({...A,[m]:{core:av(m,"core"),ew:av(m,"ew"),pjm:av(m,"pjm"),[seg]:parseFloat(v)||0}});
+  const ALLOC_SEGS = [{k:"core",l:"FM Core"},{k:"ew",l:"FM Extra Works"},{k:"pjm",l:"FM PJM"}];
+  const monthLabTotal = m => LAB_ROWS.reduce((s,r)=>s+(Number(data[m]?.[r.k])||0),0);
   const thS = {padding:"6px 8px",textAlign:"center",fontSize:10,fontWeight:700,color:"#fff",background:P.em,whiteSpace:"nowrap"};
   const inpS = {width:"100%",padding:"4px 5px",border:"1px solid "+P.bd,borderRadius:3,fontSize:11,textAlign:"right",background:P.ip,outline:"none",boxSizing:"border-box"};
   return (
@@ -2282,6 +2318,46 @@ function LabTab({data,set}) {
                 <td style={{padding:"6px 8px",textAlign:"right",fontSize:13,fontWeight:700,color:P.em,background:"#C8E6C9",borderLeft:"2px solid #00695C"}}>
                   {fmt(MONTHS.reduce((x,m)=>x+LAB_ROWS.reduce((s,r)=>s+(Number(data[m]?.[r.k])||0),0),0))}
                 </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ── Labour allocation across segments ── */}
+      <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,marginTop:16}}>
+        <div style={{background:P.ep,padding:"10px 16px",fontWeight:700,fontSize:13,color:P.em}}>Κατανομή Labour ανά segment (βάρη)</div>
+        <div style={{padding:"6px 16px 0",fontSize:11.5,color:P.tm}}>Default 100% στο FM Core. Άλλαξε τα βάρη για να κατανεμηθεί το labour κάθε μήνα σε Core / Extra Works / PJM — το <b>συνολικό</b> κόστος labour &amp; GM δεν αλλάζει, μόνο η ανά-segment ανάλυση. Ιδανικά κάθε μήνας αθροίζει 100.</div>
+        <div style={{overflowX:"auto",padding:"10px 0 4px"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed",minWidth:1100}}>
+            <colgroup>
+              <col style={{width:150}} />
+              {MONTHS.map(m=><col key={m} style={{width:75}} />)}
+              <col style={{width:95}} />
+            </colgroup>
+            <thead><tr>
+              <th style={{...thS,textAlign:"left",borderRight:"2px solid #00695C"}}>Segment</th>
+              {MONTHS.map(m=><th key={m} style={thS}>{ML[m]}</th>)}
+              <th style={{...thS,background:"#00695C"}}>€ / μήνα</th>
+            </tr></thead>
+            <tbody>
+              {ALLOC_SEGS.map((seg,i)=>(
+                <tr key={seg.k} style={{background:i%2===0?P.wh:P.al}}>
+                  <td style={{padding:"6px 10px",fontSize:12,fontWeight:500,borderBottom:"1px solid "+P.bd,borderRight:"2px solid "+P.bd,whiteSpace:"nowrap"}}>{seg.l}</td>
+                  {MONTHS.map(m=>(
+                    <td key={m} style={{padding:"3px 4px",borderBottom:"1px solid "+P.bd,textAlign:"center"}}>
+                      <input type="number" step="1" value={av(m,seg.k)||""} placeholder="0" onChange={e=>upA(m,seg.k,e.target.value)} style={inpS} />
+                    </td>
+                  ))}
+                  <td style={{padding:"5px 8px",textAlign:"right",fontSize:11,fontWeight:600,color:P.em,borderBottom:"1px solid "+P.bd,background:"#f5f5f5",borderLeft:"2px solid "+P.bd}}>
+                    {(()=>{const t=MONTHS.reduce((x,m)=>{const s=av(m,"core")+av(m,"ew")+av(m,"pjm");return x+(s>0?monthLabTotal(m)*av(m,seg.k)/s:(seg.k==="core"?monthLabTotal(m):0));},0);return fmt(t);})()}
+                  </td>
+                </tr>
+              ))}
+              <tr style={{background:P.ep}}>
+                <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,borderRight:"2px solid #00695C"}}>Άθροισμα βαρών</td>
+                {MONTHS.map(m=>{const s=av(m,"core")+av(m,"ew")+av(m,"pjm");const ok=Math.abs(s-100)<0.01;return <td key={m} style={{padding:"6px 8px",textAlign:"center",fontSize:11,fontWeight:700,color:ok?P.gn:s===0?P.tm:P.rd}} title={ok?"":"Δεν αθροίζει 100 — η κατανομή γίνεται αναλογικά"}>{s||0}</td>;})}
+                <td style={{background:"#C8E6C9",borderLeft:"2px solid #00695C"}}></td>
               </tr>
             </tbody>
           </table>

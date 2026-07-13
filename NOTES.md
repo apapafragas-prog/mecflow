@@ -54,11 +54,13 @@ Full platform audit done; these were fixed and are safe to deploy:
 - Added a **reject reason** field: Finance is prompted for a reason on Reject; ops sees it as a banner.
 - Verified: backend `npm test` 9/9 green, `vite build` clean.
 
-### PENDING — need a finance decision before changing (NOT touched yet):
-- **BUG-02** All labour is subtracted from FM Core only (`lc_ew`/`lc_pjm` hardcoded 0), so the
-  per-segment GM (Core vs Extra vs PJM) is misallocated. Total GM is correct. Fix needs either a
-  per-segment labour split in the Labour tab, or confirmation that all labour belongs to Core.
-- **UBR/UER** split in Accruals is done purely by the sign of the amount — confirm with accounting.
+### Resolved after finance sign-off:
+- **BUG-02 DONE** — labour is now split across segments. New per-month allocation (`labAlloc`,
+  weights core/ew/pjm) in the Labour tab; default 100% Core keeps existing numbers unchanged.
+  Allocation is proportional so total labour & total GM are ALWAYS preserved — only the
+  per-segment GM (Core/Extra/PJM) becomes correct. Applied to P&L screen, drill-down and Excel
+  export (P&L sheet now has 3 labour lines; GM formulas subtract the matching segment's labour).
+- **UBR/UER** sign-based split confirmed correct by finance — no change.
 
 ### Bigger modules proposed (not started): OPEX/CAPEX section, AI analytics/forecasting, ERP/myDATA.
 See the audit report artifact for the full roadmap.
