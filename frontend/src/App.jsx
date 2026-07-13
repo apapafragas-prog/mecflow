@@ -276,6 +276,11 @@ export default function App() {
   // eslint-disable-next-line
   }, []);
 
+  // Password-reset landing page (from the emailed link): /reset?token=... — shown regardless of auth.
+  const resetToken = (typeof window!=="undefined" && window.location.pathname==="/reset")
+    ? new URLSearchParams(window.location.search).get("token") : null;
+  if (resetToken) return <ResetPassword token={resetToken} />;
+
   if (authChecking) return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Segoe UI,sans-serif",color:"#003F2D",fontSize:14}}>Loading…</div>;
   if (!user) return <Login onLogin={setUser} />;
   if (user.mustChange) return <ForcePw onDone={()=>setUser(p=>({...p,mustChange:false}))} onLogout={logout} />;
@@ -984,6 +989,53 @@ function PwField({value,onChange,onEnter,style,autoFocus}) {
   );
 }
 
+// Reached from the emailed reset link (/reset?token=...). Sets a new password, then → login.
+function ResetPassword({token}) {
+  const [p1,setP1] = useState("");
+  const [p2,setP2] = useState("");
+  const [err,setErr] = useState("");
+  const [busy,setBusy] = useState(false);
+  const [done,setDone] = useState(false);
+  const go = async () => {
+    if(!p1||!p2){ setErr("Συμπλήρωσε και τα δύο πεδία"); return; }
+    if(p1!==p2){ setErr("Οι κωδικοί δεν ταιριάζουν"); return; }
+    if(p1.length<8){ setErr("Ο κωδικός πρέπει να έχει 8+ χαρακτήρες"); return; }
+    setBusy(true); setErr("");
+    try { await api.resetPassword(token, p1); setDone(true); }
+    catch(e){ setErr(e.message||"Αποτυχία επαναφοράς"); }
+    finally{ setBusy(false); }
+  };
+  const inp = {width:"100%",padding:"11px 14px",border:"1px solid "+P.bd,borderRadius:6,fontSize:14,outline:"none",background:"#fff",boxSizing:"border-box"};
+  return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#F7F9F8",fontFamily:"Segoe UI,Tahoma,sans-serif"}}>
+      <div style={{width:380,background:"#fff",border:"1px solid "+P.bd,borderRadius:10,padding:"34px 34px 28px"}}>
+        <div style={{fontWeight:800,fontSize:22,color:P.em,letterSpacing:1,marginBottom:6}}>CBRE</div>
+        {done ? (
+          <>
+            <div style={{fontSize:18,fontWeight:700,color:P.gn,marginTop:8}}>✓ Ο κωδικός άλλαξε</div>
+            <div style={{fontSize:13,color:P.tm,margin:"8px 0 22px",lineHeight:1.5}}>Μπορείς τώρα να συνδεθείς με τον νέο σου κωδικό.</div>
+            <button onClick={()=>{window.location.href="/";}} style={{width:"100%",background:P.em,color:"#fff",border:"none",padding:"12px",borderRadius:6,fontSize:14,fontWeight:600,cursor:"pointer"}}>Σύνδεση</button>
+          </>
+        ) : (
+          <>
+            <div style={{fontSize:20,fontWeight:700,color:P.em,marginTop:8}}>🔑 Ορισμός νέου κωδικού</div>
+            <div style={{fontSize:12.5,color:P.tm,margin:"8px 0 22px",lineHeight:1.5}}>Όρισε τον νέο σου κωδικό πρόσβασης.</div>
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+              <div><label style={{fontSize:11,fontWeight:600,color:P.tm,display:"block",marginBottom:4}}>Νέος κωδικός (8+ χαρακτήρες)</label>
+                <PwField value={p1} onChange={e=>{setP1(e.target.value);setErr("");}} style={inp} autoFocus /></div>
+              <div><label style={{fontSize:11,fontWeight:600,color:P.tm,display:"block",marginBottom:4}}>Επιβεβαίωση</label>
+                <PwField value={p2} onChange={e=>{setP2(e.target.value);setErr("");}} onEnter={go} style={inp} /></div>
+              {err && <div style={{color:P.rd,fontSize:12}}>{err}</div>}
+              <button onClick={go} disabled={busy} style={{width:"100%",background:P.em,color:"#fff",border:"none",padding:"12px",borderRadius:6,fontSize:14,fontWeight:600,cursor:busy?"wait":"pointer",opacity:busy?0.6:1}}>{busy?"Αποθήκευση…":"Ορισμός & σύνδεση"}</button>
+              <button onClick={()=>{window.location.href="/";}} style={{background:"none",border:"none",color:P.tm,fontSize:12,cursor:"pointer",textDecoration:"underline"}}>Πίσω στη σύνδεση</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ForcePw({onDone,onLogout}) {
   const [cur,setCur] = useState("");
   const [n1,setN1] = useState("");
@@ -1033,6 +1085,21 @@ function Login({onLogin}) {
   const [err,setErr] = useState("");
   const [busy,setBusy] = useState(false);
   const [forgot,setForgot] = useState(false);
+  const [fUser,setFUser] = useState("");
+  const [fMsg,setFMsg] = useState("");
+  const [fBusy,setFBusy] = useState(false);
+  const sendForgot = async () => {
+    if(!fUser.trim()) { setFMsg("Βάλε username ή email"); return; }
+    setFBusy(true); setFMsg("");
+    try {
+      const r = await api.forgotPassword(fUser.trim());
+      setFMsg(r.message || "Αν υπάρχει λογαριασμός με καταχωρημένο email, στάλθηκε σύνδεσμος επαναφοράς.");
+    } catch(e) {
+      setFMsg(e.status===503
+        ? "Η επαναφορά μέσω email δεν είναι ενεργή ακόμη — ζήτα από τον διαχειριστή reset (⚙️ Admin → Χρήστες)."
+        : (e.message||"Κάτι πήγε στραβά"));
+    } finally { setFBusy(false); }
+  };
   const go = async () => {
     if(!u || !c) { setErr("Enter username and password"); return; }
     setBusy(true); setErr("");
@@ -1079,11 +1146,15 @@ function Login({onLogin}) {
               style={{width:"100%",background:P.em,color:"#fff",border:"none",padding:"12px",borderRadius:6,fontSize:14,fontWeight:600,cursor:busy?"wait":"pointer",marginTop:4,opacity:busy?0.6:1}}>
               {busy?"Signing in...":"Sign In"}
             </button>
-            <button type="button" onClick={()=>setForgot(f=>!f)} style={{background:"none",border:"none",color:P.tm,fontSize:12,cursor:"pointer",textDecoration:"underline",alignSelf:"center",padding:0}}>Ξέχασα τον κωδικό;</button>
+            <button type="button" onClick={()=>{setForgot(f=>!f);setFMsg("");}} style={{background:"none",border:"none",color:P.tm,fontSize:12,cursor:"pointer",textDecoration:"underline",alignSelf:"center",padding:0}}>Ξέχασα τον κωδικό;</button>
             {forgot && (
-              <div style={{fontSize:12,color:P.tx,background:P.of,border:"1px solid "+P.bd,borderRadius:6,padding:"10px 12px",lineHeight:1.5}}>
-                Ζήτα από τον διαχειριστή να κάνει επαναφορά του κωδικού σου: <b>⚙️ Admin → Χρήστες → Reset</b>. Θα σου δώσει προσωρινό κωδικό που θα αλλάξεις στην είσοδο.
-                <div style={{color:P.tm,marginTop:6}}>Η επαναφορά μέσω email έρχεται σύντομα.</div>
+              <div style={{background:P.of,border:"1px solid "+P.bd,borderRadius:6,padding:"12px",display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{fontSize:12,color:P.tm}}>Βάλε το username ή το email σου — θα λάβεις σύνδεσμο επαναφοράς στο email σου.</div>
+                <input value={fUser} onChange={e=>{setFUser(e.target.value);setFMsg("");}} onKeyDown={e=>e.key==="Enter"&&sendForgot()} placeholder="username ή email"
+                  style={{padding:"9px 12px",border:"1px solid "+P.bd,borderRadius:6,fontSize:13,outline:"none",background:"#fff",boxSizing:"border-box"}} />
+                <button type="button" onClick={sendForgot} disabled={fBusy} style={{background:P.em,color:"#fff",border:"none",padding:"9px",borderRadius:6,fontSize:13,fontWeight:600,cursor:fBusy?"wait":"pointer",opacity:fBusy?.6:1}}>{fBusy?"Αποστολή…":"Στείλε σύνδεσμο επαναφοράς"}</button>
+                {fMsg && <div style={{color:P.em,fontSize:12}}>{fMsg}</div>}
+                <div style={{color:P.tm,fontSize:11}}>Εναλλακτικά, ζήτα από τον διαχειριστή reset (⚙️ Admin → Χρήστες).</div>
               </div>
             )}
           </div>
@@ -2498,7 +2569,7 @@ function AdminPanel({me,onClose}) {
   const [logs,setLogs] = useState([]);
   const [err,setErr] = useState("");
   const [busy,setBusy] = useState(false);
-  const [nf,setNf] = useState({username:"",name:"",role:"ops",password:"",clients:""});
+  const [nf,setNf] = useState({username:"",name:"",email:"",role:"ops",password:"",clients:""});
 
   const loadUsers = () => api.listUsers().then(setUsers).catch(e=>setErr(e.message||"Load failed"));
   const loadLogs = () => api.audit().then(setLogs).catch(e=>setErr(e.message||"Load failed"));
@@ -2513,8 +2584,8 @@ function AdminPanel({me,onClose}) {
       : "ALL";
     setBusy(true);
     try {
-      await api.createUser({username:nf.username.trim().toLowerCase(),name:nf.name.trim(),role:nf.role,password:nf.password,clients});
-      setNf({username:"",name:"",role:"ops",password:"",clients:""});
+      await api.createUser({username:nf.username.trim().toLowerCase(),name:nf.name.trim(),email:nf.email.trim(),role:nf.role,password:nf.password,clients});
+      setNf({username:"",name:"",email:"",role:"ops",password:"",clients:""});
       await loadUsers(); await loadLogs();
     } catch(e){ setErr(e.message||"Δημιουργία απέτυχε"); }
     finally{ setBusy(false); }
@@ -2540,6 +2611,15 @@ function AdminPanel({me,onClose}) {
     } catch(e){ setErr(e.message||"Reset κωδικού απέτυχε"); }
     finally{ setBusy(false); }
   };
+  const editEmail = async (u) => {
+    setErr("");
+    const email = prompt(`Email του "${u.username}" (για επαναφορά κωδικού):`, u.email||"");
+    if(email===null) return;
+    setBusy(true);
+    try { await api.updateUser(u.id, {email:email.trim()}); await loadUsers(); await loadLogs(); }
+    catch(e){ setErr(e.message||"Ενημέρωση email απέτυχε"); }
+    finally{ setBusy(false); }
+  };
 
   const roleBadge = {admin:"#003F2D",finance:"#00695C",ops:"#0277BD"};
   return (
@@ -2561,7 +2641,8 @@ function AdminPanel({me,onClose}) {
             <>
               <div style={{background:P.of,border:"1px solid "+P.bd,borderRadius:8,padding:14,marginBottom:16,display:"flex",flexWrap:"wrap",gap:8,alignItems:"end"}}>
                 <Inp l="Username" v={nf.username} set={v=>setNf(x=>({...x,username:v}))} w={120} />
-                <Inp l="Όνομα" v={nf.name} set={v=>setNf(x=>({...x,name:v}))} w={130} />
+                <Inp l="Όνομα" v={nf.name} set={v=>setNf(x=>({...x,name:v}))} w={120} />
+                <Inp l="Email (για reset)" v={nf.email} set={v=>setNf(x=>({...x,email:v}))} w={170} />
                 <Sel l="Ρόλος" v={nf.role} set={v=>setNf(x=>({...x,role:v}))} opts={[{v:"ops",l:"ops"},{v:"finance",l:"finance"},{v:"admin",l:"admin"}]} w={100} />
                 <Inp l="Κωδικός (8+)" v={nf.password} set={v=>setNf(x=>({...x,password:v}))} w={130} />
                 {nf.role==="ops" && <Inp l="Clients (χωρισμένα με κόμμα)" v={nf.clients} set={v=>setNf(x=>({...x,clients:v}))} w={260} />}
@@ -2570,13 +2651,17 @@ function AdminPanel({me,onClose}) {
               </div>
               <div style={{overflowX:"auto",border:"1px solid "+P.bd,borderRadius:8}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                  <thead><tr>{["Username","Όνομα","Ρόλος","Πρόσβαση","",].map((h,i)=>(
+                  <thead><tr>{["Username","Όνομα","Email","Ρόλος","Πρόσβαση","",].map((h,i)=>(
                     <th key={i} style={{padding:"8px 12px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:"left"}}>{h}</th>
                   ))}</tr></thead>
                   <tbody>{users.map((u,i)=>(
                     <tr key={u.id} style={{background:i%2===0?P.wh:P.al}}>
                       <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd,fontWeight:600,color:P.em}}>{u.username}{u.username===me.username&&<span style={{fontSize:10,color:P.tm}}> (εσύ)</span>}</td>
                       <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd}}>{u.name}</td>
+                      <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd,fontSize:12}}>
+                        <span style={{color:u.email?P.tx:P.tm}}>{u.email||"— χωρίς —"}</span>
+                        <button onClick={()=>editEmail(u)} title="Επεξεργασία email" style={{background:"none",border:"none",color:P.em,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>✎</button>
+                      </td>
                       <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd}}><span style={{padding:"2px 10px",borderRadius:10,fontSize:11,fontWeight:700,color:"#fff",background:roleBadge[u.role]||P.tm}}>{u.role}</span></td>
                       <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd,color:P.tm,fontSize:12}}>{u.clients==="ALL"?"ΟΛΟΙ":(Array.isArray(u.clients)?`${u.clients.length} πελάτες`:"—")}</td>
                       <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd,textAlign:"right",whiteSpace:"nowrap"}}>

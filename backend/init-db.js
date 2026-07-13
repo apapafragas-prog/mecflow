@@ -20,10 +20,19 @@ db.exec(`
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     name TEXT NOT NULL,
+    email TEXT DEFAULT '',
     role TEXT NOT NULL CHECK(role IN ('admin','ops','finance')),
     clients TEXT NOT NULL DEFAULT '[]',
     must_change_password INTEGER DEFAULT 0,
     token_version INTEGER DEFAULT 0,
+    created_at INTEGER DEFAULT (strftime('%s','now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS password_resets (
+    token_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    used INTEGER DEFAULT 0,
     created_at INTEGER DEFAULT (strftime('%s','now'))
   );
 

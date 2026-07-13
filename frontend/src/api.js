@@ -36,12 +36,16 @@ export const api = {
   login: (username, password) => req("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
   changePassword: (current, nextPwd) => req("/auth/change-password", { method: "POST", body: JSON.stringify({ current, next: nextPwd }) }),
   me: () => req("/auth/me"),
+  // Forgot/reset password (email self-service via Resend)
+  forgotPassword: (username) => req("/auth/forgot", { method: "POST", body: JSON.stringify({ username }) }),
+  resetPassword: (token, password) => req("/auth/reset", { method: "POST", body: JSON.stringify({ token, password }) }),
 
   // Users (admin)
   listUsers: () => req("/users"),
   createUser: (u) => req("/users", { method: "POST", body: JSON.stringify(u) }),
   deleteUser: (id) => req(`/users/${id}`, { method: "DELETE" }),
   resetUserPassword: (id, password) => req(`/users/${id}/reset-password`, { method: "POST", body: JSON.stringify(password ? { password } : {}) }),
+  updateUser: (id, patch) => req(`/users/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
 
   // Data
   getYearData: (year) => req(`/data/${year}`),

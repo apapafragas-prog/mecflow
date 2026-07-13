@@ -14,6 +14,9 @@ services:
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required — set it in .env (e.g. openssl rand -hex 48)}
       - CORS_ORIGIN=${CORS_ORIGIN:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - RESEND_FROM=${RESEND_FROM:-CBRE Reporting <no-reply@mecflow.gr>}
+      - APP_BASE_URL=${APP_BASE_URL:-https://cbre.mecflow.gr}
     volumes:
       - ./data:/data
     healthcheck:

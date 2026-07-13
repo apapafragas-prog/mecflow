@@ -38,7 +38,17 @@ db.pragma("journal_mode = WAL");
 const tableCols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map(c => c.name);
 if (!tableCols("users").includes("must_change_password")) db.exec("ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0");
 if (!tableCols("users").includes("token_version")) db.exec("ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 0");
+if (!tableCols("users").includes("email")) db.exec("ALTER TABLE users ADD COLUMN email TEXT DEFAULT ''");
 if (!tableCols("client_data").includes("version")) db.exec("ALTER TABLE client_data ADD COLUMN version INTEGER DEFAULT 0");
+// Password-reset tokens (email self-service flow). Only the HMAC of the token is stored.
+db.exec(`CREATE TABLE IF NOT EXISTS password_resets (
+  token_hash TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used INTEGER DEFAULT 0,
+  created_at INTEGER DEFAULT (strftime('%s','now'))
+)`);
+db.prepare("DELETE FROM password_resets WHERE expires_at < ?").run(Math.floor(Date.now() / 1000) - 24 * 3600);
 // Flag any account still on the seeded default password → force change on next login
 try {
   for (const u of db.prepare("SELECT id, password_hash, must_change_password FROM users").all()) {
@@ -56,6 +66,35 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
 if (!anthropic) console.warn("⚠ ANTHROPIC_API_KEY not set — AI extraction endpoints disabled");
 
+// ── Resend (transactional email over HTTPS) for password-reset self-service ──
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+const RESEND_FROM = process.env.RESEND_FROM || "CBRE Reporting <no-reply@mecflow.gr>";
+const APP_BASE_URL = (process.env.APP_BASE_URL || "").replace(/\/$/, "");
+const EMAIL_ENABLED = !!RESEND_API_KEY;
+if (!EMAIL_ENABLED) console.warn("⚠ RESEND_API_KEY not set — email password-reset disabled (admin reset still works)");
+const sendEmail = async (to, subject, html) => {
+  const r = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ from: RESEND_FROM, to: [to], subject, html })
+  });
+  if (!r.ok) { const t = await r.text().catch(() => ""); throw new Error(`Resend ${r.status}: ${t.slice(0, 200)}`); }
+  return r.json();
+};
+const resetEmailHtml = (name, link) => `
+  <div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;margin:0 auto;color:#1A2E23">
+    <div style="background:#003F2D;color:#fff;padding:20px 24px;border-radius:10px 10px 0 0;font-size:20px;font-weight:700">CBRE Reporting</div>
+    <div style="border:1px solid #D5DDD8;border-top:none;border-radius:0 0 10px 10px;padding:24px">
+      <p>Γεια σου ${name || ""},</p>
+      <p>Λάβαμε αίτημα επαναφοράς του κωδικού σου. Πάτα το κουμπί για να ορίσεις νέο κωδικό:</p>
+      <p style="text-align:center;margin:26px 0">
+        <a href="${link}" style="background:#003F2D;color:#fff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:600;display:inline-block">Ορισμός νέου κωδικού</a>
+      </p>
+      <p style="font-size:13px;color:#5F7567">Ο σύνδεσμος λήγει σε 30 λεπτά. Αν δεν ζήτησες εσύ την επαναφορά, αγνόησε αυτό το email — ο κωδικός σου παραμένει ίδιος.</p>
+      <p style="font-size:12px;color:#5F7567;word-break:break-all">${link}</p>
+    </div>
+  </div>`;
+
 const app = express();
 app.set('trust proxy', 1);
 // CORS: explicit origin allowlist from env; default = same-origin only (frontend is served by this server)
@@ -71,6 +110,8 @@ const loginLimiter = rateLimit({
   message: { error: "Too many login attempts" }
 });
 const loginIpLimiter = rateLimit({ windowMs: 15*60*1000, max: 60, message: { error: "Too many login attempts from this network" } });
+// Forgot-password requests are cheap to abuse (email spam) → tighter cap per IP.
+const forgotLimiter = rateLimit({ windowMs: 15*60*1000, max: 5, message: { error: "Πάρα πολλά αιτήματα — δοκίμασε ξανά αργότερα" } });
 
 // ── Audit log ──
 const auditStmt = db.prepare("INSERT INTO audit_log (user, action, target, ip) VALUES (?, ?, ?, ?)");
@@ -132,24 +173,78 @@ app.get("/api/auth/me", auth, (req, res) => {
   res.json({ ...req.user, must_change_password: !!(u && u.must_change_password) });
 });
 
+// ── Forgot / reset password (email self-service via Resend) ──
+// Request a reset link. Always returns 200 (never reveals whether the account/email exists).
+app.post("/api/auth/forgot", forgotLimiter, async (req, res) => {
+  const generic = { ok: true, message: "Αν υπάρχει λογαριασμός με καταχωρημένο email, στάλθηκε σύνδεσμος επαναφοράς." };
+  if (!EMAIL_ENABLED) return res.status(503).json({ error: "Η επαναφορά μέσω email δεν έχει ρυθμιστεί. Ζήτα από τον διαχειριστή reset." });
+  const id = (req.body && req.body.username) ? String(req.body.username).trim().toLowerCase() : "";
+  if (!id) return res.json(generic);
+  const u = db.prepare("SELECT id, username, name, email FROM users WHERE username = ? OR lower(email) = ?").get(id, id);
+  if (!u || !u.email) return res.json(generic); // unknown user or no email on file → say nothing
+  const token = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "");
+  const tokenHash = createHmac("sha256", JWT_SECRET).update(token).digest("hex");
+  const exp = Math.floor(Date.now() / 1000) + 30 * 60; // 30 minutes
+  db.prepare("INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, ?)").run(tokenHash, u.id, exp);
+  const base = (APP_BASE_URL || `${req.protocol}://${req.headers.host}`).replace(/\/$/, "");
+  const link = `${base}/reset?token=${token}`;
+  try {
+    await sendEmail(u.email, "Επαναφορά κωδικού — CBRE Reporting", resetEmailHtml(u.name || u.username, link));
+    audit(u.username, "password_reset_requested", null, req);
+  } catch (e) {
+    console.error("Resend send failed:", e.message);
+    return res.status(502).json({ error: "Αποτυχία αποστολής email — δοκίμασε ξανά ή ζήτα admin reset." });
+  }
+  res.json(generic);
+});
+
+// Complete the reset with the emailed token.
+app.post("/api/auth/reset", async (req, res) => {
+  const { token, password } = req.body || {};
+  if (!token || !password) return res.status(400).json({ error: "Λείπει το token ή ο κωδικός" });
+  if (String(password).length < 8) return res.status(400).json({ error: "Ο κωδικός πρέπει να έχει 8+ χαρακτήρες" });
+  const tokenHash = createHmac("sha256", JWT_SECRET).update(String(token)).digest("hex");
+  const row = db.prepare("SELECT * FROM password_resets WHERE token_hash = ?").get(tokenHash);
+  if (!row || row.used || row.expires_at < Math.floor(Date.now() / 1000)) return res.status(400).json({ error: "Ο σύνδεσμος έληξε ή δεν ισχύει. Ζήτα νέο." });
+  const u = db.prepare("SELECT id, username FROM users WHERE id = ?").get(row.user_id);
+  if (!u) return res.status(400).json({ error: "Μη έγκυρος σύνδεσμος" });
+  db.prepare("UPDATE users SET password_hash = ?, must_change_password = 0, token_version = COALESCE(token_version,0) + 1 WHERE id = ?")
+    .run(bcrypt.hashSync(String(password), 10), u.id);
+  db.prepare("UPDATE password_resets SET used = 1 WHERE user_id = ? AND used = 0").run(u.id); // burn this + any other outstanding tokens
+  audit(u.username, "password_reset_completed", null, req);
+  res.json({ ok: true });
+});
+
 // ── User management (admin only) ──
 app.get("/api/users", auth, requireRole("admin"), (req, res) => {
-  const users = db.prepare("SELECT id, username, name, role, clients, created_at FROM users").all();
+  const users = db.prepare("SELECT id, username, name, email, role, clients, created_at FROM users").all();
   res.json(users.map(u => ({ ...u, clients: u.clients === "ALL" ? "ALL" : JSON.parse(u.clients) })));
 });
 
 app.post("/api/users", auth, requireRole("admin"), (req, res) => {
-  const { username, password, name, role, clients } = req.body;
+  const { username, password, name, role, clients, email } = req.body;
   if (!username || !password || !name || !role) return res.status(400).json({ error: "Missing fields" });
   if (password.length < 8) return res.status(400).json({ error: "Password must be 8+ chars" });
   try {
     const c = clients === "ALL" ? "ALL" : JSON.stringify(clients || []);
-    db.prepare("INSERT INTO users (username, password_hash, name, role, clients) VALUES (?, ?, ?, ?, ?)").run(
-      username.toLowerCase(), bcrypt.hashSync(password, 10), name, role, c
+    db.prepare("INSERT INTO users (username, password_hash, name, email, role, clients) VALUES (?, ?, ?, ?, ?, ?)").run(
+      username.toLowerCase(), bcrypt.hashSync(password, 10), name, String(email || ""), role, c
     );
     audit(req.user.username, "user_created", username, req);
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Update an existing user's email / name / client access (admin only)
+app.patch("/api/users/:id", auth, requireRole("admin"), (req, res) => {
+  const u = db.prepare("SELECT id FROM users WHERE id = ?").get(req.params.id);
+  if (!u) return res.status(404).json({ error: "Not found" });
+  const { email, name, clients } = req.body || {};
+  if (email !== undefined) db.prepare("UPDATE users SET email = ? WHERE id = ?").run(String(email), req.params.id);
+  if (name !== undefined) db.prepare("UPDATE users SET name = ? WHERE id = ?").run(String(name), req.params.id);
+  if (clients !== undefined) db.prepare("UPDATE users SET clients = ? WHERE id = ?").run(clients === "ALL" ? "ALL" : JSON.stringify(clients || []), req.params.id);
+  audit(req.user.username, "user_updated", req.params.id, req);
+  res.json({ ok: true });
 });
 
 app.delete("/api/users/:id", auth, requireRole("admin"), (req, res) => {
@@ -528,7 +623,7 @@ Rules:
 });
 
 // ── Health check ──
-app.get("/api/health", (req, res) => res.json({ status: "ok", ai_enabled: !!anthropic, timestamp: Date.now() }));
+app.get("/api/health", (req, res) => res.json({ status: "ok", ai_enabled: !!anthropic, email_enabled: EMAIL_ENABLED, timestamp: Date.now() }));
 
 // Unknown API routes → JSON 404 (must come before the SPA catch-all, which would
 // otherwise return index.html with a 200 and mask typos/removed endpoints).
@@ -546,4 +641,5 @@ app.listen(PORT, () => {
   console.log(`  Files dir: ${FILES_DIR}`);
   console.log(`  Frontend: ${fs.existsSync(PUBLIC_DIR) ? "✓" : "⚠ not found"}`);
   console.log(`  AI Extraction: ${anthropic ? "✓ enabled (Claude)" : "✗ disabled (set ANTHROPIC_API_KEY)"}`);
+  console.log(`  Email reset: ${EMAIL_ENABLED ? "✓ enabled (Resend)" : "✗ disabled (set RESEND_API_KEY)"}`);
 });
