@@ -159,6 +159,21 @@ app.delete("/api/users/:id", auth, requireRole("admin"), (req, res) => {
   res.json({ ok: true });
 });
 
+// Admin password reset: sets a temp password (given or auto-generated), forces a change on next
+// login, and revokes the target user's existing sessions. Returns the temp password to show once.
+app.post("/api/users/:id/reset-password", auth, requireRole("admin"), (req, res) => {
+  const id = parseInt(req.params.id);
+  const u = db.prepare("SELECT id, username FROM users WHERE id = ?").get(id);
+  if (!u) return res.status(404).json({ error: "Not found" });
+  let temp = req.body && req.body.password ? String(req.body.password) : "";
+  if (temp && temp.length < 8) return res.status(400).json({ error: "Password must be 8+ chars" });
+  if (!temp) temp = "CBRE!" + randomUUID().replace(/-/g, "").slice(0, 8);
+  db.prepare("UPDATE users SET password_hash = ?, must_change_password = 1, token_version = COALESCE(token_version,0) + 1 WHERE id = ?")
+    .run(bcrypt.hashSync(temp, 10), id);
+  audit(req.user.username, "password_reset", u.username, req);
+  res.json({ ok: true, username: u.username, tempPassword: temp });
+});
+
 // ── Helper: check user can access client ──
 const canAccess = (user, client) => user.clients === "ALL" || (Array.isArray(user.clients) && user.clients.includes(client));
 

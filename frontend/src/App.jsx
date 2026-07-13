@@ -969,6 +969,21 @@ function LogoImg({name,size,radius}) {
 }
 
 // Mandatory password change screen — shown when the account still uses a seeded/default password.
+// Password input with a show/hide (👁) toggle. Reused on login + change-password screens.
+function PwField({value,onChange,onEnter,style,autoFocus}) {
+  const [show,setShow] = useState(false);
+  return (
+    <div style={{position:"relative"}}>
+      <input type={show?"text":"password"} value={value} onChange={onChange} autoFocus={autoFocus}
+        onKeyDown={onEnter?e=>{if(e.key==="Enter")onEnter();}:undefined}
+        style={{...style, paddingRight:40}} />
+      <button type="button" tabIndex={-1} onMouseDown={e=>e.preventDefault()} onClick={()=>setShow(s=>!s)}
+        title={show?"Απόκρυψη κωδικού":"Εμφάνιση κωδικού"} aria-label={show?"Απόκρυψη κωδικού":"Εμφάνιση κωδικού"}
+        style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:16,opacity:.55,padding:0,lineHeight:1}}>{show?"🙈":"👁"}</button>
+    </div>
+  );
+}
+
 function ForcePw({onDone,onLogout}) {
   const [cur,setCur] = useState("");
   const [n1,setN1] = useState("");
@@ -996,11 +1011,11 @@ function ForcePw({onDone,onLogout}) {
         <div style={{fontSize:12.5,color:P.tm,margin:"8px 0 22px",lineHeight:1.5}}>Ο λογαριασμός σου χρησιμοποιεί ακόμη τον προεπιλεγμένο κωδικό. Όρισε δικό σου για να συνεχίσεις.</div>
         <div style={{display:"flex",flexDirection:"column",gap:14}}>
           <div><label style={{fontSize:11,fontWeight:600,color:P.tm,display:"block",marginBottom:4}}>Τρέχων κωδικός</label>
-            <input type="password" value={cur} onChange={e=>{setCur(e.target.value);setErr("");}} style={inp} /></div>
+            <PwField value={cur} onChange={e=>{setCur(e.target.value);setErr("");}} style={inp} /></div>
           <div><label style={{fontSize:11,fontWeight:600,color:P.tm,display:"block",marginBottom:4}}>Νέος κωδικός (8+ χαρακτήρες)</label>
-            <input type="password" value={n1} onChange={e=>{setN1(e.target.value);setErr("");}} style={inp} /></div>
+            <PwField value={n1} onChange={e=>{setN1(e.target.value);setErr("");}} style={inp} /></div>
           <div><label style={{fontSize:11,fontWeight:600,color:P.tm,display:"block",marginBottom:4}}>Επιβεβαίωση νέου κωδικού</label>
-            <input type="password" value={n2} onChange={e=>{setN2(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()} style={inp} /></div>
+            <PwField value={n2} onChange={e=>{setN2(e.target.value);setErr("");}} onEnter={go} style={inp} /></div>
           {err && <div style={{color:P.rd,fontSize:12}}>{err}</div>}
           <button onClick={go} disabled={busy} style={{width:"100%",background:P.em,color:"#fff",border:"none",padding:"12px",borderRadius:6,fontSize:14,fontWeight:600,cursor:busy?"wait":"pointer",opacity:busy?0.6:1}}>
             {busy?"Αποθήκευση...":"Αλλαγή κωδικού & είσοδος"}
@@ -1017,6 +1032,7 @@ function Login({onLogin}) {
   const [c,setC] = useState("");
   const [err,setErr] = useState("");
   const [busy,setBusy] = useState(false);
+  const [forgot,setForgot] = useState(false);
   const go = async () => {
     if(!u || !c) { setErr("Enter username and password"); return; }
     setBusy(true); setErr("");
@@ -1055,7 +1071,7 @@ function Login({onLogin}) {
             </div>
             <div>
               <label style={{fontSize:11,fontWeight:600,color:P.tm,display:"block",marginBottom:4}}>Access Code</label>
-              <input type="password" value={c} onChange={e=>{setC(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()}
+              <PwField value={c} onChange={e=>{setC(e.target.value);setErr("");}} onEnter={go}
                 style={{width:"100%",padding:"11px 14px",border:"1px solid "+P.bd,borderRadius:6,fontSize:14,outline:"none",background:"#fff",boxSizing:"border-box"}} />
             </div>
             {err && <div style={{color:P.rd,fontSize:12,padding:"4px 0"}}>{err}</div>}
@@ -1063,6 +1079,13 @@ function Login({onLogin}) {
               style={{width:"100%",background:P.em,color:"#fff",border:"none",padding:"12px",borderRadius:6,fontSize:14,fontWeight:600,cursor:busy?"wait":"pointer",marginTop:4,opacity:busy?0.6:1}}>
               {busy?"Signing in...":"Sign In"}
             </button>
+            <button type="button" onClick={()=>setForgot(f=>!f)} style={{background:"none",border:"none",color:P.tm,fontSize:12,cursor:"pointer",textDecoration:"underline",alignSelf:"center",padding:0}}>Ξέχασα τον κωδικό;</button>
+            {forgot && (
+              <div style={{fontSize:12,color:P.tx,background:P.of,border:"1px solid "+P.bd,borderRadius:6,padding:"10px 12px",lineHeight:1.5}}>
+                Ζήτα από τον διαχειριστή να κάνει επαναφορά του κωδικού σου: <b>⚙️ Admin → Χρήστες → Reset</b>. Θα σου δώσει προσωρινό κωδικό που θα αλλάξεις στην είσοδο.
+                <div style={{color:P.tm,marginTop:6}}>Η επαναφορά μέσω email έρχεται σύντομα.</div>
+              </div>
+            )}
           </div>
           <div style={{marginTop:24,fontSize:11,color:P.tm,textAlign:"center"}}>
             Authorised CBRE Hellas employees only
@@ -2504,6 +2527,19 @@ function AdminPanel({me,onClose}) {
     catch(e){ setErr(e.message||"Διαγραφή απέτυχε"); }
     finally{ setBusy(false); }
   };
+  const resetPw = async (u) => {
+    setErr("");
+    const p = prompt(`Νέος προσωρινός κωδικός για "${u.username}" (8+ χαρακτήρες).\nΆφησέ το ΚΕΝΟ για αυτόματο.`, "");
+    if(p===null) return;
+    if(p && p.length<8){ setErr("Ο κωδικός πρέπει να έχει 8+ χαρακτήρες"); return; }
+    setBusy(true);
+    try {
+      const r = await api.resetUserPassword(u.id, p||undefined);
+      await loadLogs();
+      alert(`✓ Ο κωδικός του "${r.username}" έγινε reset.\n\nΠροσωρινός κωδικός:\n\n    ${r.tempPassword}\n\nΔώσ' τον στον χρήστη — θα του ζητηθεί να τον αλλάξει στην πρώτη είσοδο. Οι υπάρχουσες συνεδρίες του ακυρώθηκαν.`);
+    } catch(e){ setErr(e.message||"Reset κωδικού απέτυχε"); }
+    finally{ setBusy(false); }
+  };
 
   const roleBadge = {admin:"#003F2D",finance:"#00695C",ops:"#0277BD"};
   return (
@@ -2543,7 +2579,10 @@ function AdminPanel({me,onClose}) {
                       <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd}}>{u.name}</td>
                       <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd}}><span style={{padding:"2px 10px",borderRadius:10,fontSize:11,fontWeight:700,color:"#fff",background:roleBadge[u.role]||P.tm}}>{u.role}</span></td>
                       <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd,color:P.tm,fontSize:12}}>{u.clients==="ALL"?"ΟΛΟΙ":(Array.isArray(u.clients)?`${u.clients.length} πελάτες`:"—")}</td>
-                      <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd,textAlign:"right"}}>{u.username!==me.username&&<button onClick={()=>del(u)} style={{background:"#FFEBEE",color:P.rd,border:"none",padding:"4px 12px",borderRadius:4,fontSize:12,fontWeight:600,cursor:"pointer"}}>Διαγραφή</button>}</td>
+                      <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd,textAlign:"right",whiteSpace:"nowrap"}}>
+                        <button onClick={()=>resetPw(u)} style={{background:P.ep,color:P.em,border:"none",padding:"4px 12px",borderRadius:4,fontSize:12,fontWeight:600,cursor:"pointer",marginRight:6}}>Reset κωδικού</button>
+                        {u.username!==me.username&&<button onClick={()=>del(u)} style={{background:"#FFEBEE",color:P.rd,border:"none",padding:"4px 12px",borderRadius:4,fontSize:12,fontWeight:600,cursor:"pointer"}}>Διαγραφή</button>}
+                      </td>
                     </tr>
                   ))}</tbody>
                 </table>

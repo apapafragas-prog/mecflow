@@ -41,6 +41,7 @@ export const api = {
   listUsers: () => req("/users"),
   createUser: (u) => req("/users", { method: "POST", body: JSON.stringify(u) }),
   deleteUser: (id) => req(`/users/${id}`, { method: "DELETE" }),
+  resetUserPassword: (id, password) => req(`/users/${id}/reset-password`, { method: "POST", body: JSON.stringify(password ? { password } : {}) }),
 
   // Data
   getYearData: (year) => req(`/data/${year}`),
