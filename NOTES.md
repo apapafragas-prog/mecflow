@@ -14,12 +14,16 @@ P&L per client, Excel export. React (Vite) frontend + Node backend + SQLite, run
 
 ## Deploy (to the NAS — local network only)
 Source on the NAS: `/volume1/docker/cbre` (SSH `papafra@192.168.1.158 -p 2222`; scp uses `-O -P 2222`).
-After updating the NAS source, ALWAYS run:
+As of 2026-07 the NAS folder IS a git clone of this repo (origin = apapafragas-prog/mecflow),
+so deploy is just pull + rebuild — no more scp:
 ```
-cd /volume1/docker/cbre && sudo docker-compose build --no-cache && sudo docker-compose down && sudo docker-compose up -d
+cd /volume1/docker/cbre && git pull && sudo docker-compose build --no-cache && sudo docker-compose down && sudo docker-compose up -d
 ```
-A cached build does NOT reliably pick up frontend changes. Verify: `curl http://localhost:3300/ | grep -o 'index-[A-Za-z0-9_-]*.js'`.
-NOTE: the NAS is on the home LAN — a **cloud** Claude session cannot reach it; run deploys from a machine on that network.
+`.env`, `data/` (cbre.db + files), and `backups/` are gitignored → never touched by pull.
+A cached build does NOT reliably pick up frontend changes (hence --no-cache). Verify healthy:
+`sudo docker-compose ps` (Up healthy) and `sudo docker-compose logs --tail=25 cbre`.
+NOTE: the NAS is on the home LAN — a **cloud** Claude session cannot reach it; run deploys from
+the NAS shell (or a machine on that network). Pushing to the branch is done from the cloud session.
 
 ## Key business rule — invoice direction (AP vs AR)
 - **AR** (revenue -> CBRE Invoices): ONLY when the ISSUER is **CBRE Hellas** ("CBRE Hellas Μονοπροσωπή ΑΕ" / "Single Member SA").
