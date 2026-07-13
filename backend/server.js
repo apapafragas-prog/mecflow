@@ -11,6 +11,7 @@ import { dirname, join } from "path";
 import fs from "fs";
 import "dotenv/config";
 import Anthropic from "@anthropic-ai/sdk";
+import nodemailer from "nodemailer";
 import { validateAmounts } from "./lib/validate.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -66,20 +67,22 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
 if (!anthropic) console.warn("⚠ ANTHROPIC_API_KEY not set — AI extraction endpoints disabled");
 
-// ── Resend (transactional email over HTTPS) for password-reset self-service ──
-const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
-const RESEND_FROM = process.env.RESEND_FROM || "CBRE Reporting <no-reply@mecflow.gr>";
+// ── Email via SMTP (Zoho Mail) for password-reset self-service ──
+const SMTP_HOST = process.env.SMTP_HOST || "smtp.zoho.eu";
+const SMTP_PORT = parseInt(process.env.SMTP_PORT || "465", 10);
+const SMTP_USER = process.env.SMTP_USER || "";
+const SMTP_PASS = process.env.SMTP_PASS || "";
+const SMTP_FROM = process.env.SMTP_FROM || (SMTP_USER ? `CBRE Reporting <${SMTP_USER}>` : "");
 const APP_BASE_URL = (process.env.APP_BASE_URL || "").replace(/\/$/, "");
-const EMAIL_ENABLED = !!RESEND_API_KEY;
-if (!EMAIL_ENABLED) console.warn("⚠ RESEND_API_KEY not set — email password-reset disabled (admin reset still works)");
+const EMAIL_ENABLED = !!(SMTP_USER && SMTP_PASS);
+const mailer = EMAIL_ENABLED ? nodemailer.createTransport({
+  host: SMTP_HOST, port: SMTP_PORT, secure: SMTP_PORT === 465, // 465 = implicit TLS, 587 = STARTTLS
+  auth: { user: SMTP_USER, pass: SMTP_PASS }
+}) : null;
+if (!EMAIL_ENABLED) console.warn("⚠ SMTP_USER/SMTP_PASS not set — email password-reset disabled (admin reset still works)");
 const sendEmail = async (to, subject, html) => {
-  const r = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: RESEND_FROM, to: [to], subject, html })
-  });
-  if (!r.ok) { const t = await r.text().catch(() => ""); throw new Error(`Resend ${r.status}: ${t.slice(0, 200)}`); }
-  return r.json();
+  if (!mailer) throw new Error("SMTP not configured");
+  await mailer.sendMail({ from: SMTP_FROM, to, subject, html });
 };
 const resetEmailHtml = (name, link) => `
   <div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;margin:0 auto;color:#1A2E23">
@@ -641,5 +644,5 @@ app.listen(PORT, () => {
   console.log(`  Files dir: ${FILES_DIR}`);
   console.log(`  Frontend: ${fs.existsSync(PUBLIC_DIR) ? "✓" : "⚠ not found"}`);
   console.log(`  AI Extraction: ${anthropic ? "✓ enabled (Claude)" : "✗ disabled (set ANTHROPIC_API_KEY)"}`);
-  console.log(`  Email reset: ${EMAIL_ENABLED ? "✓ enabled (Resend)" : "✗ disabled (set RESEND_API_KEY)"}`);
+  console.log(`  Email reset: ${EMAIL_ENABLED ? `✓ enabled (SMTP ${SMTP_HOST})` : "✗ disabled (set SMTP_USER/SMTP_PASS)"}`);
 });

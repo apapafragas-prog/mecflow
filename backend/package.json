@@ -10,15 +10,16 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "express": "^4.21.0",
-    "better-sqlite3": "^11.3.0",
+    "@anthropic-ai/sdk": "^0.32.1",
     "bcryptjs": "^2.4.3",
-    "jsonwebtoken": "^9.0.2",
+    "better-sqlite3": "^11.3.0",
     "cors": "^2.8.5",
-    "express-rate-limit": "^7.4.0",
-    "multer": "^2.0.1",
     "dotenv": "^16.4.5",
-    "@anthropic-ai/sdk": "^0.32.1"
+    "express": "^4.21.0",
+    "express-rate-limit": "^7.4.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.1",
+    "nodemailer": "^6.10.1"
   },
   "devDependencies": {
     "vitest": "^2.1.8"
