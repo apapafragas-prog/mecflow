@@ -8,6 +8,12 @@ import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.js?url";
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 if (typeof window !== "undefined") { window.JSZip = JSZip; window.pdfjsLib = pdfjsLib; }
 
+// Stable unique id with a fallback for non-secure contexts (crypto.randomUUID is
+// undefined over plain http, e.g. http://<LAN-ip>:3300 — would otherwise throw).
+const uid = () => (typeof crypto !== "undefined" && crypto.randomUUID)
+  ? crypto.randomUUID()
+  : "id-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+
 // Legacy client-side USERS/PIN array removed — authentication is backend JWT (api.login).
 
 const CLIENTS = [
@@ -238,7 +244,7 @@ export default function App() {
     const t = setTimeout(() => { doSave(year, client, rest); }, 500);
     return () => clearTimeout(t);
   // eslint-disable-next-line
-  }, [cd&&cd.inv,cd&&cd.sub,cd&&cd.lab,cd&&cd.acc,cd&&cd.contracts,cd&&cd.status,cd&&cd.submittedBy,cd&&cd.submittedAt, client, year]);
+  }, [cd&&cd.inv,cd&&cd.sub,cd&&cd.lab,cd&&cd.acc,cd&&cd.contracts,cd&&cd.status,cd&&cd.submittedBy,cd&&cd.submittedAt,cd&&cd.rejectNote, client, year]);
   // Flush on tab hide / close so nothing is lost
   useEffect(() => {
     const onVis = () => { if(document.visibilityState==="hidden") flushSave(true); };
@@ -281,7 +287,7 @@ export default function App() {
     const sc = (ws,r,c,v,s,f) => { const a = ce(r,c); if(f) ws[a] = {t:'n',f,s}; else ws[a] = {v,t:typeof v==='number'?'n':'s',s}; };
 
     // ── 1. SUB INVOICES ──
-    const subH = ["Site","Month","Subcontractor Category","GL Code","Supplier name","Service category","Service description","Invoice number","Date","Amount (excl VAT)","VAT (24%)","TOTAL","Fee %","CBRE Fee","CBRE Billing","Actual/Accrual","Comments"];
+    const subH = ["Site","Month","Subcontractor Category","GL Code","Supplier name","Service category","Service description","Invoice number","Date","Amount (excl VAT)","VAT","TOTAL","Fee %","CBRE Fee","CBRE Billing","Actual/Accrual","Comments"];
     const subData = [subH];
     sub.forEach(r => subData.push([r.site,ML[r.month]||r.month,r.cat,r.gl,r.supplier,r.svc_cat||"",r.svc_desc||"",r.inv_no||"",r.date||"",r.amt,null,null,0.055,null,null,r.act_acc||"",r.comments||""]));
     const sWS = XLSX.utils.aoa_to_sheet(subData);
@@ -296,7 +302,8 @@ export default function App() {
       if(sWS[ce(row,7)]) sWS[ce(row,7)].s = {...dc, numFmt:'@'};
       if(sWS[ce(row,8)]) sWS[ce(row,8)].s = {...ds, numFmt:'dd/mm/yyyy'};
       if(sWS[ce(row,9)]) sWS[ce(row,9)].s = {font:{name:"Arial",sz:12},numFmt:eur,alignment:{horizontal:"center"}};
-      sWS[ce(row,10)] = {t:'n',f:`J${R}*24%`,s:{font:{name:"Arial",sz:12},numFmt:eur,alignment:{horizontal:"center"}}};
+      // Real VAT (not a fixed 24% formula) so reduced rates (13/6/0%) export correctly
+      sWS[ce(row,10)] = {t:'n',v:(r.vat!=null&&!isNaN(Number(r.vat)))?Number(r.vat):(Number(r.amt)||0)*0.24,s:{font:{name:"Arial",sz:12},numFmt:eur,alignment:{horizontal:"center"}}};
       sWS[ce(row,11)] = {t:'n',f:`J${R}+K${R}`,s:{font:{name:"Arial",sz:12},numFmt:eur,alignment:{horizontal:"center"}}};
       if(sWS[ce(row,12)]) sWS[ce(row,12)].s = {font:{name:"Arial",sz:12},numFmt:'0.0%',alignment:{horizontal:"center"}};
       sWS[ce(row,13)] = {t:'n',f:`J${R}*M${R}`,s:{font:{name:"Arial",sz:12},numFmt:eur,alignment:{horizontal:"center"}}};
@@ -307,7 +314,7 @@ export default function App() {
     XLSX.utils.book_append_sheet(wb, sWS, "Sub Invoices");
 
     // ── 2. CBRE INVOICES ──
-    const invH = ["CLIENT","Site","Month","Revenue category","Amount","VAT (24%)","TOTAL","INVOICE NUMBER","DATE","COMMENTS","Actual/Accrual","PO No"];
+    const invH = ["CLIENT","Site","Month","Revenue category","Amount","VAT","TOTAL","INVOICE NUMBER","DATE","COMMENTS","Actual/Accrual","PO No"];
     const invData = [invH];
     inv.forEach(r => invData.push([r.client,r.site,ML[r.month]||r.month,r.cat,r.amt,null,null,r.inv_no||"",r.date||"",r.comments||"",r.act_acc||"",r.po_no||""]));
     const iWS = XLSX.utils.aoa_to_sheet(invData);
@@ -317,7 +324,8 @@ export default function App() {
       [0,1,3,9,10,11].forEach(c => { if(iWS[ce(row,c)]) iWS[ce(row,c)].s = ds; });
       if(iWS[ce(row,2)]) iWS[ce(row,2)].s = {...ds, numFmt:mmyy};
       if(iWS[ce(row,4)]) iWS[ce(row,4)].s = {font:{name:"Arial",sz:12},numFmt:eur};
-      iWS[ce(row,5)] = {t:'n',f:`E${R}*24%`,s:{font:{name:"Arial",sz:12},numFmt:eur}};
+      // Real VAT (not a fixed 24% formula) so reduced rates (13/6/0%) export correctly
+      iWS[ce(row,5)] = {t:'n',v:(r.vat!=null&&!isNaN(Number(r.vat)))?Number(r.vat):(Number(r.amt)||0)*0.24,s:{font:{name:"Arial",sz:12},numFmt:eur}};
       iWS[ce(row,6)] = {t:'n',f:`E${R}+F${R}`,s:{font:{name:"Arial",sz:12},numFmt:eur}};
       if(iWS[ce(row,7)]) iWS[ce(row,7)].s = {...dc,numFmt:'@'};
       if(iWS[ce(row,8)]) iWS[ce(row,8)].s = {...dc,numFmt:'dd/mm/yyyy'};
@@ -330,7 +338,7 @@ export default function App() {
     const am = MONTHS.filter(m => inv.some(i=>i.month===m) || sub.some(i=>i.month===m) || (lab[m] && Object.values(lab[m]).some(v=>Number(v)>0)));
     if(!am.length) am.push(...MONTHS.slice(0,4));
     const pRows = [];
-    pRows.push(["","","GREECE FY26- Profit & Loss - EURO"]);
+    pRows.push(["","",`GREECE ${year}- Profit & Loss - EURO`]);
     pRows.push([]);
     pRows.push(["ISCALA","","MONTHS >>",...am.map(m=>ML[m])]);
     const pnlLines = [
@@ -345,7 +353,7 @@ export default function App() {
     pnlLines.forEach(pl => { if(!pl.length){pRows.push([]);return;} pRows.push([pl[0],"","",...am.map(()=>null)]); });
     const pWS = XLSX.utils.aoa_to_sheet(pRows);
     // Title
-    sc(pWS,0,2,"GREECE FY26- Profit & Loss - EURO",{font:{name:"Arial",sz:10,bold:true}});
+    sc(pWS,0,2,`GREECE ${year}- Profit & Loss - EURO`,{font:{name:"Arial",sz:10,bold:true}});
     // Header row (row index 2)
     sc(pWS,2,0,"ISCALA",pbs);
     sc(pWS,2,2,"MONTHS >>",phs);
@@ -695,8 +703,8 @@ export default function App() {
           {/* Quick approve/reject for finance */}
           {(user.role==="finance"||user.role==="admin")&&cd.status==="submitted"&&(
             <>
-              <button onClick={()=>upClient("status","approved")} style={{background:P.gn,border:"none",color:"#fff",padding:"6px 14px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600}}>✓ Approve</button>
-              <button onClick={()=>upClient("status","rejected")} style={{background:P.rd,border:"none",color:"#fff",padding:"6px 14px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600}}>✗ Reject</button>
+              <button onClick={()=>{upClient("status","approved");upClient("rejectNote","");}} style={{background:P.gn,border:"none",color:"#fff",padding:"6px 14px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600}}>✓ Approve</button>
+              <button onClick={()=>{const why=prompt("Λόγος απόρριψης (θα τον δει ο χρήστης που υπέβαλε):","");if(why===null)return;upClient("status","rejected");upClient("rejectNote",why||"");}} style={{background:P.rd,border:"none",color:"#fff",padding:"6px 14px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600}}>✗ Reject</button>
             </>
           )}
 
@@ -716,7 +724,7 @@ export default function App() {
                     </button>
                   )}
                   {(user.role==="ops"||user.role==="admin")&&cd.status==="rejected"&&(
-                    <button onClick={()=>{upClient("status","submitted");upClient("submittedBy",user.name);upClient("submittedAt",new Date().toLocaleDateString());setMenuOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",border:"none",background:"none",cursor:"pointer",fontSize:13,color:"#F57F17",fontWeight:600,textAlign:"left",borderBottom:"1px solid "+P.bd}}>
+                    <button onClick={()=>{upClient("status","submitted");upClient("submittedBy",user.name);upClient("submittedAt",new Date().toLocaleDateString());upClient("rejectNote","");setMenuOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",border:"none",background:"none",cursor:"pointer",fontSize:13,color:"#F57F17",fontWeight:600,textAlign:"left",borderBottom:"1px solid "+P.bd}}>
                       <span style={{fontSize:16}}>📤</span><div><div>Re-Submit Report</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>After making corrections</div></div>
                     </button>
                   )}
@@ -762,6 +770,12 @@ export default function App() {
           <button onClick={logout} style={{background:"rgba(255,255,255,.15)",border:"none",color:P.wh,padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>Logout</button>
         </div>
       </div>
+      {cd.status==="rejected" && cd.rejectNote && (
+        <div style={{background:"#FFEBEE",borderBottom:"1px solid #F5C6CB",color:P.rd,padding:"8px 24px",fontSize:13,display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontWeight:700}}>✗ Απορρίφθηκε από Finance:</span>
+          <span style={{color:P.tx}}>{cd.rejectNote}</span>
+        </div>
+      )}
       <div style={{background:P.wh,borderBottom:"1px solid "+P.bd,display:"flex",padding:"0 16px",overflowX:"auto"}}>
         {tabOrder.map((t,i) => (
           <button key={t.id}
@@ -782,7 +796,7 @@ export default function App() {
       </div>
       <div style={{padding:20,maxWidth:1400,margin:"0 auto"}}>
         {tab==="contracts" && <ContractTab data={contracts} set={setContracts} inv={inv} docs={docs} setDocs={setDocs} year={year} client={client} />}
-        {tab==="scan" && <Scan goTo={setTab} year={year} client={client} onAdd={items => setSub(p => [...p,...items.map(x => ({...x,id:crypto.randomUUID()}))])} onAddAR={items => setInv(p => [...p,...items.map(x => ({...x,id:crypto.randomUUID()}))])} />}
+        {tab==="scan" && <Scan goTo={setTab} year={year} client={client} onAdd={items => setSub(p => [...p,...items.map(x => ({...x,id:uid()}))])} onAddAR={items => setInv(p => [...p,...items.map(x => ({...x,id:uid()}))])} />}
         {tab==="pnl" && <PnL inv={inv} sub={sub} lab={lab} acc={acc} />}
         {tab==="inv" && <InvTab data={inv} set={setInv} contracts={contracts} year={year} client={client} />}
         {tab==="sub" && <SubTab data={sub} set={setSub} contracts={contracts} year={year} client={client} />}
@@ -796,6 +810,7 @@ export default function App() {
 function ClientPicker({user,year,setYear,onSelect,onLogout,allData}) {
   const [search,setSearch] = useState("");
   const [sort,setSort] = useState("name");
+  const [adminOpen,setAdminOpen] = useState(false);
   const myClients = user.clients === "ALL" ? CLIENTS : (user.clients || []);
   const isAdmin = user.clients === "ALL";
 
@@ -837,9 +852,11 @@ function ClientPicker({user,year,setYear,onSelect,onLogout,allData}) {
         <div style={{display:"flex",alignItems:"center",gap:10,fontSize:13}}>
           <span style={{opacity:.7}}>{user.name}</span>
           {isAdmin&&<span style={{background:"rgba(255,255,255,.2)",padding:"2px 8px",borderRadius:10,fontSize:10}}>ADMIN</span>}
+          {user.role==="admin"&&<button onClick={()=>setAdminOpen(true)} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>⚙️ Admin</button>}
           <button onClick={onLogout} style={{background:"rgba(255,255,255,.12)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>Logout</button>
         </div>
       </div>
+      {adminOpen && <AdminPanel me={user} onClose={()=>setAdminOpen(false)} />}
 
       <div style={{maxWidth:1300,margin:"0 auto",padding:"20px 24px"}}>
         {/* Year selector + KPIs */}
@@ -1044,8 +1061,7 @@ function ContractTab({data,set,inv,docs,setDocs,year,client}) {
 
   const add = () => {
     if(!f.ref) return;
-    setDocs(prev=>prev); // ensure docs persist
-    set(p=>[...p,{...f,id:Date.now(),po_value:parseFloat(f.po_value)||0,fee_pct:parseFloat(f.fee_pct)||5.5}]);
+    set(p=>[...p,{...f,id:uid(),po_value:parseFloat(f.po_value)||0,fee_pct:parseFloat(f.fee_pct)||5.5}]);
     sF(x=>({...x,ref:"",start:"",expiry:"",po:"",po_value:"",scope:"",notes:""}));
   };
 
@@ -2065,7 +2081,7 @@ function InvTab({data,set,contracts,year,client}) {
   const poList = (contracts||[]).filter(c=>c.type==="PO"&&c.po).map(c=>c.po);
   const poOpts = [{v:"",l:"— None —"},...poList.map(p=>({v:p,l:p}))];
   const [f,sF] = useState({client:"",site:SITES[0],month:MONTHS[0],cat:REV_CATS[0],amt:"",vat:"",inv_no:"",date:"",comments:"",act_acc:"ACTUAL",po_no:""});
-  const add = () => { if(!f.amt) return; const a=parseFloat(f.amt); const v=parseFloat(f.vat)||a*.24; set(p=>[...p,{...f,id:crypto.randomUUID(),amt:a,vat:v,total:a+v}]); sF(x=>({...x,amt:"",vat:"",inv_no:"",date:"",comments:"",po_no:""})); };
+  const add = () => { if(!f.amt) return; const a=parseFloat(f.amt); const v=parseFloat(f.vat)||a*.24; set(p=>[...p,{...f,id:uid(),amt:a,vat:v,total:a+v}]); sF(x=>({...x,amt:"",vat:"",inv_no:"",date:"",comments:"",po_no:""})); };
   return (
     <div>
       <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 16px"}}>CBRE Invoices — Revenue</h2>
@@ -2103,7 +2119,7 @@ function InvTab({data,set,contracts,year,client}) {
 function SubTab({data,set,contracts,year,client}) {
   const activeFee = (contracts||[]).find(c=>c.status==="Active"&&c.type==="MSA")?.fee_pct || 5.5;
   const [f,sF] = useState({site:SITES[0],month:MONTHS[0],cat:COST_CATS[0],gl:"",supplier:"",svc_cat:SVC_CATS[0],svc_desc:"",inv_no:"",date:"",amt:"",vat:"",act_acc:"ACTUAL",comments:"",fee_pct:activeFee});
-  const add = () => { if(!f.amt) return; const a=parseFloat(f.amt); const v2=parseFloat(f.vat)||a*.24; const fp=parseFloat(f.fee_pct)||activeFee; const fee=a*fp/100; set(p=>[...p,{...f,id:crypto.randomUUID(),amt:a,vat:v2,total:a+v2,fee_pct:fp,cbre_fee:Math.round(fee*100)/100,cbre_bill:Math.round((a+fee)*100)/100}]); sF(x=>({...x,gl:"",supplier:"",svc_desc:"",inv_no:"",date:"",amt:"",vat:"",comments:""})); };
+  const add = () => { if(!f.amt) return; const a=parseFloat(f.amt); const v2=parseFloat(f.vat)||a*.24; const fp=parseFloat(f.fee_pct)||activeFee; const fee=a*fp/100; set(p=>[...p,{...f,id:uid(),amt:a,vat:v2,total:a+v2,fee_pct:fp,cbre_fee:Math.round(fee*100)/100,cbre_bill:Math.round((a+fee)*100)/100}]); sF(x=>({...x,gl:"",supplier:"",svc_desc:"",inv_no:"",date:"",amt:"",vat:"",comments:""})); };
   const edit = (id,k,v) => set(p=>p.map(r=>{
     if(r.id!==id) return r;
     const u={...r,[k]:v}; const amt=k==="amt"?(parseFloat(v)||0):r.amt; const vat=k==="vat"?(parseFloat(v)||0):r.vat;
@@ -2371,6 +2387,116 @@ function POTracker({inv,contracts}) {
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+// Admin-only console: user management + audit log. Backend endpoints already existed
+// (/api/users, /api/audit) but had no UI — an admin could not manage users in-app.
+function AdminPanel({me,onClose}) {
+  const [tab,setTab] = useState("users");
+  const [users,setUsers] = useState([]);
+  const [logs,setLogs] = useState([]);
+  const [err,setErr] = useState("");
+  const [busy,setBusy] = useState(false);
+  const [nf,setNf] = useState({username:"",name:"",role:"ops",password:"",clients:""});
+
+  const loadUsers = () => api.listUsers().then(setUsers).catch(e=>setErr(e.message||"Load failed"));
+  const loadLogs = () => api.audit().then(setLogs).catch(e=>setErr(e.message||"Load failed"));
+  useEffect(()=>{ loadUsers(); loadLogs(); },[]);
+
+  const create = async () => {
+    setErr("");
+    if(!nf.username||!nf.name||!nf.password){ setErr("Συμπλήρωσε username, όνομα και κωδικό"); return; }
+    if(nf.password.length<8){ setErr("Ο κωδικός πρέπει να έχει 8+ χαρακτήρες"); return; }
+    const clients = nf.role==="ops"
+      ? nf.clients.split(",").map(s=>s.trim()).filter(Boolean)
+      : "ALL";
+    setBusy(true);
+    try {
+      await api.createUser({username:nf.username.trim().toLowerCase(),name:nf.name.trim(),role:nf.role,password:nf.password,clients});
+      setNf({username:"",name:"",role:"ops",password:"",clients:""});
+      await loadUsers(); await loadLogs();
+    } catch(e){ setErr(e.message||"Δημιουργία απέτυχε"); }
+    finally{ setBusy(false); }
+  };
+  const del = async (u) => {
+    if(u.username===me.username){ setErr("Δεν μπορείς να διαγράψεις τον εαυτό σου"); return; }
+    if(!confirm(`Διαγραφή χρήστη "${u.username}";`)) return;
+    setBusy(true);
+    try { await api.deleteUser(u.id); await loadUsers(); await loadLogs(); }
+    catch(e){ setErr(e.message||"Διαγραφή απέτυχε"); }
+    finally{ setBusy(false); }
+  };
+
+  const roleBadge = {admin:"#003F2D",finance:"#00695C",ops:"#0277BD"};
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={onClose}>
+      <div style={{background:P.wh,borderRadius:12,width:"95%",maxWidth:960,maxHeight:"90vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.3)"}} onClick={e=>e.stopPropagation()}>
+        <div style={{background:P.em,color:"#fff",padding:"16px 24px",borderRadius:"12px 12px 0 0",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:1}}>
+          <div style={{fontWeight:700,fontSize:16}}>⚙️ Admin — Διαχείριση</div>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",padding:"6px 14px",borderRadius:6,cursor:"pointer",fontSize:14,fontWeight:700}}>✕</button>
+        </div>
+        <div style={{display:"flex",gap:0,padding:"0 24px",borderBottom:"1px solid "+P.bd,background:P.of}}>
+          {[{v:"users",l:"👥 Χρήστες"},{v:"audit",l:"📜 Audit Log"}].map(t=>(
+            <button key={t.v} onClick={()=>setTab(t.v)} style={{padding:"12px 18px",fontSize:13,background:"none",border:"none",borderBottom:tab===t.v?"3px solid "+P.em:"3px solid transparent",fontWeight:tab===t.v?700:400,color:tab===t.v?P.em:P.tm,cursor:"pointer"}}>{t.l}</button>
+          ))}
+        </div>
+        <div style={{padding:20}}>
+          {err && <div style={{color:P.rd,fontSize:12,marginBottom:12,padding:"8px 12px",background:"#FFEBEE",borderRadius:6}}>{err}</div>}
+
+          {tab==="users" && (
+            <>
+              <div style={{background:P.of,border:"1px solid "+P.bd,borderRadius:8,padding:14,marginBottom:16,display:"flex",flexWrap:"wrap",gap:8,alignItems:"end"}}>
+                <Inp l="Username" v={nf.username} set={v=>setNf(x=>({...x,username:v}))} w={120} />
+                <Inp l="Όνομα" v={nf.name} set={v=>setNf(x=>({...x,name:v}))} w={130} />
+                <Sel l="Ρόλος" v={nf.role} set={v=>setNf(x=>({...x,role:v}))} opts={[{v:"ops",l:"ops"},{v:"finance",l:"finance"},{v:"admin",l:"admin"}]} w={100} />
+                <Inp l="Κωδικός (8+)" v={nf.password} set={v=>setNf(x=>({...x,password:v}))} w={130} />
+                {nf.role==="ops" && <Inp l="Clients (χωρισμένα με κόμμα)" v={nf.clients} set={v=>setNf(x=>({...x,clients:v}))} w={260} />}
+                {nf.role!=="ops" && <div style={{fontSize:11,color:P.tm,alignSelf:"center",padding:"0 6px"}}>Πρόσβαση: ΟΛΟΙ οι πελάτες</div>}
+                <button onClick={create} disabled={busy} style={{background:P.em,color:"#fff",border:"none",padding:"7px 18px",borderRadius:6,cursor:busy?"wait":"pointer",fontSize:13,fontWeight:600,opacity:busy?.6:1}}>+ Νέος χρήστης</button>
+              </div>
+              <div style={{overflowX:"auto",border:"1px solid "+P.bd,borderRadius:8}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                  <thead><tr>{["Username","Όνομα","Ρόλος","Πρόσβαση","",].map((h,i)=>(
+                    <th key={i} style={{padding:"8px 12px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:"left"}}>{h}</th>
+                  ))}</tr></thead>
+                  <tbody>{users.map((u,i)=>(
+                    <tr key={u.id} style={{background:i%2===0?P.wh:P.al}}>
+                      <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd,fontWeight:600,color:P.em}}>{u.username}{u.username===me.username&&<span style={{fontSize:10,color:P.tm}}> (εσύ)</span>}</td>
+                      <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd}}>{u.name}</td>
+                      <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd}}><span style={{padding:"2px 10px",borderRadius:10,fontSize:11,fontWeight:700,color:"#fff",background:roleBadge[u.role]||P.tm}}>{u.role}</span></td>
+                      <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd,color:P.tm,fontSize:12}}>{u.clients==="ALL"?"ΟΛΟΙ":(Array.isArray(u.clients)?`${u.clients.length} πελάτες`:"—")}</td>
+                      <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd,textAlign:"right"}}>{u.username!==me.username&&<button onClick={()=>del(u)} style={{background:"#FFEBEE",color:P.rd,border:"none",padding:"4px 12px",borderRadius:4,fontSize:12,fontWeight:600,cursor:"pointer"}}>Διαγραφή</button>}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+              <div style={{fontSize:11,color:P.tm,marginTop:8}}>Οι νέοι χρήστες μπαίνουν με τον κωδικό που όρισες — δεν επιβάλλεται αλλαγή κατά την πρώτη είσοδο (σε αντίθεση με τους seeded).</div>
+            </>
+          )}
+
+          {tab==="audit" && (
+            <div style={{overflowX:"auto",border:"1px solid "+P.bd,borderRadius:8}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead><tr>{["Ημ/νία & ώρα","Χρήστης","Ενέργεια","Στόχος","IP"].map(h=>(
+                  <th key={h} style={{padding:"8px 12px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:"left"}}>{h}</th>
+                ))}</tr></thead>
+                <tbody>{logs.map((l,i)=>(
+                  <tr key={l.id||i} style={{background:i%2===0?P.wh:P.al}}>
+                    <td style={{padding:"6px 12px",borderBottom:"1px solid "+P.bd,whiteSpace:"nowrap"}}>{new Date((l.timestamp||0)*1000).toLocaleString("el-GR")}</td>
+                    <td style={{padding:"6px 12px",borderBottom:"1px solid "+P.bd,fontWeight:600}}>{l.user}</td>
+                    <td style={{padding:"6px 12px",borderBottom:"1px solid "+P.bd}}><span style={{color:(l.action||"").includes("fail")?P.rd:(l.action||"").includes("success")?P.gn:P.tx}}>{l.action}</span></td>
+                    <td style={{padding:"6px 12px",borderBottom:"1px solid "+P.bd,color:P.tm}}>{l.target||"—"}</td>
+                    <td style={{padding:"6px 12px",borderBottom:"1px solid "+P.bd,color:P.tm,fontFamily:"monospace",fontSize:11}}>{l.ip||"—"}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+              {logs.length===0 && <div style={{padding:20,textAlign:"center",color:P.tm,fontStyle:"italic"}}>Καμία εγγραφή</div>}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

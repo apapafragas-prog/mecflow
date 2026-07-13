@@ -38,3 +38,27 @@ detection** (Claude returns `direction`). Each result card has an editable AP/AR
 - Fixed P&L Excel export GM formulas (labour now subtracted; per-segment GM correct).
 - Added bulk-folder scan with automatic AP/AR routing.
 - Set up GitHub sync + per-PC auto-sync automation.
+
+## Audit fixes — Phase B (2026-07, branch claude/mecflow-access-cu32g6)
+Full platform audit done; these were fixed and are safe to deploy:
+- **BUG-01** Excel export used a fixed `×24%` formula for VAT → now exports the REAL stored VAT
+  (correct for 13/6/0% invoices). Header label "VAT (24%)" → "VAT".
+- **BUG-03** `crypto.randomUUID()` throws over plain http (LAN IP) → new `uid()` helper with fallback.
+- **BUG-05** P&L export title was hardcoded "GREECE FY26" → now uses the selected FY.
+- **BUG-04** Admin console added (⚙️ Admin button on the client picker, role=admin only):
+  user management (list/create/delete) + audit-log viewer. Backend endpoints already existed.
+- **BUG-06** Removed JWT-in-URL (`?token=`) fallback from file download (leaks in logs/history).
+- **BUG-07** Login rate-limit now keyed by username+IP (was bare IP → whole office shared one NAT IP).
+- **BUG-08** Added `PATCH /api/files/:year/:client/:id` (api.updateFileRef called a route that didn't exist).
+- **BUG-10** Unknown `/api/*` routes now return JSON 404 instead of index.html.
+- Added a **reject reason** field: Finance is prompted for a reason on Reject; ops sees it as a banner.
+- Verified: backend `npm test` 9/9 green, `vite build` clean.
+
+### PENDING — need a finance decision before changing (NOT touched yet):
+- **BUG-02** All labour is subtracted from FM Core only (`lc_ew`/`lc_pjm` hardcoded 0), so the
+  per-segment GM (Core vs Extra vs PJM) is misallocated. Total GM is correct. Fix needs either a
+  per-segment labour split in the Labour tab, or confirmation that all labour belongs to Core.
+- **UBR/UER** split in Accruals is done purely by the sign of the amount — confirm with accounting.
+
+### Bigger modules proposed (not started): OPEX/CAPEX section, AI analytics/forecasting, ERP/myDATA.
+See the audit report artifact for the full roadmap.

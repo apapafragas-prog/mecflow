@@ -63,8 +63,14 @@ const CORS_ORIGINS = (process.env.CORS_ORIGIN || "").split(",").map(s => s.trim(
 app.use(cors(CORS_ORIGINS.length ? { origin: CORS_ORIGINS, credentials: true } : { origin: false }));
 app.use(express.json({ limit: "20mb" }));
 
-// Rate limit on login
-const loginLimiter = rateLimit({ windowMs: 15*60*1000, max: 10, message: { error: "Too many login attempts" } });
+// Rate limit on login — keyed by username+IP (not bare IP) so the whole office,
+// which shares one NAT IP, cannot lock each other out. A looser IP-only cap guards brute force.
+const loginLimiter = rateLimit({
+  windowMs: 15*60*1000, max: 10,
+  keyGenerator: (req) => `${(req.body && req.body.username ? String(req.body.username).toLowerCase() : "-")}|${req.ip}`,
+  message: { error: "Too many login attempts" }
+});
+const loginIpLimiter = rateLimit({ windowMs: 15*60*1000, max: 60, message: { error: "Too many login attempts from this network" } });
 
 // ── Audit log ──
 const auditStmt = db.prepare("INSERT INTO audit_log (user, action, target, ip) VALUES (?, ?, ?, ?)");
@@ -90,7 +96,7 @@ const requireRole = (...roles) => (req, res, next) => {
 };
 
 // ── Auth endpoints ──
-app.post("/api/auth/login", loginLimiter, (req, res) => {
+app.post("/api/auth/login", loginIpLimiter, loginLimiter, (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: "Missing credentials" });
   const u = db.prepare("SELECT * FROM users WHERE username = ?").get(username.toLowerCase());
@@ -250,8 +256,10 @@ app.get("/api/files/:year/:client/:id/download", (req, res) => {
       return res.status(403).json({ error: "Link expired" });
     }
   } else {
-    // Legacy path: Bearer token (header or query) + access check
-    const token = req.headers.authorization?.replace("Bearer ", "") || req.query.token;
+    // Fallback path: Bearer token in the Authorization header only (never in the URL —
+    // a JWT in a query string leaks into logs, history and Referer headers). The UI uses
+    // short-lived signed links (the branch above), so this is for programmatic access.
+    const token = req.headers.authorization?.replace("Bearer ", "");
     if (!token) return res.status(401).json({ error: "No token" });
     let payload;
     try { payload = jwt.verify(token, JWT_SECRET); } catch { return res.status(401).json({ error: "Invalid token" }); }
@@ -272,6 +280,18 @@ app.delete("/api/files/:year/:client/:id", auth, (req, res) => {
   if (!doc) return res.status(404).json({ error: "Not found" });
   try { fs.unlinkSync(join(FILES_DIR, doc.storage_path)); } catch (e) {}
   db.prepare("DELETE FROM documents WHERE id = ?").run(id);
+  res.json({ ok: true });
+});
+
+// Update a document's linked contract reference / type (used by api.updateFileRef)
+app.patch("/api/files/:year/:client/:id", auth, (req, res) => {
+  const { year, client, id } = req.params;
+  if (!canAccess(req.user, client)) return res.status(403).json({ error: "Access denied" });
+  const doc = db.prepare("SELECT id FROM documents WHERE id = ? AND year = ? AND client = ?").get(id, year, client);
+  if (!doc) return res.status(404).json({ error: "Not found" });
+  const { contract_ref, type } = req.body || {};
+  if (contract_ref !== undefined) db.prepare("UPDATE documents SET contract_ref = ? WHERE id = ?").run(String(contract_ref), id);
+  if (type !== undefined) db.prepare("UPDATE documents SET type = ? WHERE id = ?").run(String(type), id);
   res.json({ ok: true });
 });
 
@@ -494,6 +514,10 @@ Rules:
 
 // ── Health check ──
 app.get("/api/health", (req, res) => res.json({ status: "ok", ai_enabled: !!anthropic, timestamp: Date.now() }));
+
+// Unknown API routes → JSON 404 (must come before the SPA catch-all, which would
+// otherwise return index.html with a 200 and mask typos/removed endpoints).
+app.use("/api", (req, res) => res.status(404).json({ error: "Not found" }));
 
 // ── Serve frontend (production) ──
 if (fs.existsSync(PUBLIC_DIR)) {
