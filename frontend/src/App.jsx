@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { api, setToken, getToken } from "./api.js";
+import { allocFractions, depreciation, daysUntil } from "./calc.js";
 import * as XLSX from "xlsx";
 // Bundled locally (no CDN dependency): zip handling + PDF rendering for the scanner
 import JSZip from "jszip";
@@ -107,19 +108,20 @@ function mkLab() { const o = {}; MONTHS.forEach(m => { o[m] = {}; LAB_ROWS.forEa
 // Per-month allocation of total labour across the 3 segments (weights, default all to Core
 // so existing numbers are unchanged until finance allocates). Segments: core / ew / pjm.
 function mkAlloc() { const o = {}; MONTHS.forEach(m => { o[m] = {core:100,ew:0,pjm:0}; }); return o; }
-// Read a month's allocation as normalized fractions that ALWAYS sum to 1 (proportional to the
-// weights) so the split can never change the total labour cost. Empty/zero → 100% Core.
-const allocFractions = (labAlloc, m) => {
-  const a = labAlloc && labAlloc[m];
-  const core = a ? Number(a.core)||0 : 100, ew = a ? Number(a.ew)||0 : 0, pjm = a ? Number(a.pjm)||0 : 0;
-  const s = core + ew + pjm;
-  return s > 0 ? {core:core/s, ew:ew/s, pjm:pjm/s} : {core:1, ew:0, pjm:0};
-};
 
 
 const P = { em:"#003F2D",ep:"#E8F5E9",wh:"#fff",of:"#F7F9F8",bd:"#D5DDD8",tx:"#1A2E23",tm:"#5F7567",rd:"#C62828",gn:"#2E7D32",al:"#F0F5F2",ip:"#FFFFF0" };
 const fmt = n => (n == null || isNaN(n)) ? "-" : n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 const fPct = n => (n == null || isNaN(n) || !isFinite(n)) ? "-" : (n*100).toFixed(1)+"%";
+
+// Small badge describing a contract's expiry state (null when no/unparseable date or far out).
+const expiryBadge = (expiry) => {
+  const dd = daysUntil(expiry); if (dd == null) return null;
+  if (dd < 0) return { label: "Έληξε", color: "#fff", bg: "#C62828" };
+  if (dd <= 30) return { label: `Λήγει σε ${dd}μ`, color: "#fff", bg: "#C62828" };
+  if (dd <= 90) return { label: `Λήγει σε ${dd}μ`, color: "#fff", bg: "#F57F17" };
+  return null;
+};
 
 const YEARS = ["FY24","FY25","FY26","FY27"];
 
@@ -127,23 +129,6 @@ const YEARS = ["FY24","FY25","FY26","FY27"];
 const DEFAULT_OPEX_CATS = ["Payroll & overhead","Rent","Utilities","IT & Software","Telecom","Travel","Professional fees","Insurance","Office supplies","Marketing","Training","Other"];
 const CAPEX_CATS = ["IT Equipment","Furniture & Fixtures","Vehicles","Leasehold improvements","Software (capitalised)","Machinery","Other"];
 const CAPEX_STATUS = [{v:"Planned",c:"#78909C"},{v:"Approved",c:"#0277BD"},{v:"In progress",c:"#F57F17"},{v:"Capitalised",c:"#2E7D32"}];
-// Absolute month index (year*12 + month-1) from a "YYYY-MM" key, for depreciation math.
-const monthIdx = (ym) => { const m=/^(\d{4})-(\d{2})/.exec(String(ym||"")); return m ? (+m[1])*12 + (+m[2]-1) : null; };
-// Straight-line depreciation of a capex item as of the end of the given fiscal-year months.
-const depreciation = (item, fyMonths) => {
-  const amt = Number(item.amount)||0, life = Number(item.life)||0;
-  const acq = monthIdx(item.month);
-  const monthly = life>0 ? amt/life : 0;
-  const perMonth = {}; fyMonths.forEach(m=>{ perMonth[m]=0; });
-  let elapsedToYearEnd = 0;
-  const lastIdx = fyMonths.length ? monthIdx(fyMonths[fyMonths.length-1]) : null;
-  if (acq!=null && life>0) {
-    fyMonths.forEach(m => { const gi=monthIdx(m); const k=gi-acq; if (k>=0 && k<life) perMonth[m]=monthly; });
-    if (lastIdx!=null) elapsedToYearEnd = Math.min(life, Math.max(0, lastIdx - acq + 1));
-  }
-  const accumulated = Math.min(amt, elapsedToYearEnd*monthly);
-  return { monthly, perMonth, accumulated, nbv: Math.max(0, amt-accumulated) };
-};
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -701,15 +686,29 @@ export default function App() {
         };
       }).filter(x=>x.ref||x.po) : [];
 
-      // Apply imports — REPLACE existing data
+      // Apply imports — preview counts, then let the user choose Merge vs Replace
       const hasExisting = (cd.inv?.length||0) + (cd.sub?.length||0) + (cd.contracts?.length||0) > 0;
-      if(hasExisting && !confirm("This will REPLACE all existing data for "+client+" "+year+". Continue?")) {
-        setImporting(false); setMenuOpen(false); return;
+      let mode = "replace";
+      if(hasExisting) {
+        const ans = prompt(
+          `Βρέθηκαν προς εισαγωγή στο ${client} ${year}:\n`+
+          `  • CBRE Invoices: ${newInv.length}\n  • Sub Invoices: ${newSub.length}\n  • Labour rows: ${labRowsImported}\n  • Contracts/POs: ${newContracts.length}\n\n`+
+          `Υπάρχουν ήδη δεδομένα. Γράψε:\n  M = Merge (πρόσθεσε στα υπάρχοντα)\n  R = Replace (αντικατέστησε όλα)\n\n(Άκυρο για ακύρωση)`,
+          "M");
+        if(ans===null) { setImporting(false); setMenuOpen(false); return; }
+        mode = /^\s*r/i.test(ans) ? "replace" : "merge";
       }
-      if(newInv.length) setInv(newInv);
-      if(newSub.length) setSub(newSub);
-      if(labRowsImported) setLab(newLab);
-      if(newContracts.length) setContracts(newContracts);
+      if(mode==="replace") {
+        if(newInv.length) setInv(newInv);
+        if(newSub.length) setSub(newSub);
+        if(labRowsImported) setLab(newLab);
+        if(newContracts.length) setContracts(newContracts);
+      } else {
+        if(newInv.length) setInv(p=>[...(p||[]),...newInv]);
+        if(newSub.length) setSub(p=>[...(p||[]),...newSub]);
+        if(newContracts.length) setContracts(p=>[...(p||[]),...newContracts]);
+        if(labRowsImported) setLab(p=>{ const out={}; MONTHS.forEach(m=>{ out[m]={...(p?.[m]||{})}; LAB_ROWS.forEach(r=>{ const nv=Number(newLab[m]?.[r.k])||0; if(nv) out[m][r.k]=nv; }); }); return out; });
+      }
 
       // Build diagnostic info
       const diag = [];
@@ -1331,6 +1330,7 @@ function ContractTab({data,set,inv,docs,setDocs,year,client}) {
                   <div style={{display:"flex",gap:12,marginTop:4,fontSize:11,color:P.tx}}>
                     {c.start&&<span>From: {c.start}</span>}
                     {c.expiry&&<span>To: {c.expiry}</span>}
+                    {(()=>{ const b=c.status!=="Terminated"&&c.status!=="Expired"&&expiryBadge(c.expiry); return b?<span style={{padding:"1px 8px",borderRadius:8,fontSize:10,fontWeight:700,background:b.bg,color:b.color}}>{b.label}</span>:null; })()}
                     <span style={{fontWeight:600}}>Fee: {c.fee_pct}%</span>
                     {c.po_value>0&&<span>PO: €{fmt(c.po_value)}</span>}
                   </div>
@@ -2720,6 +2720,30 @@ function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
             </div>
           </div>
 
+          {/* Expiring contracts (next 90 days) across the portfolio */}
+          {(()=>{
+            const exp=[]; Object.entries(data||{}).forEach(([name,cd])=>{ (cd?.contracts||[]).forEach(c=>{ if(c.status==="Terminated"||c.status==="Expired") return; const dd=daysUntil(c.expiry); if(dd!=null&&dd<=90) exp.push({client:name,ref:c.ref,type:c.type,expiry:c.expiry,dd}); }); });
+            exp.sort((a,b)=>a.dd-b.dd);
+            if(!exp.length) return null;
+            return (
+              <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16,marginTop:16}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#C62828",marginBottom:10}}>⚠️ Συμβόλαια/PO που λήγουν (επόμενες 90 ημέρες) — {exp.length}</div>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead><tr>{["Πελάτης","Τύπος","Reference","Λήξη","Σε"].map((h,i)=>(<th key={i} style={{padding:"6px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:i===4?"right":"left"}}>{h}</th>))}</tr></thead>
+                  <tbody>{exp.slice(0,12).map((e,i)=>(
+                    <tr key={i} onClick={()=>onSelectClient&&onSelectClient(e.client)} style={{background:i%2===0?P.wh:P.al,cursor:"pointer"}}>
+                      <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,fontWeight:600,color:P.em}}>{e.client}</td>
+                      <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,color:P.tm}}>{e.type}</td>
+                      <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd}}>{e.ref||"—"}</td>
+                      <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd}}>{e.expiry}</td>
+                      <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",fontWeight:700,color:e.dd<0?P.rd:e.dd<=30?P.rd:"#F57F17"}}>{e.dd<0?"Έληξε":`${e.dd}μ`}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            );
+          })()}
+
           {/* Top clients by GM */}
           <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16,marginTop:16}}>
             <div style={{fontSize:13,fontWeight:700,color:P.em,marginBottom:10}}>Top πελάτες κατά GM</div>
@@ -3062,6 +3086,17 @@ function AdminPanel({me,onClose}) {
     catch(e){ setErr(e.message||"Ενημέρωση email απέτυχε"); }
     finally{ setBusy(false); }
   };
+  const downloadBackup = async () => {
+    setErr(""); setBusy(true);
+    try {
+      const blob = await api.backupDb();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href=url; a.download=`cbre-backup-${new Date().toISOString().slice(0,10)}.db`;
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+      await loadLogs();
+    } catch(e){ setErr(e.message||"Backup απέτυχε"); }
+    finally{ setBusy(false); }
+  };
 
   const roleBadge = {admin:"#003F2D",finance:"#00695C",ops:"#0277BD"};
   return (
@@ -3069,7 +3104,10 @@ function AdminPanel({me,onClose}) {
       <div style={{background:P.wh,borderRadius:12,width:"95%",maxWidth:960,maxHeight:"90vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.3)"}} onClick={e=>e.stopPropagation()}>
         <div style={{background:P.em,color:"#fff",padding:"16px 24px",borderRadius:"12px 12px 0 0",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:1}}>
           <div style={{fontWeight:700,fontSize:16}}>⚙️ Admin — Διαχείριση</div>
-          <button onClick={onClose} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",padding:"6px 14px",borderRadius:6,cursor:"pointer",fontSize:14,fontWeight:700}}>✕</button>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <button onClick={downloadBackup} disabled={busy} title="Κατέβασε αντίγραφο της βάσης" style={{background:"rgba(255,255,255,.18)",border:"none",color:"#fff",padding:"6px 12px",borderRadius:6,cursor:busy?"wait":"pointer",fontSize:12,fontWeight:600}}>⬇ Backup βάσης</button>
+            <button onClick={onClose} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",padding:"6px 14px",borderRadius:6,cursor:"pointer",fontSize:14,fontWeight:700}}>✕</button>
+          </div>
         </div>
         <div style={{display:"flex",gap:0,padding:"0 24px",borderBottom:"1px solid "+P.bd,background:P.of}}>
           {[{v:"users",l:"👥 Χρήστες"},{v:"audit",l:"📜 Audit Log"}].map(t=>(

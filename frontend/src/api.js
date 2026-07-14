@@ -106,4 +106,11 @@ export const api = {
 
   // Audit
   audit: () => req("/audit"),
+
+  // Full DB backup (admin) — returns a Blob to download
+  backupDb: async () => {
+    const r = await fetch(`${API_BASE}/backup`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!r.ok) throw new Error("Backup failed");
+    return r.blob();
+  },
 };

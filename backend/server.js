@@ -484,6 +484,16 @@ app.get("/api/audit", auth, requireRole("admin"), (req, res) => {
   res.json(logs);
 });
 
+// ── Database backup (admin only): checkpoint WAL, then stream the SQLite file ──
+app.get("/api/backup", auth, requireRole("admin"), (req, res) => {
+  try { db.pragma("wal_checkpoint(TRUNCATE)"); } catch (e) { console.warn("checkpoint before backup failed:", e.message); }
+  const dbPath = join(DATA_DIR, "cbre.db");
+  if (!fs.existsSync(dbPath)) return res.status(404).json({ error: "DB file not found" });
+  const stamp = new Date().toISOString().slice(0, 10);
+  audit(req.user.username, "backup_download", null, req);
+  res.download(dbPath, `cbre-backup-${stamp}.db`);
+});
+
 // ── AI Extraction (Anthropic Claude proxy) ──
 const extractLimiter = rateLimit({
   windowMs: 60 * 1000, max: 30, // 30 extractions/min per USER (not per shared office IP)
