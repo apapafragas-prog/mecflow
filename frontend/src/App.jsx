@@ -25,20 +25,6 @@ const CLIENTS = [
   "Goldman Sachs","Broadcom","Uber","Medtronic","Henkel","Opella","Kyndryl","Syngenta",
 ];
 
-const LOGOS = {
-  "FedEx":"fedex.com","Foundever":"foundever.com","Bloomberg":"bloomberg.com","LNW Hellas":"lnw.com",
-  "Lenovo":"lenovo.com","Minerva SA":"minerva.com","Dacia":"dacia.com","Pfizer":"pfizer.com",
-  "Mondelez":"mondelezinternational.com","Kenvue":"kenvue.com","IBM":"ibm.com","Iron Mountain":"ironmountain.com",
-  "Ericsson":"ericsson.com","Coca-Cola":"coca-cola.com","Novartis":"novartis.com","Citibank":"citigroup.com",
-  "Sanofi":"sanofi.com","GSK":"gsk.com","Google":"google.com","Philips":"philips.com",
-  "JPMorgan":"jpmorgan.com","Gilead":"gilead.com","Tetra Pak":"tetrapak.com","Dell":"dell.com",
-  "Worldline":"worldline.com","Bank of America":"bankofamerica.com","Sandoz":"sandoz.com",
-  "BP Hellas":"bp.com","GE":"ge.com","Goldman Sachs":"goldmansachs.com","Broadcom":"broadcom.com",
-  "Uber":"uber.com","Medtronic":"medtronic.com","Henkel":"henkel.com","Opella":"opella.com",
-  "Kyndryl":"kyndryl.com","Syngenta":"syngenta.com",
-};
-const logoUrl = (c) => LOGOS[c] ? `https://logo.clearbit.com/${LOGOS[c]}` : null;
-const logoUrl2 = (c) => LOGOS[c] ? `https://www.google.com/s2/favicons?domain=${LOGOS[c]}&sz=128` : null;
 
 const REPORT_STATUS = [{v:"draft",l:"Draft",color:"#78909C",bg:"#ECEFF1"},{v:"submitted",l:"Submitted by User",color:"#F57F17",bg:"#FFF8E1"},{v:"approved",l:"Approved by Finance",color:"#2E7D32",bg:"#E8F5E9"},{v:"rejected",l:"Rejected — Revise",color:"#C62828",bg:"#FFEBEE"}];
 
@@ -1003,18 +989,15 @@ function ClientPicker({user,year,setYear,onSelect,onLogout,allData,onOpenFinance
   );
 }
 
+// Self-hosted, dependency-free client avatar: deterministic colored initials.
+// (Was Clearbit/Google favicon fetches — removed to avoid external calls, privacy leak of the
+// client list, and offline breakage.)
 function LogoImg({name,size,radius}) {
-  const [src,setSrc] = useState(logoUrl(name));
-  const [err,setErr] = useState(0);
-  const fallback = () => {
-    if(err===0){setSrc(logoUrl2(name));setErr(1);}
-    else setErr(2);
-  };
+  const nm = name || "?";
   const sz = size||36; const rd = radius||8;
-  const color = (() => {const colors=["#003F2D","#00695C","#00897B","#0277BD","#1565C0","#283593","#4527A0","#6A1B9A","#AD1457","#C62828","#D84315","#EF6C00","#F9A825","#2E7D32","#00838F","#37474F"];let h=0;for(let i=0;i<name.length;i++)h=((h<<5)-h+name.charCodeAt(i))|0;return colors[Math.abs(h)%colors.length];})();
-  const ini = name.split(/[\s-]+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();
-  if(err>=2||!src) return <div style={{width:sz,height:sz,borderRadius:rd,background:color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:sz*0.36,flexShrink:0}}>{ini}</div>;
-  return <img src={src} alt="" style={{width:sz,height:sz,borderRadius:rd,objectFit:"contain",background:"#f5f5f5",padding:2,flexShrink:0}} onError={fallback} />;
+  const color = (() => {const colors=["#003F2D","#00695C","#00897B","#0277BD","#1565C0","#283593","#4527A0","#6A1B9A","#AD1457","#C62828","#D84315","#EF6C00","#F9A825","#2E7D32","#00838F","#37474F"];let h=0;for(let i=0;i<nm.length;i++)h=((h<<5)-h+nm.charCodeAt(i))|0;return colors[Math.abs(h)%colors.length];})();
+  const ini = nm.split(/[\s-]+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();
+  return <div style={{width:sz,height:sz,borderRadius:rd,background:color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:sz*0.36,flexShrink:0}}>{ini}</div>;
 }
 
 // Mandatory password change screen — shown when the account still uses a seeded/default password.
