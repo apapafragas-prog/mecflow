@@ -733,6 +733,53 @@ ${JSON.stringify(context, null, 2)}`;
   }
 });
 
+// ── AI Chat assistant: single-shot, client-supplied snapshot (no live DB tool-calling) ──
+const CHAT_DAILY_CAP = parseInt(process.env.CHAT_DAILY_CAP || "2000", 10);
+let chatDay = "", chatCount = 0; // in-memory daily circuit-breaker
+const chatLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 40, message: { error: "Πολλά αιτήματα — δοκίμασε σε λίγο." } });
+const CHAT_SYSTEM = `Είσαι ο AI βοηθός της πλατφόρμας αναφορών CBRE Hellas (Mecflow) — facility management, όλα σε EUR.
+Απάντα στα Ελληνικά, σύντομα και πρακτικά. Χρησιμοποίησε ΑΠΟΚΛΕΙΣΤΙΚΑ τα δεδομένα του SNAPSHOT που δίνει ο χρήστης — ΜΗΝ επινοείς νούμερα, πελάτες ή γεγονότα εκτός snapshot. Αν κάτι δεν υπάρχει, πες το και πρότεινε πού να κοιτάξει.
+
+Απάντα με ΑΥΣΤΗΡΟ JSON, ΜΟΝΟ το JSON (χωρίς markdown fences), σχήμα:
+{"text":"<η απάντηση· επιτρέπονται **bold** και γραμμές που ξεκινούν με - >","actions":[{"label":"<κουμπί>","view":"<στόχος>"}]}
+
+Το actions είναι προαιρετικό (0-3 στοιχεία). Έγκυρες τιμές "view":
+- "dashboard" (portfolio overview), "ledger" (AP/AR), "opex" (OPEX/CAPEX)
+- "tab:<id>" όπου id ∈ contracts|scan|pnl|insights|inv|sub|acc|lab (ΜΟΝΟ όταν υπάρχει ανοιχτός πελάτης)
+- "client:<name>:<tab>" για άνοιγμα συγκεκριμένου πελάτη σε tab (το name ΠΡΕΠΕΙ να υπάρχει στο snapshot)
+Πρότεινε actions μόνο όταν βοηθούν τον χρήστη να δράσει.`;
+
+app.post("/api/chat", auth, chatLimiter, async (req, res) => {
+  if (!anthropic) return res.status(503).json({ error: "AI δεν έχει ρυθμιστεί (λείπει ANTHROPIC_API_KEY)" });
+  const d = new Date().toISOString().slice(0, 10);
+  if (d !== chatDay) { chatDay = d; chatCount = 0; }
+  if (chatCount >= CHAT_DAILY_CAP) return res.status(429).json({ error: "Εξαντλήθηκε το ημερήσιο όριο AI. Δοκίμασε ξανά αύριο." });
+  const { question, history, snapshot } = req.body || {};
+  if (!question || typeof question !== "string") return res.status(400).json({ error: "Λείπει η ερώτηση" });
+  const hist = Array.isArray(history)
+    ? history.slice(-9).filter(m => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string").map(m => ({ role: m.role, content: m.content.slice(0, 4000) }))
+    : [];
+  const userMsg = `${String(question).slice(0, 2000)}\n\nΔΕΔΟΜΕΝΑ (snapshot — μόνο αυτά ισχύουν):\n${JSON.stringify(snapshot || {}).slice(0, 12000)}`;
+  chatCount++;
+  try {
+    const resp = await anthropic.messages.create({
+      model: "claude-sonnet-4-6", max_tokens: 1000, system: CHAT_SYSTEM,
+      messages: [...hist, { role: "user", content: userMsg }]
+    });
+    const raw = resp.content?.[0]?.text || "";
+    let parsed = { text: raw, actions: [] };
+    try {
+      const clean = raw.replace(/```json|```/g, "").trim();
+      const mm = clean.match(/\{[\s\S]*\}/);
+      if (mm) { const j = JSON.parse(mm[0]); parsed = { text: typeof j.text === "string" ? j.text : raw, actions: Array.isArray(j.actions) ? j.actions.slice(0, 3) : [] }; }
+    } catch { /* keep raw text fallback */ }
+    res.json(parsed);
+  } catch (e) {
+    console.error("Chat error:", e.message);
+    res.status(500).json({ error: "Το AI chat απέτυχε" });
+  }
+});
+
 // ── Health check ──
 app.get("/api/health", (req, res) => res.json({ status: "ok", ai_enabled: !!anthropic, email_enabled: EMAIL_ENABLED, timestamp: Date.now() }));
 

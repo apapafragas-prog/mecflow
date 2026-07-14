@@ -123,5 +123,18 @@ Hybrid: deterministic forecast/risk flags + on-demand Claude narrative (aggregat
   optimistic locking, then updates the local snapshot.
 - No backend changes — reuses existing data endpoints.
 
+## AI Chat assistant (2026-07) — DONE
+Metron-style: single-shot Anthropic call with a client-built snapshot (NOT live tool-calling).
+- Frontend `ChatWidget` (floating 🤖 FAB → panel), mounted on every authenticated screen via a
+  `withChat()` wrapper in App. localStorage history (cap 30, last 9 sent), context-aware suggestion
+  chips, XSS-safe mini-markdown, and clickable action chips that navigate (nav vocabulary:
+  dashboard | ledger | opex | tab:<id> | client:<name>:<tab>).
+- Snapshot builders (App.jsx): buildClientSnapshot (from the loaded cd) and buildPortfolioSnapshot
+  (fetches getYearData once, cached — access-filtered server-side). ~2-3KB, aggregated only.
+- Backend POST /api/chat: auth-gated, rate-limited (40/10min/IP), daily circuit-breaker
+  (CHAT_DAILY_CAP env, default 2000), single Anthropic call (claude-sonnet-4-6) with a strict-JSON
+  system prompt, defensive JSON parse (falls back to raw text). 503 if no key.
+- Available to ALL staff; snapshot is already permission-scoped. CHAT_DAILY_CAP added to compose.
+
 ### Still proposed (not started): myDATA/ΑΑΔΕ bridge (needs AADE credentials), Vendor/Customer
 ### master, GL/chart-of-accounts. See audit report artifact.

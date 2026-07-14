@@ -14,6 +14,7 @@ services:
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required — set it in .env (e.g. openssl rand -hex 48)}
       - CORS_ORIGIN=${CORS_ORIGIN:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - CHAT_DAILY_CAP=${CHAT_DAILY_CAP:-2000}
       - SMTP_HOST=${SMTP_HOST:-smtp.zoho.eu}
       - SMTP_PORT=${SMTP_PORT:-465}
       - SMTP_USER=${SMTP_USER:-}

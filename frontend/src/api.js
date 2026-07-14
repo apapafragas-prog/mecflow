@@ -105,6 +105,8 @@ export const api = {
   },
   // AI narrative insights over aggregated numbers (scope: "client" | "portfolio")
   getInsights: (scope, context) => req("/insights", { method: "POST", body: JSON.stringify({ scope, context }) }),
+  // AI chat assistant — single-shot with a client-built snapshot
+  chat: (question, history, snapshot) => req("/chat", { method: "POST", body: JSON.stringify({ question, history, snapshot }) }),
 
   // Audit
   audit: () => req("/audit"),
