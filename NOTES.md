@@ -80,4 +80,22 @@ Company-wide (not per-client) OPEX/CAPEX section for finance+admin.
 - Blob shape: { opex:{cats:[{id,label}], budget:{catId:{month:n}}, actual:{...}}, capex:[{id,desc,cat,amount,month,life,status,po}] }.
 - Verified: finance GET/PUT + 409 locking + ops 403; depreciation math unit-checked; vite build clean.
 
+## Section 07 improvements + remaining cleanups (2026-07) — DONE
+- Email notifications (Zoho SMTP) on report status: submit → finance/admin, approve/reject →
+  submitter (with reject reason). Fired from PUT /api/data only on a real status transition.
+- Portfolio Dashboard ("📊 Dashboard", all roles): loads all clients via getYearData →
+  real KPIs, monthly revenue/GM trend, completeness breakdown, pending-approvals inbox,
+  expiring-contracts (≤90d) list, top-clients-by-GM. GM = rev − sub − labour.
+- Contract expiry alerts (L-06): parseDate/daysUntil; badge on contract cards + dashboard list.
+- Import Excel: Merge vs Replace choice with a parsed-counts preview (was silent replace) — BUG-09.
+- DB backup: admin "⬇ Backup βάσης" → GET /api/backup (WAL checkpoint + stream cbre.db).
+- Cleanups: removed dead `acc` blob (L-01), dead python files (L-02), CORS credentials (L-08).
+- Frontend tests (L-07): pure calc helpers extracted to frontend/src/calc.js + vitest suite
+  (12 tests) + CI step. Run: `cd frontend && npm test`.
+
+### Deliberately NOT done (large / low value — flagged for the user):
+- L-04 global mutable MONTHS → React state (large architectural change; works today).
+- L-05 split the App.jsx monolith into components (large; no functional value; regression risk).
+- Self-hosted logos: left as-is (already degrades gracefully to colored initials on error).
+
 ### Still proposed (not started): AI analytics/forecasting, ERP/myDATA. See audit report artifact.
