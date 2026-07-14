@@ -111,7 +111,8 @@ const app = express();
 app.set('trust proxy', 1);
 // CORS: explicit origin allowlist from env; default = same-origin only (frontend is served by this server)
 const CORS_ORIGINS = (process.env.CORS_ORIGIN || "").split(",").map(s => s.trim()).filter(s => s && s !== "*");
-app.use(cors(CORS_ORIGINS.length ? { origin: CORS_ORIGINS, credentials: true } : { origin: false }));
+// Bearer-token auth (localStorage), not cookies → no credentials needed on CORS.
+app.use(cors(CORS_ORIGINS.length ? { origin: CORS_ORIGINS } : { origin: false }));
 app.use(express.json({ limit: "20mb" }));
 
 // Rate limit on login — keyed by username+IP (not bare IP) so the whole office,

@@ -74,7 +74,7 @@ const normalizeClientData = (c) => {
   const out = { ...c };
   if (Array.isArray(out.inv)) out.inv = out.inv.map(r => ({ ...r, month: remapMonth(r.month) }));
   if (Array.isArray(out.sub)) out.sub = out.sub.map(r => ({ ...r, month: remapMonth(r.month) }));
-  for (const key of ["lab", "acc"]) {
+  for (const key of ["lab"]) {
     const src = out[key];
     if (!src || typeof src !== "object") continue;
     const fixed = {};
@@ -102,13 +102,8 @@ const REV_CATS = ["CLIENT REVENUE - FM Core","CLIENT REVENUE - FM Extra Works","
 const COST_CATS = ["Subcontractors cost - FM Core","Subcontractors cost - FM Extra Works","Subcontractors cost - PJMs"];
 const SVC_CATS = ["Cleaning","Building Systems & maintenance","Waste Management","Handyman services","Office supplies","Kitchen supplies","Water supplies","Small works","Laundry services","Mail services","Pest Control","Landscaping","Security services","Catering services","Employee Convenience","Other"];
 const LAB_ROWS = [{k:"onsite",l:"CBRE On site team"},{k:"regional",l:"Regional Cost"},{k:"it",l:"IT Cost"},{k:"local",l:"Local Support"},{k:"sga",l:"SG&A"},{k:"other",l:"Other items"}];
-const AREV_UBR = [{k:"ubr_core",l:"FM Core"},{k:"ubr_ew",l:"FM Extra Works"},{k:"ubr_pjm",l:"FM PJM"}];
-const AREV_UER = [{k:"uer_core",l:"FM Core"},{k:"uer_ew",l:"FM Extra Works"},{k:"uer_pjm",l:"FM PJM"}];
-const ACST_UBR = [{k:"acc_ubr_core",l:"FM Core"},{k:"acc_ubr_ew",l:"FM Extra Works"},{k:"acc_ubr_pjm",l:"FM PJM"}];
-const ACST_UER = [{k:"acc_uer_core",l:"FM Core"},{k:"acc_uer_ew",l:"FM Extra Works"},{k:"acc_uer_pjm",l:"FM PJM"}];
-
 function mkLab() { const o = {}; MONTHS.forEach(m => { o[m] = {}; LAB_ROWS.forEach(r => { o[m][r.k] = 0; }); }); return o; }
-function mkAcc() { const o = {}; const allKeys=[...AREV_UBR,...AREV_UER,...ACST_UBR,...ACST_UER]; MONTHS.forEach(m => { o[m] = {}; allKeys.forEach(r => { o[m][r.k] = 0; }); }); return o; }
+// Accruals (AccTab) are computed live from inv/sub — no stored `acc` blob is kept.
 // Per-month allocation of total labour across the 3 segments (weights, default all to Core
 // so existing numbers are unchanged until finance allocates). Segments: core / ew / pjm.
 function mkAlloc() { const o = {}; MONTHS.forEach(m => { o[m] = {core:100,ew:0,pjm:0}; }); return o; }
@@ -189,7 +184,7 @@ export default function App() {
     const d = {};
     YEARS.forEach(y => {
       d[y] = {};
-      CLIENTS.forEach(c => { d[y][c] = {inv:[],sub:[],lab:mkLab(),labAlloc:mkAlloc(),acc:mkAcc(),contracts:[],docs:[],status:"draft",submittedBy:"",submittedAt:""}; });
+      CLIENTS.forEach(c => { d[y][c] = {inv:[],sub:[],lab:mkLab(),labAlloc:mkAlloc(),contracts:[],docs:[],status:"draft",submittedBy:"",submittedAt:""}; });
     });
     return d;
   });
@@ -288,7 +283,7 @@ export default function App() {
     const t = setTimeout(() => { doSave(year, client, rest); }, 500);
     return () => clearTimeout(t);
   // eslint-disable-next-line
-  }, [cd&&cd.inv,cd&&cd.sub,cd&&cd.lab,cd&&cd.labAlloc,cd&&cd.acc,cd&&cd.contracts,cd&&cd.status,cd&&cd.submittedBy,cd&&cd.submittedAt,cd&&cd.rejectNote, client, year]);
+  }, [cd&&cd.inv,cd&&cd.sub,cd&&cd.lab,cd&&cd.labAlloc,cd&&cd.contracts,cd&&cd.status,cd&&cd.submittedBy,cd&&cd.submittedAt,cd&&cd.rejectNote, client, year]);
   // Flush on tab hide / close so nothing is lost
   useEffect(() => {
     const onVis = () => { if(document.visibilityState==="hidden") flushSave(true); };
@@ -311,13 +306,12 @@ export default function App() {
     return <OpexCapex year={year} setYear={setYear} user={user} onBack={()=>setFinanceOpen(false)} onLogout={logout} />;
   if (!client) return <ClientPicker user={user} year={year} setYear={setYear} onSelect={c=>{setClient(c);setTab("contracts");}} onLogout={logout} allData={yd} onOpenFinance={()=>setFinanceOpen(true)} />;
 
-  const inv=cd.inv; const sub=cd.sub; const lab=cd.lab; const acc=cd.acc; const contracts=cd.contracts; const docs=cd.docs||[];
+  const inv=cd.inv; const sub=cd.sub; const lab=cd.lab; const contracts=cd.contracts; const docs=cd.docs||[];
   const labAlloc=cd.labAlloc||mkAlloc();
   const setInv=v=>upClient("inv",v);
   const setSub=v=>upClient("sub",v);
   const setLab=v=>upClient("lab",v);
   const setLabAlloc=v=>upClient("labAlloc",v);
-  const setAcc=v=>upClient("acc",v);
   const setContracts=v=>upClient("contracts",v);
   const setDocs=v=>upClient("docs",v);
 
@@ -808,7 +802,7 @@ export default function App() {
                       }
                     } catch(e) { console.warn("File cleanup failed:",e); }
                     // Reset local state — the debounced auto-save persists it with proper versioning
-                    setInv([]); setSub([]); setLab(mkLab()); setAcc(mkAcc()); setContracts([]); setDocs([]);
+                    setInv([]); setSub([]); setLab(mkLab()); setContracts([]); setDocs([]);
                     upClient("labAlloc",mkAlloc());
                     upClient("status","draft"); upClient("submittedBy",""); upClient("submittedAt","");
                   }} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",border:"none",background:"none",cursor:"pointer",fontSize:13,color:P.rd,fontWeight:600,textAlign:"left"}}>
@@ -851,7 +845,7 @@ export default function App() {
       <div style={{padding:20,maxWidth:1400,margin:"0 auto"}}>
         {tab==="contracts" && <ContractTab data={contracts} set={setContracts} inv={inv} docs={docs} setDocs={setDocs} year={year} client={client} />}
         {tab==="scan" && <Scan goTo={setTab} year={year} client={client} onAdd={items => setSub(p => [...p,...items.map(x => ({...x,id:uid()}))])} onAddAR={items => setInv(p => [...p,...items.map(x => ({...x,id:uid()}))])} />}
-        {tab==="pnl" && <PnL inv={inv} sub={sub} lab={lab} acc={acc} labAlloc={labAlloc} />}
+        {tab==="pnl" && <PnL inv={inv} sub={sub} lab={lab} labAlloc={labAlloc} />}
         {tab==="inv" && <InvTab data={inv} set={setInv} contracts={contracts} year={year} client={client} />}
         {tab==="sub" && <SubTab data={sub} set={setSub} contracts={contracts} year={year} client={client} />}
         {tab==="acc" && <AccTab inv={inv} sub={sub} />}
@@ -2045,7 +2039,7 @@ function Scan({onAdd,onAddAR,goTo,year,client}) {
   );
 }
 
-function PnL({inv,sub,lab,acc,labAlloc}) {
+function PnL({inv,sub,lab,labAlloc}) {
   const [drill,setDrill] = useState(null);
   const pnl = {};
   MONTHS.forEach(m => {
