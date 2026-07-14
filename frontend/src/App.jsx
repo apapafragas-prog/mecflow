@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { api, setToken, getToken } from "./api.js";
-import { allocFractions, depreciation, daysUntil } from "./calc.js";
+import { allocFractions, depreciation, daysUntil, runRateFY, clientRisks } from "./calc.js";
 import * as XLSX from "xlsx";
 // Bundled locally (no CDN dependency): zip handling + PDF rendering for the scanner
 import JSZip from "jszip";
@@ -157,6 +157,7 @@ export default function App() {
     {id:"contracts",lb:"📋 Contracts & POs"},
     {id:"scan",lb:"📄 Invoice Scanner"},
     {id:"pnl",lb:"P&L Report"},
+    {id:"insights",lb:"📈 Insights"},
     {id:"inv",lb:"CBRE Invoices"},
     {id:"sub",lb:"Sub Invoices"},
     {id:"acc",lb:"Accruals"},
@@ -848,6 +849,7 @@ export default function App() {
         {tab==="contracts" && <ContractTab data={contracts} set={setContracts} inv={inv} docs={docs} setDocs={setDocs} year={year} client={client} />}
         {tab==="scan" && <Scan goTo={setTab} year={year} client={client} onAdd={items => setSub(p => [...p,...items.map(x => ({...x,id:uid()}))])} onAddAR={items => setInv(p => [...p,...items.map(x => ({...x,id:uid()}))])} />}
         {tab==="pnl" && <PnL inv={inv} sub={sub} lab={lab} labAlloc={labAlloc} />}
+        {tab==="insights" && <Insights inv={inv} sub={sub} lab={lab} contracts={contracts} client={client} year={year} />}
         {tab==="inv" && <InvTab data={inv} set={setInv} contracts={contracts} year={year} client={client} />}
         {tab==="sub" && <SubTab data={sub} set={setSub} contracts={contracts} year={year} client={client} />}
         {tab==="acc" && <AccTab inv={inv} sub={sub} />}
@@ -2585,6 +2587,84 @@ function POTracker({inv,contracts}) {
   );
 }
 
+// AI analytics: deterministic forecast + risk flags, with an on-demand Claude narrative.
+function riskColor(l){ return l==="high"?P.rd:l==="med"?"#F57F17":"#78909C"; }
+function AiCard({scope,buildContext}) {
+  const [text,setText]=useState(""); const [busy,setBusy]=useState(false); const [err,setErr]=useState("");
+  const gen = async () => { setBusy(true); setErr(""); try { const r=await api.getInsights(scope, buildContext()); setText(r.text||"(κενή απάντηση)"); } catch(e){ setErr(e.status===503?"Το AI δεν έχει ρυθμιστεί (ANTHROPIC_API_KEY).":(e.message||"Απέτυχε")); } finally{ setBusy(false); } };
+  return (
+    <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16,marginTop:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:text?10:0}}>
+        <div style={{fontSize:13,fontWeight:700,color:P.em}}>🤖 AI σχολιασμός</div>
+        <button onClick={gen} disabled={busy} style={{background:P.em,color:"#fff",border:"none",padding:"6px 16px",borderRadius:6,cursor:busy?"wait":"pointer",fontSize:12,fontWeight:600,opacity:busy?.6:1}}>{busy?"Ανάλυση…":text?"↻ Ξανά":"✨ Δημιουργία σχολίου"}</button>
+      </div>
+      {err && <div style={{color:P.rd,fontSize:12,marginTop:8}}>{err}</div>}
+      {text && <div style={{fontSize:13.5,color:P.tx,lineHeight:1.6,whiteSpace:"pre-wrap",marginTop:6}}>{text}</div>}
+      {!text && !err && <div style={{fontSize:11,color:P.tm,marginTop:8}}>Το Claude γράφει σύντομο commentary & ρίσκα με βάση μόνο τα συγκεντρωτικά νούμερα (όχι επιμέρους τιμολόγια).</div>}
+    </div>
+  );
+}
+function Insights({inv,sub,lab,contracts,client,year}) {
+  const cd = {inv,sub,lab,contracts};
+  const series = clientSeries(cd, MONTHS);
+  const rr = runRateFY(series);
+  const risks = clientRisks(cd, MONTHS);
+  const activeSeries = series.filter(s=>s.rev||s.cost||s.labour);
+  const maxAbs = Math.max(1,...series.map(s=>Math.abs(s.gm)),...series.map(s=>s.rev));
+  const gmPct = rr.actual.rev? rr.actual.gm/rr.actual.rev : null;
+  const projGmPct = rr.projected.rev? rr.projected.gm/rr.projected.rev : null;
+  const buildContext = () => ({
+    client, year, monthsActive: rr.monthsActive,
+    actualFY: { rev:Math.round(rr.actual.rev), cost:Math.round(rr.actual.cost), labour:Math.round(rr.actual.labour), gm:Math.round(rr.actual.gm) },
+    projectedFY: { rev:Math.round(rr.projected.rev), cost:Math.round(rr.projected.cost), gm:Math.round(rr.projected.gm) },
+    gmPctActual: gmPct!=null?+(gmPct*100).toFixed(1):null,
+    monthly: activeSeries.map(s=>({month:ML[s.m]||s.m, rev:Math.round(s.rev), cost:Math.round(s.cost), gm:Math.round(s.gm)})),
+    risks: risks.map(r=>r.label),
+  });
+  const kpi=(l,v,c,pct)=>(<div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:10,padding:"12px 14px"}}><div style={{fontSize:11,color:P.tm}}>{l}</div><div style={{fontSize:19,fontWeight:800,color:c,marginTop:4}}>{pct?fPct(v):"€"+fmt(v)}</div></div>);
+  return (
+    <div>
+      <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 6px"}}>Insights & Forecast — {client}</h2>
+      <p style={{fontSize:12,color:P.tm,margin:"0 0 16px"}}>Πρόβλεψη έτους (run-rate σε {rr.monthsActive} ενεργούς μήνες) + αυτόματα risk flags. Το AI σχόλιο είναι προαιρετικό.</p>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:12,marginBottom:8}}>
+        {kpi("Revenue — actual",rr.actual.rev,P.gn)}
+        {kpi("Revenue — προβλ. έτους",rr.projected.rev,P.em)}
+        {kpi("GM — actual",rr.actual.gm,rr.actual.gm>=0?P.gn:P.rd)}
+        {kpi("GM — προβλ. έτους",rr.projected.gm,rr.projected.gm>=0?P.em:P.rd)}
+        {kpi("GM% — actual",gmPct,P.tx,true)}
+        {kpi("GM% — προβλ.",projGmPct,P.em,true)}
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1.6fr 1fr",gap:16,alignItems:"start",marginTop:8}}>
+        <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16}}>
+          <div style={{fontSize:13,fontWeight:700,color:P.em,marginBottom:12}}>Μηνιαία εξέλιξη GM</div>
+          {activeSeries.length? series.map(x=>(
+            <div key={x.m} style={{display:"flex",alignItems:"center",gap:8,fontSize:11,marginBottom:5}}>
+              <span style={{width:44,color:P.tm,flexShrink:0}}>{ML[x.m]}</span>
+              <div style={{flex:1,background:"#eef2ef",borderRadius:4,height:14,position:"relative",overflow:"hidden"}}>
+                <div style={{position:"absolute",left:0,top:0,bottom:0,width:(Math.max(0,x.gm)/maxAbs*100)+"%",background:x.gm>=0?P.em:P.rd,opacity:.85}} />
+              </div>
+              <span style={{width:78,textAlign:"right",color:x.gm>=0?P.em:P.rd,fontWeight:600,flexShrink:0}}>{fmt(x.gm)}</span>
+            </div>
+          )) : <div style={{fontSize:12,color:P.tm,fontStyle:"italic"}}>Δεν υπάρχουν δεδομένα ακόμη.</div>}
+        </div>
+        <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16}}>
+          <div style={{fontSize:13,fontWeight:700,color:P.rd,marginBottom:10}}>⚠️ Risk flags ({risks.length})</div>
+          {risks.length? risks.map((r,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:i<risks.length-1?"1px solid "+P.bd:"none",fontSize:12.5}}>
+              <span style={{width:8,height:8,borderRadius:"50%",background:riskColor(r.level),flexShrink:0}} />
+              <span style={{color:P.tx}}>{r.label}</span>
+            </div>
+          )) : <div style={{fontSize:12,color:P.gn,fontStyle:"italic"}}>Κανένα ρίσκο εντοπίστηκε 🎉</div>}
+        </div>
+      </div>
+
+      <AiCard scope="client" buildContext={buildContext} />
+    </div>
+  );
+}
+
 // Consolidated portfolio dashboard (finance/admin + ops for their own clients).
 // Loads ALL clients' data for the year at once via getYearData — so totals are real,
 // not just the clients visited this session.
@@ -2617,13 +2697,13 @@ function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
 
   // Monthly aggregates across all clients
   const monthly = MONTHS.map(m=>{
-    let rev=0,cost=0,lab=0;
+    let rev=0,cost=0,labour=0;
     Object.values(data||{}).forEach(cd=>{
       (cd?.inv||[]).forEach(i=>{ if(i.month===m) rev+=Number(i.amt)||0; });
       (cd?.sub||[]).forEach(i=>{ if(i.month===m) cost+=Number(i.amt)||0; });
-      if(cd?.lab?.[m]) lab+=Object.values(cd.lab[m]).reduce((s,v)=>s+(Number(v)||0),0);
+      if(cd?.lab?.[m]) labour+=Object.values(cd.lab[m]).reduce((s,v)=>s+(Number(v)||0),0);
     });
-    return {m,rev,cost,lab,gm:rev-cost-lab};
+    return {m,rev,cost,labour,gm:rev-cost-labour};
   });
   const maxRev = Math.max(1,...monthly.map(x=>x.rev));
 
@@ -2740,6 +2820,43 @@ function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
                     </tr>
                   ))}</tbody>
                 </table>
+              </div>
+            );
+          })()}
+
+          {/* Portfolio forecast + AI */}
+          {(()=>{
+            const rr = runRateFY(monthly);
+            const projGmPct = rr.projected.rev? rr.projected.gm/rr.projected.rev : null;
+            const riskyClients = Object.entries(data||{}).map(([name,cd])=>{ const rk=clientRisks(cd,MONTHS); const high=rk.filter(r=>r.level==="high").length; return {name,high,total:rk.length,labels:rk.map(r=>r.label)}; }).filter(c=>c.total>0).sort((a,b)=>b.high-a.high||b.total-a.total);
+            const buildContext = () => ({
+              year, clients: rows.length, activeClients: active.length,
+              actualFY: { rev:Math.round(totRev), cost:Math.round(totCost), labour:Math.round(totLab), gm:Math.round(totGM) },
+              projectedFY: { rev:Math.round(rr.projected.rev), cost:Math.round(rr.projected.cost), gm:Math.round(rr.projected.gm) },
+              gmPctActual: totRev?+((totGM/totRev)*100).toFixed(1):null,
+              pendingApprovals: pending.length,
+              monthly: monthly.filter(x=>x.rev||x.cost).map(x=>({month:ML[x.m]||x.m, rev:Math.round(x.rev), cost:Math.round(x.cost), gm:Math.round(x.gm)})),
+              clientsAtRisk: riskyClients.slice(0,10).map(c=>({client:c.name, risks:c.labels})),
+            });
+            return (
+              <div style={{marginTop:16}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:12}}>
+                  <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:10,padding:"14px 16px"}}><div style={{fontSize:12,color:P.tm}}>Προβλ. Revenue έτους</div><div style={{fontSize:20,fontWeight:800,color:P.em,marginTop:5}}>€{fmt(rr.projected.rev)}</div></div>
+                  <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:10,padding:"14px 16px"}}><div style={{fontSize:12,color:P.tm}}>Προβλ. GM έτους</div><div style={{fontSize:20,fontWeight:800,color:rr.projected.gm>=0?P.gn:P.rd,marginTop:5}}>€{fmt(rr.projected.gm)}</div></div>
+                  <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:10,padding:"14px 16px"}}><div style={{fontSize:12,color:P.tm}}>Προβλ. GM%</div><div style={{fontSize:20,fontWeight:800,color:P.em,marginTop:5}}>{fPct(projGmPct)}</div></div>
+                </div>
+                {riskyClients.length>0 && (
+                  <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16,marginBottom:12}}>
+                    <div style={{fontSize:13,fontWeight:700,color:P.rd,marginBottom:10}}>⚠️ Πελάτες με ρίσκα ({riskyClients.length})</div>
+                    {riskyClients.slice(0,8).map(c=>(
+                      <div key={c.name} onClick={()=>onSelectClient&&onSelectClient(c.name)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid "+P.bd,cursor:"pointer",fontSize:12.5}}>
+                        <span style={{fontWeight:600,color:P.em}}>{c.name}</span>
+                        <span style={{fontSize:11,color:P.tm}}>{c.high>0&&<span style={{color:P.rd,fontWeight:700,marginRight:8}}>{c.high} high</span>}{c.total} συνολικά</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <AiCard scope="portfolio" buildContext={buildContext} />
               </div>
             );
           })()}

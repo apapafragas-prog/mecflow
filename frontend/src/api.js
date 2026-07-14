@@ -103,6 +103,8 @@ export const api = {
     fd.append("file", file);
     return req("/extract/contract", { method: "POST", body: fd });
   },
+  // AI narrative insights over aggregated numbers (scope: "client" | "portfolio")
+  getInsights: (scope, context) => req("/insights", { method: "POST", body: JSON.stringify({ scope, context }) }),
 
   // Audit
   audit: () => req("/audit"),

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { monthIdx, depreciation, allocFractions, parseDate, daysUntil } from "./calc.js";
+import { monthIdx, depreciation, allocFractions, parseDate, daysUntil, clientSeries, linregSlope, runRateFY, clientRisks } from "./calc.js";
 
 const FY26 = Array.from({ length: 12 }, (_, i) => `2026-${String(i + 1).padStart(2, "0")}`);
 
@@ -68,5 +68,44 @@ describe("parseDate / daysUntil", () => {
     expect(daysUntil("2026-01-31", now)).toBe(30);
     expect(daysUntil("2025-12-22", now)).toBe(-10);
     expect(daysUntil("", now)).toBe(null);
+  });
+});
+
+describe("analytics helpers", () => {
+  const cd = {
+    inv: [{ month: "2026-01", amt: 1000 }, { month: "2026-02", amt: 1200 }, { month: "2026-03", amt: 800 }],
+    sub: [{ month: "2026-01", amt: 400 }, { month: "2026-02", amt: 500 }],
+    lab: { "2026-01": { onsite: 100 } },
+  };
+  it("clientSeries computes per-month rev/cost/labour/gm", () => {
+    const s = clientSeries(cd, FY26);
+    expect(s[0]).toEqual({ m: "2026-01", rev: 1000, cost: 400, labour: 100, gm: 500 });
+    expect(s[1]).toEqual({ m: "2026-02", rev: 1200, cost: 500, labour: 0, gm: 700 });
+    expect(s[11].rev).toBe(0);
+  });
+  it("linregSlope detects rising/falling", () => {
+    expect(linregSlope([1, 2, 3, 4])).toBeCloseTo(1, 6);
+    expect(linregSlope([4, 3, 2, 1])).toBeCloseTo(-1, 6);
+    expect(linregSlope([5])).toBe(0);
+  });
+  it("runRateFY annualizes the active-month average", () => {
+    const rr = runRateFY(clientSeries(cd, FY26));
+    expect(rr.monthsActive).toBe(3);
+    expect(rr.actual.rev).toBe(3000);
+    expect(rr.projected.rev).toBe(3000 / 3 * 12); // 12000
+  });
+  it("clientRisks flags an over-budget PO and an expiring contract", () => {
+    const now = new Date(2026, 0, 1);
+    const data = {
+      inv: [{ month: "2026-01", amt: 1000, po_no: "PO1", act_acc: "ACTUAL" }],
+      sub: [], lab: {},
+      contracts: [
+        { type: "PO", po: "PO1", po_value: 800, status: "Active" },
+        { type: "MSA", ref: "M1", expiry: "2026-02-10", status: "Active" },
+      ],
+    };
+    const r = clientRisks(data, FY26, now);
+    expect(r.some(x => x.label.includes("PO1") && x.level === "high")).toBe(true);
+    expect(r.some(x => x.label.includes("Λήγει"))).toBe(true);
   });
 });

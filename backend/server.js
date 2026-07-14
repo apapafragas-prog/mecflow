@@ -704,6 +704,35 @@ Rules:
   }
 });
 
+// ── AI Insights: narrative commentary over AGGREGATED numbers only (no raw invoices) ──
+const insightsLimiter = rateLimit({
+  windowMs: 60 * 1000, max: 20,
+  keyGenerator: (req) => (req.user ? `u${req.user.id}` : req.ip)
+});
+app.post("/api/insights", auth, insightsLimiter, async (req, res) => {
+  if (!anthropic) return res.status(503).json({ error: "AI δεν έχει ρυθμιστεί (λείπει ANTHROPIC_API_KEY)" });
+  const scope = (req.body && req.body.scope) === "portfolio" ? "portfolio" : "client";
+  const context = (req.body && req.body.context) || {};
+  const prompt = `Είσαι έμπειρος οικονομικός αναλυτής για την CBRE Hellas (facility management, όλα σε EUR).
+Με βάση ΑΠΟΚΛΕΙΣΤΙΚΑ τα παρακάτω συγκεντρωτικά στοιχεία (${scope === "portfolio" ? "όλο το χαρτοφυλάκιο" : "ένας πελάτης"}), γράψε σύντομο, πρακτικό commentary στα Ελληνικά.
+Δομή:
+• 2-3 προτάσεις για την τάση/πρόβλεψη (revenue, κόστος, GM).
+• Bullet list με τα κύρια ρίσκα (αν υπάρχουν στα δεδομένα).
+• 1-2 συγκεκριμένες συστάσεις/ενέργειες.
+Κανόνες: ΜΗΝ επινοείς νούμερα ή γεγονότα εκτός των δεδομένων. Κράτα το κάτω από 180 λέξεις. Χωρίς markdown headers.
+
+ΔΕΔΟΜΕΝΑ:
+${JSON.stringify(context, null, 2)}`;
+  try {
+    const resp = await anthropic.messages.create({ model: "claude-sonnet-4-6", max_tokens: 700, messages: [{ role: "user", content: prompt }] });
+    const text = resp.content?.[0]?.text || "";
+    res.json({ text });
+  } catch (e) {
+    console.error("Insights error:", e.message);
+    res.status(500).json({ error: e.message || "AI insight failed" });
+  }
+});
+
 // ── Health check ──
 app.get("/api/health", (req, res) => res.json({ status: "ok", ai_enabled: !!anthropic, email_enabled: EMAIL_ENABLED, timestamp: Date.now() }));
 

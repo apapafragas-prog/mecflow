@@ -43,3 +43,77 @@ export const parseDate = (s) => {
 };
 // Whole days from now until the date (negative = past). `now` injectable for tests.
 export const daysUntil = (s, now = new Date()) => { const d = parseDate(s); if (!d) return null; return Math.ceil((d - now) / 86400000); };
+
+// ── Analytics / forecasting (deterministic — the AI narrative sits on top of these) ──
+
+// Per-month revenue / cost / labour / GM series for a client's data blob.
+export const clientSeries = (cd, months) => {
+  const inv = cd?.inv || [], sub = cd?.sub || [], lab = cd?.lab || {};
+  return months.map(m => {
+    const rev = inv.filter(i => i.month === m).reduce((s, i) => s + (Number(i.amt) || 0), 0);
+    const cost = sub.filter(i => i.month === m).reduce((s, i) => s + (Number(i.amt) || 0), 0);
+    const labour = lab[m] ? Object.values(lab[m]).reduce((s, v) => s + (Number(v) || 0), 0) : 0;
+    return { m, rev, cost, labour, gm: rev - cost - labour };
+  });
+};
+
+// Linear-regression slope over an array of numbers (x = index). >0 rising, <0 falling.
+export const linregSlope = (ys) => {
+  const n = ys.length; if (n < 2) return 0;
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  ys.forEach((y, x) => { sx += x; sy += y; sxx += x * x; sxy += x * y; });
+  const d = n * sxx - sx * sx; if (!d) return 0;
+  return (n * sxy - sx * sy) / d;
+};
+
+// Run-rate full-year projection from actuals-to-date (annualize the average of active months).
+export const runRateFY = (series, totalMonths = 12) => {
+  const active = series.filter(s => s.rev !== 0 || s.cost !== 0 || s.labour !== 0);
+  const nA = active.length;
+  const sum = k => series.reduce((s, x) => s + x[k], 0);
+  const proj = k => nA > 0 ? (sum(k) / nA) * totalMonths : 0;
+  return {
+    monthsActive: nA,
+    actual: { rev: sum("rev"), cost: sum("cost"), labour: sum("labour"), gm: sum("gm") },
+    projected: { rev: proj("rev"), cost: proj("cost"), labour: proj("labour"), gm: proj("gm") },
+  };
+};
+
+// Deterministic risk flags for a client. `now` injectable for tests. Levels: high | med | low.
+export const clientRisks = (cd, months, now = new Date()) => {
+  const risks = [];
+  const s = clientSeries(cd, months);
+  const active = s.filter(x => x.rev || x.cost || x.labour);
+  const rr = runRateFY(s);
+  const totRev = rr.actual.rev, totGM = rr.actual.gm;
+  if (totRev > 0) {
+    const m = totGM / totRev;
+    if (m < 0) risks.push({ level: "high", label: `Αρνητικό GM (${(m * 100).toFixed(1)}%)` });
+    else if (m < 0.05) risks.push({ level: "med", label: `Χαμηλό GM (${(m * 100).toFixed(1)}%)` });
+  }
+  const gmVals = active.map(x => x.gm);
+  if (gmVals.length >= 3 && linregSlope(gmVals.slice(-3)) < 0 && linregSlope(gmVals) < 0)
+    risks.push({ level: "med", label: "Φθίνον GM τους τελευταίους μήνες" });
+  const costs = active.map(x => x.cost).filter(c => c > 0);
+  if (costs.length >= 3) {
+    const avg = costs.reduce((a, b) => a + b, 0) / costs.length, mx = Math.max(...costs);
+    if (mx > avg * 1.8) risks.push({ level: "low", label: "Απότομη αύξηση κόστους σε κάποιον μήνα" });
+  }
+  const contracts = cd?.contracts || [], inv = cd?.inv || [];
+  contracts.forEach(c => {
+    if (c.status === "Terminated" || c.status === "Expired") return;
+    const dd = daysUntil(c.expiry, now);
+    if (dd != null && dd < 0) risks.push({ level: "med", label: `Έληξε: ${c.type} ${c.ref || ""}`.trim() });
+    else if (dd != null && dd <= 60) risks.push({ level: "med", label: `Λήγει σε ${dd}μ: ${c.type} ${c.ref || ""}`.trim() });
+  });
+  contracts.filter(c => c.type === "PO" && c.po).forEach(c => {
+    const spent = inv.filter(i => i.po_no === c.po && (i.act_acc || "").toUpperCase() === "ACTUAL").reduce((s, i) => s + (Number(i.amt) || 0), 0);
+    const budget = Number(c.po_value) || 0;
+    if (budget > 0) {
+      const p = spent / budget;
+      if (p > 1) risks.push({ level: "high", label: `PO ${c.po} ξεπέρασε το budget (${(p * 100).toFixed(0)}%)` });
+      else if (p > 0.9) risks.push({ level: "med", label: `PO ${c.po} κοντά σε εξάντληση (${(p * 100).toFixed(0)}%)` });
+    }
+  });
+  return risks;
+};

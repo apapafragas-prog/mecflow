@@ -98,4 +98,17 @@ Company-wide (not per-client) OPEX/CAPEX section for finance+admin.
 - L-05 split the App.jsx monolith into components (large; no functional value; regression risk).
 - Self-hosted logos: left as-is (already degrades gracefully to colored initials on error).
 
-### Still proposed (not started): AI analytics/forecasting, ERP/myDATA. See audit report artifact.
+## AI Analytics & Forecasting (2026-07) — DONE
+Hybrid: deterministic forecast/risk flags + on-demand Claude narrative (aggregated numbers only).
+- calc.js: clientSeries, linregSlope, runRateFY (run-rate annualization), clientRisks
+  (low GM / negative GM / falling GM / cost spike / expiring contract / PO over-budget).
+  Unit-tested in calc.test.js (now 16 tests total).
+- Backend: POST /api/insights (auth + rate-limited) — sends ONLY aggregated numbers to Claude
+  (model claude-sonnet-4-6), returns Greek commentary. 503 if ANTHROPIC_API_KEY unset.
+- Per-client "📈 Insights" tab: projected-FY KPIs (actual vs run-rate), monthly GM trend,
+  risk flags, and an "AI σχολιασμός" card (on-demand button → /api/insights).
+- Portfolio: dashboard gains projected-FY tiles, a clients-at-risk list, and a portfolio
+  AI-summary card. AiCard component is shared by both scopes.
+- Privacy: only aggregated monthly/total figures + risk labels are sent to the AI — never raw invoices.
+
+### Still proposed (not started): ERP/myDATA. See audit report artifact.
