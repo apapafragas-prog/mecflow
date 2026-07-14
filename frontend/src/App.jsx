@@ -164,6 +164,7 @@ export default function App() {
 
   const [client, setClient] = useState(null);
   const [financeOpen, setFinanceOpen] = useState(false);
+  const [dashOpen, setDashOpen] = useState(false);
   const [year, setYear] = useState("FY26");
   setFiscalYear(year); // render-safe (idempotent): keeps MONTHS/ML aligned with the selected FY
   const [tab, setTab] = useState("contracts");
@@ -302,9 +303,11 @@ export default function App() {
   if (authChecking) return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Segoe UI,sans-serif",color:"#003F2D",fontSize:14}}>Loading…</div>;
   if (!user) return <Login onLogin={setUser} />;
   if (user.mustChange) return <ForcePw onDone={()=>setUser(p=>({...p,mustChange:false}))} onLogout={logout} />;
+  if (!client && dashOpen)
+    return <Dashboard year={year} setYear={setYear} user={user} onBack={()=>setDashOpen(false)} onLogout={logout} onSelectClient={c=>{setDashOpen(false);setClient(c);setTab("contracts");}} />;
   if (!client && financeOpen && (user.role==="finance"||user.role==="admin"))
     return <OpexCapex year={year} setYear={setYear} user={user} onBack={()=>setFinanceOpen(false)} onLogout={logout} />;
-  if (!client) return <ClientPicker user={user} year={year} setYear={setYear} onSelect={c=>{setClient(c);setTab("contracts");}} onLogout={logout} allData={yd} onOpenFinance={()=>setFinanceOpen(true)} />;
+  if (!client) return <ClientPicker user={user} year={year} setYear={setYear} onSelect={c=>{setClient(c);setTab("contracts");}} onLogout={logout} allData={yd} onOpenFinance={()=>setFinanceOpen(true)} onOpenDash={()=>setDashOpen(true)} />;
 
   const inv=cd.inv; const sub=cd.sub; const lab=cd.lab; const contracts=cd.contracts; const docs=cd.docs||[];
   const labAlloc=cd.labAlloc||mkAlloc();
@@ -855,7 +858,7 @@ export default function App() {
   );
 }
 
-function ClientPicker({user,year,setYear,onSelect,onLogout,allData,onOpenFinance}) {
+function ClientPicker({user,year,setYear,onSelect,onLogout,allData,onOpenFinance,onOpenDash}) {
   const [search,setSearch] = useState("");
   const [sort,setSort] = useState("name");
   const [adminOpen,setAdminOpen] = useState(false);
@@ -900,6 +903,7 @@ function ClientPicker({user,year,setYear,onSelect,onLogout,allData,onOpenFinance
         <div style={{display:"flex",alignItems:"center",gap:10,fontSize:13}}>
           <span style={{opacity:.7}}>{user.name}</span>
           {isAdmin&&<span style={{background:"rgba(255,255,255,.2)",padding:"2px 8px",borderRadius:10,fontSize:10}}>ADMIN</span>}
+          <button onClick={onOpenDash} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>📊 Dashboard</button>
           {(user.role==="finance"||user.role==="admin")&&<button onClick={onOpenFinance} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>💰 OPEX/CAPEX</button>}
           {user.role==="admin"&&<button onClick={()=>setAdminOpen(true)} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>⚙️ Admin</button>}
           <button onClick={onLogout} style={{background:"rgba(255,255,255,.12)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>Logout</button>
@@ -2577,6 +2581,167 @@ function POTracker({inv,contracts}) {
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+// Consolidated portfolio dashboard (finance/admin + ops for their own clients).
+// Loads ALL clients' data for the year at once via getYearData — so totals are real,
+// not just the clients visited this session.
+function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
+  const [data,setData] = useState(null);
+  const [loading,setLoading] = useState(true);
+
+  useEffect(()=>{
+    let cancelled=false; setLoading(true);
+    api.getYearData(year).then(d=>{ if(!cancelled){ setData(d||{}); setLoading(false); } }).catch(()=>{ if(!cancelled){ setData({}); setLoading(false); } });
+    return ()=>{cancelled=true;};
+  },[year]);
+
+  const clientStats = (cd) => {
+    const inv=cd?.inv||[], sub=cd?.sub||[], lab=cd?.lab||{};
+    const rev=inv.reduce((s,i)=>s+(Number(i.amt)||0),0);
+    const cost=sub.reduce((s,i)=>s+(Number(i.amt)||0),0);
+    const labour=Object.values(lab).reduce((s,mo)=>s+Object.values(mo||{}).reduce((s2,v)=>s2+(Number(v)||0),0),0);
+    return {rev,cost,labour,gm:rev-cost-labour,status:cd?.status||"draft",inv:inv.length,sub:sub.length};
+  };
+  const rows = Object.entries(data||{}).map(([name,cd])=>({name,...clientStats(cd)}));
+  const active = rows.filter(r=>r.inv>0||r.sub>0);
+  const totRev = rows.reduce((s,r)=>s+r.rev,0);
+  const totCost = rows.reduce((s,r)=>s+r.cost,0);
+  const totLab = rows.reduce((s,r)=>s+r.labour,0);
+  const totGM = totRev-totCost-totLab;
+  const byStatus = (st)=>rows.filter(r=>r.status===st).length;
+  const pending = rows.filter(r=>r.status==="submitted").sort((a,b)=>b.rev-a.rev);
+  const topGM = [...active].sort((a,b)=>b.gm-a.gm).slice(0,8);
+
+  // Monthly aggregates across all clients
+  const monthly = MONTHS.map(m=>{
+    let rev=0,cost=0,lab=0;
+    Object.values(data||{}).forEach(cd=>{
+      (cd?.inv||[]).forEach(i=>{ if(i.month===m) rev+=Number(i.amt)||0; });
+      (cd?.sub||[]).forEach(i=>{ if(i.month===m) cost+=Number(i.amt)||0; });
+      if(cd?.lab?.[m]) lab+=Object.values(cd.lab[m]).reduce((s,v)=>s+(Number(v)||0),0);
+    });
+    return {m,rev,cost,lab,gm:rev-cost-lab};
+  });
+  const maxRev = Math.max(1,...monthly.map(x=>x.rev));
+
+  const kpi = (l,v,c,pct)=>(
+    <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:10,padding:"14px 16px",boxShadow:"0 1px 2px rgba(0,0,0,.04)"}}>
+      <div style={{fontSize:12,color:P.tm}}>{l}</div>
+      <div style={{fontSize:22,fontWeight:800,color:c,marginTop:5}}>{pct?fPct(v):"€"+fmt(v)}</div>
+    </div>
+  );
+  const st = s => REPORT_STATUS.find(x=>x.v===s)||REPORT_STATUS[0];
+
+  return (
+    <div style={{minHeight:"100vh",background:P.of,fontFamily:"Segoe UI,Tahoma,sans-serif"}}>
+      <div style={{background:P.em,color:"#fff",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:16}}>
+          <span style={{fontWeight:800,fontSize:20,letterSpacing:1}}>CBRE</span>
+          <button onClick={onBack} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",padding:"4px 12px",borderRadius:4,cursor:"pointer",fontSize:12}}>◀ Clients</button>
+          <span style={{fontSize:14,fontWeight:600,borderLeft:"1px solid rgba(255,255,255,.3)",paddingLeft:12}}>📊 Portfolio Dashboard — {year}</span>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10,fontSize:13}}>
+          <span style={{opacity:.7}}>{user.name}</span>
+          <button onClick={onLogout} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>Logout</button>
+        </div>
+      </div>
+
+      <div style={{maxWidth:1300,margin:"0 auto",padding:"18px 24px"}}>
+        <div style={{display:"flex",gap:8,marginBottom:16}}>
+          {YEARS.map(y=>(<button key={y} onClick={()=>setYear(y)} style={{padding:"6px 16px",border:year===y?"2px solid "+P.em:"1px solid "+P.bd,borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:year===y?700:400,background:year===y?P.em:P.wh,color:year===y?"#fff":P.tx}}>{y}</button>))}
+        </div>
+
+        {loading ? <div style={{padding:40,textAlign:"center",color:P.tm}}>Loading…</div> : (
+        <>
+          {/* KPIs */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:12,marginBottom:20}}>
+            {kpi("Total Revenue",totRev,P.gn)}
+            {kpi("Total Cost (sub)",totCost,P.tx)}
+            {kpi("Labour",totLab,P.tx)}
+            {kpi("Gross Margin",totGM,totGM>=0?P.gn:P.rd)}
+            {kpi("GM %",totRev?totGM/totRev:null,P.em,true)}
+            <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:10,padding:"14px 16px"}}>
+              <div style={{fontSize:12,color:P.tm}}>Active clients</div>
+              <div style={{fontSize:22,fontWeight:800,color:P.em,marginTop:5}}>{active.length}<span style={{fontSize:13,color:P.tm,fontWeight:400}}> / {rows.length}</span></div>
+            </div>
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:16,alignItems:"start"}}>
+            {/* Monthly trend */}
+            <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16}}>
+              <div style={{fontSize:13,fontWeight:700,color:P.em,marginBottom:12}}>Μηνιαία τάση — Revenue / GM</div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {monthly.map(x=>(
+                  <div key={x.m} style={{display:"flex",alignItems:"center",gap:8,fontSize:11}}>
+                    <span style={{width:44,color:P.tm,flexShrink:0}}>{ML[x.m]}</span>
+                    <div style={{flex:1,background:"#eef2ef",borderRadius:4,height:16,position:"relative",overflow:"hidden"}}>
+                      <div style={{position:"absolute",left:0,top:0,bottom:0,width:(x.rev/maxRev*100)+"%",background:P.ep}} />
+                      <div style={{position:"absolute",left:0,top:0,bottom:0,width:(Math.max(0,x.gm)/maxRev*100)+"%",background:P.em,opacity:.85}} />
+                    </div>
+                    <span style={{width:78,textAlign:"right",color:P.gn,flexShrink:0}}>{fmt(x.rev)}</span>
+                    <span style={{width:78,textAlign:"right",color:x.gm>=0?P.em:P.rd,fontWeight:600,flexShrink:0}}>{fmt(x.gm)}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{display:"flex",gap:16,marginTop:10,fontSize:10,color:P.tm}}>
+                <span><span style={{display:"inline-block",width:10,height:10,background:P.ep,borderRadius:2,verticalAlign:"middle",marginRight:4}} />Revenue</span>
+                <span><span style={{display:"inline-block",width:10,height:10,background:P.em,borderRadius:2,verticalAlign:"middle",marginRight:4}} />GM</span>
+              </div>
+            </div>
+
+            {/* Completeness + pending */}
+            <div style={{display:"flex",flexDirection:"column",gap:16}}>
+              <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16}}>
+                <div style={{fontSize:13,fontWeight:700,color:P.em,marginBottom:10}}>Πληρότητα αναφορών</div>
+                {(()=>{ const ap=byStatus("approved"),su=byStatus("submitted"),rj=byStatus("rejected"),n=rows.length||1;
+                  return (<>
+                    <div style={{display:"flex",height:14,borderRadius:7,overflow:"hidden",marginBottom:10,background:"#ECEFF1"}}>
+                      <div style={{width:(ap/n*100)+"%",background:"#2E7D32"}} title={`Approved ${ap}`} />
+                      <div style={{width:(su/n*100)+"%",background:"#F57F17"}} title={`Submitted ${su}`} />
+                      <div style={{width:(rj/n*100)+"%",background:"#C62828"}} title={`Rejected ${rj}`} />
+                    </div>
+                    {[["Approved",ap,"#2E7D32"],["Submitted (pending)",su,"#F57F17"],["Rejected",rj,"#C62828"],["Draft",byStatus("draft"),"#78909C"]].map(([l,v,c])=>(
+                      <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"3px 0"}}><span style={{color:c,fontWeight:600}}>● {l}</span><span style={{fontWeight:700}}>{v}</span></div>
+                    ))}
+                  </>);
+                })()}
+              </div>
+              <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#F57F17",marginBottom:10}}>⏳ Εκκρεμούν έγκριση ({pending.length})</div>
+                {pending.length? pending.slice(0,8).map(p=>(
+                  <div key={p.name} onClick={()=>onSelectClient&&onSelectClient(p.name)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid "+P.bd,cursor:"pointer",fontSize:12}}>
+                    <span style={{fontWeight:600,color:P.em}}>{p.name}</span><span style={{color:P.gn}}>€{fmt(p.rev)}</span>
+                  </div>
+                )) : <div style={{fontSize:12,color:P.tm,fontStyle:"italic"}}>Καμία εκκρεμότητα 🎉</div>}
+              </div>
+            </div>
+          </div>
+
+          {/* Top clients by GM */}
+          <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16,marginTop:16}}>
+            <div style={{fontSize:13,fontWeight:700,color:P.em,marginBottom:10}}>Top πελάτες κατά GM</div>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+              <thead><tr>{["#","Πελάτης","Revenue €","Cost €","Labour €","GM €","GM%","Status"].map((h,i)=>(<th key={i} style={{padding:"6px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:i>=2&&i<=6?"right":"left"}}>{h}</th>))}</tr></thead>
+              <tbody>{topGM.map((r,i)=>{ const s=st(r.status); return (
+                <tr key={r.name} onClick={()=>onSelectClient&&onSelectClient(r.name)} style={{background:i%2===0?P.wh:P.al,cursor:"pointer"}}>
+                  <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,color:P.tm}}>{i+1}</td>
+                  <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,fontWeight:600,color:P.em}}>{r.name}</td>
+                  <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",color:P.gn}}>{fmt(r.rev)}</td>
+                  <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right"}}>{fmt(r.cost)}</td>
+                  <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right"}}>{fmt(r.labour)}</td>
+                  <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",fontWeight:600,color:r.gm>=0?P.em:P.rd}}>{fmt(r.gm)}</td>
+                  <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",color:P.tm}}>{r.rev?fPct(r.gm/r.rev):"-"}</td>
+                  <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd}}><span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:s.bg,color:s.color}}>{s.l}</span></td>
+                </tr>
+              ); })}</tbody>
+            </table>
+          </div>
+        </>
+        )}
+      </div>
     </div>
   );
 }

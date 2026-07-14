@@ -106,6 +106,33 @@ const resetEmailHtml = (name, link) => `
       <p style="font-size:12px;color:#5F7567;word-break:break-all">${link}</p>
     </div>
   </div>`;
+const notifyHtml = (title, body, link) => `
+  <div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;margin:0 auto;color:#1A2E23">
+    <div style="background:#003F2D;color:#fff;padding:18px 24px;border-radius:10px 10px 0 0;font-size:18px;font-weight:700">CBRE Reporting — ${title}</div>
+    <div style="border:1px solid #D5DDD8;border-top:none;border-radius:0 0 10px 10px;padding:24px">
+      <p style="font-size:15px">${body}</p>
+      <p style="text-align:center;margin:24px 0"><a href="${link}" style="background:#003F2D;color:#fff;text-decoration:none;padding:11px 26px;border-radius:6px;font-weight:600;display:inline-block">Άνοιγμα πλατφόρμας</a></p>
+      <p style="font-size:12px;color:#5F7567">Αυτόματη ειδοποίηση από την πλατφόρμα αναφορών CBRE Hellas.</p>
+    </div>
+  </div>`;
+const emailsForRoles = (roles) => db.prepare("SELECT name, email, role FROM users WHERE email IS NOT NULL AND email != ''").all().filter(u => roles.includes(u.role));
+const emailForName = (nm) => db.prepare("SELECT email FROM users WHERE name = ? AND email IS NOT NULL AND email != ''").get(nm);
+// Fire report-status notifications (best-effort — never blocks the save).
+const notifyStatusChange = (year, client, newStatus, payload, req) => {
+  if (!EMAIL_ENABLED) return;
+  const base = (APP_BASE_URL || `${req.protocol}://${req.headers.host}`).replace(/\/$/, "");
+  const send = (to, subj, body) => sendEmail(to, subj, notifyHtml(subj, body, base)).catch(e => console.error("notify email failed:", e.message));
+  if (newStatus === "submitted") {
+    const who = payload.submittedBy || req.user.name || "χρήστης";
+    for (const r of emailsForRoles(["finance", "admin"])) send(r.email, `Report προς έγκριση — ${client} ${year}`, `Ο/Η <b>${who}</b> υπέβαλε το report για <b>${client}</b> (${year}) προς έγκριση.`);
+  } else if (newStatus === "approved" || newStatus === "rejected") {
+    const sub = payload.submittedBy && emailForName(payload.submittedBy);
+    if (sub && sub.email) {
+      if (newStatus === "approved") send(sub.email, `✓ Εγκρίθηκε — ${client} ${year}`, `Το report σου για <b>${client}</b> (${year}) <b>εγκρίθηκε</b> από το Finance.`);
+      else send(sub.email, `Χρειάζεται διόρθωση — ${client} ${year}`, `Το report σου για <b>${client}</b> (${year}) <b>απορρίφθηκε</b> και χρειάζεται διόρθωση.${payload.rejectNote ? `<br><br><b>Λόγος:</b> ${payload.rejectNote}` : ""}`);
+    }
+  }
+};
 
 const app = express();
 app.set('trust proxy', 1);
@@ -302,7 +329,7 @@ app.put("/api/data/:year/:client", auth, (req, res) => {
   const hasEnvelope = req.body && typeof req.body === "object" && req.body.data !== undefined && ("baseVersion" in req.body);
   const payload = hasEnvelope ? req.body.data : req.body;
   const baseVersion = hasEnvelope ? Number(req.body.baseVersion) : undefined;
-  const row = db.prepare("SELECT version FROM client_data WHERE year = ? AND client = ?").get(year, client);
+  const row = db.prepare("SELECT version, data FROM client_data WHERE year = ? AND client = ?").get(year, client);
   const currentVersion = row ? (row.version || 0) : 0;
   if (baseVersion !== undefined && !Number.isNaN(baseVersion) && row && currentVersion !== baseVersion) {
     return res.status(409).json({ error: "Data was modified by another user", version: currentVersion });
@@ -313,6 +340,12 @@ app.put("/api/data/:year/:client", auth, (req, res) => {
     ON CONFLICT(year, client) DO UPDATE SET data=excluded.data, version=excluded.version, updated_at=excluded.updated_at, updated_by=excluded.updated_by`);
   upsert.run(year, client, JSON.stringify(payload), newVersion, req.user.username);
   res.json({ ok: true, version: newVersion });
+  // Report-status notifications: only on an actual status transition (best-effort, after the response).
+  try {
+    let oldStatus = "draft"; try { oldStatus = (row && JSON.parse(row.data).status) || "draft"; } catch {}
+    const newStatus = (payload && payload.status) || "draft";
+    if (newStatus !== oldStatus && ["submitted", "approved", "rejected"].includes(newStatus)) notifyStatusChange(year, client, newStatus, payload, req);
+  } catch (e) { console.error("status-notify error:", e.message); }
 });
 
 app.get("/api/data/:year", auth, (req, res) => {
