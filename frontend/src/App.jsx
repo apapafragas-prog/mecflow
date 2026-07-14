@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { api, setToken, getToken } from "./api.js";
-import { allocFractions, depreciation, daysUntil, clientSeries, runRateFY, clientRisks } from "./calc.js";
+import { allocFractions, depreciation, parseDate, daysUntil, clientSeries, runRateFY, clientRisks, agingBucket, AGING_BUCKETS } from "./calc.js";
 import * as XLSX from "xlsx";
 // Bundled locally (no CDN dependency): zip handling + PDF rendering for the scanner
 import JSZip from "jszip";
@@ -150,6 +150,7 @@ export default function App() {
   const [client, setClient] = useState(null);
   const [financeOpen, setFinanceOpen] = useState(false);
   const [dashOpen, setDashOpen] = useState(false);
+  const [ledgerOpen, setLedgerOpen] = useState(false);
   const [year, setYear] = useState("FY26");
   setFiscalYear(year); // render-safe (idempotent): keeps MONTHS/ML aligned with the selected FY
   const [tab, setTab] = useState("contracts");
@@ -291,9 +292,11 @@ export default function App() {
   if (user.mustChange) return <ForcePw onDone={()=>setUser(p=>({...p,mustChange:false}))} onLogout={logout} />;
   if (!client && dashOpen)
     return <Dashboard year={year} setYear={setYear} user={user} onBack={()=>setDashOpen(false)} onLogout={logout} onSelectClient={c=>{setDashOpen(false);setClient(c);setTab("contracts");}} />;
+  if (!client && ledgerOpen && (user.role==="finance"||user.role==="admin"))
+    return <ApArLedger year={year} setYear={setYear} user={user} onBack={()=>setLedgerOpen(false)} onLogout={logout} onSelectClient={c=>{setLedgerOpen(false);setClient(c);setTab("inv");}} />;
   if (!client && financeOpen && (user.role==="finance"||user.role==="admin"))
     return <OpexCapex year={year} setYear={setYear} user={user} onBack={()=>setFinanceOpen(false)} onLogout={logout} />;
-  if (!client) return <ClientPicker user={user} year={year} setYear={setYear} onSelect={c=>{setClient(c);setTab("contracts");}} onLogout={logout} allData={yd} onOpenFinance={()=>setFinanceOpen(true)} onOpenDash={()=>setDashOpen(true)} />;
+  if (!client) return <ClientPicker user={user} year={year} setYear={setYear} onSelect={c=>{setClient(c);setTab("contracts");}} onLogout={logout} allData={yd} onOpenFinance={()=>setFinanceOpen(true)} onOpenDash={()=>setDashOpen(true)} onOpenLedger={()=>setLedgerOpen(true)} />;
 
   const inv=cd.inv; const sub=cd.sub; const lab=cd.lab; const contracts=cd.contracts; const docs=cd.docs||[];
   const labAlloc=cd.labAlloc||mkAlloc();
@@ -859,7 +862,7 @@ export default function App() {
   );
 }
 
-function ClientPicker({user,year,setYear,onSelect,onLogout,allData,onOpenFinance,onOpenDash}) {
+function ClientPicker({user,year,setYear,onSelect,onLogout,allData,onOpenFinance,onOpenDash,onOpenLedger}) {
   const [search,setSearch] = useState("");
   const [sort,setSort] = useState("name");
   const [adminOpen,setAdminOpen] = useState(false);
@@ -905,6 +908,7 @@ function ClientPicker({user,year,setYear,onSelect,onLogout,allData,onOpenFinance
           <span style={{opacity:.7}}>{user.name}</span>
           {isAdmin&&<span style={{background:"rgba(255,255,255,.2)",padding:"2px 8px",borderRadius:10,fontSize:10}}>ADMIN</span>}
           <button onClick={onOpenDash} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>📊 Dashboard</button>
+          {(user.role==="finance"||user.role==="admin")&&<button onClick={onOpenLedger} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>📒 AP/AR</button>}
           {(user.role==="finance"||user.role==="admin")&&<button onClick={onOpenFinance} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>💰 OPEX/CAPEX</button>}
           {user.role==="admin"&&<button onClick={()=>setAdminOpen(true)} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>⚙️ Admin</button>}
           <button onClick={onLogout} style={{background:"rgba(255,255,255,.12)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>Logout</button>
@@ -2261,6 +2265,7 @@ function InvTab({data,set,contracts,year,client}) {
         {k:"comments",l:"Comments",edit:true,mw:100},
         {k:"act_acc",l:"Act/Acc",opts:[{v:"ACTUAL",l:"ACTUAL"},{v:"ACCRUAL",l:"ACCRUAL"}],mw:90},
         {k:"po_no",l:"PO No",opts:poOpts,mw:100},
+        {k:"paid",l:"Πληρωμή",opts:[{v:"",l:"Unpaid"},{v:"paid",l:"Paid"}],mw:80},
         {k:"docId",l:"File",mw:80,r:(v,row)=>row&&row.docId?(<span style={{whiteSpace:"nowrap"}}><a href="#" onClick={async e=>{e.preventDefault();try{window.open(await api.getFileLink(year,client,row.docId),"_blank");}catch{alert("Could not open file");}}} title="Preview" style={{textDecoration:"none",marginRight:8,fontSize:15}}>👁</a><a href="#" onClick={async e=>{e.preventDefault();try{window.location.assign(await api.getFileLink(year,client,row.docId,true));}catch{alert("Could not download file");}}} title="Download" style={{textDecoration:"none",fontSize:15}}>⬇</a></span>):<span style={{color:P.tm}}>—</span>}
       ]} data={data} del={id=>set(p=>p.filter(x=>x.id!==id))} onEdit={(id,k,v)=>set(p=>p.map(r=>r.id===id?{...r,[k]:v,total:k==="amt"||k==="vat"?(k==="amt"?parseFloat(v)||0:r.amt)+(k==="vat"?parseFloat(v)||0:r.vat):r.total}:r))} />
     </div>
@@ -2312,6 +2317,7 @@ function SubTab({data,set,contracts,year,client}) {
         {k:"cbre_bill",l:"CBRE Billing €",a:"right",r:fmt},
         {k:"act_acc",l:"Act/Acc",opts:[{v:"ACTUAL",l:"ACTUAL"},{v:"ACCRUAL",l:"ACCRUAL"}],mw:90},
         {k:"comments",l:"Comments",edit:true,mw:100},
+        {k:"paid",l:"Πληρωμή",opts:[{v:"",l:"Unpaid"},{v:"paid",l:"Paid"}],mw:80},
         {k:"docId",l:"File",mw:80,r:(v,row)=>row&&row.docId?(<span style={{whiteSpace:"nowrap"}}><a href="#" onClick={async e=>{e.preventDefault();try{window.open(await api.getFileLink(year,client,row.docId),"_blank");}catch{alert("Could not open file");}}} title="Preview" style={{textDecoration:"none",marginRight:8,fontSize:15}}>👁</a><a href="#" onClick={async e=>{e.preventDefault();try{window.location.assign(await api.getFileLink(year,client,row.docId,true));}catch{alert("Could not download file");}}} title="Download" style={{textDecoration:"none",fontSize:15}}>⬇</a></span>):<span style={{color:P.tm}}>—</span>}
       ]} data={data} del={id=>set(p=>p.filter(x=>x.id!==id))} onEdit={edit} />
     </div>
@@ -2880,6 +2886,151 @@ function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
               ); })}</tbody>
             </table>
           </div>
+        </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// AP/AR ledger + aging (finance + admin). AR = client (CBRE) invoices owed to us;
+// AP = supplier (sub) invoices we owe. Aggregated across all clients via getYearData.
+function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
+  const [data,setData] = useState(null);
+  const [loading,setLoading] = useState(true);
+  const [view,setView] = useState("AR");        // AR | AP
+  const [terms,setTerms] = useState(30);          // payment terms in days (0 = from invoice date)
+  const [showPaid,setShowPaid] = useState(false);
+  const [busy,setBusy] = useState("");
+
+  const load = () => { setLoading(true); api.getYearData(year).then(d=>{ setData(d||{}); setLoading(false); }).catch(()=>{ setData({}); setLoading(false); }); };
+  useEffect(()=>{ load(); /* eslint-disable-next-line */ },[year]);
+
+  const amt = r => Number(r.total) || (Number(r.amt)||0)+(Number(r.vat)||0) || Number(r.amt) || 0;
+  // Build ledger entries for the current view across all clients.
+  const entries = [];
+  Object.entries(data||{}).forEach(([client,cd])=>{
+    const list = view==="AR" ? (cd?.inv||[]) : (cd?.sub||[]);
+    list.forEach(r=>{
+      const paid = r.paid==="paid" || r.paid===true;
+      entries.push({ client, id:r.id, counterparty: view==="AR" ? client : (r.supplier||"—"), invNo:r.inv_no||"", date:r.date||"", amount:amt(r), paid, bucket: agingBucket(r.date, terms) });
+    });
+  });
+  const open = entries.filter(e=>!e.paid);
+  const visible = (showPaid ? entries : open).slice().sort((a,b)=>(parseDate(b.date)?.getTime()||0)-(parseDate(a.date)?.getTime()||0));
+  const totalOpen = open.reduce((s,e)=>s+e.amount,0);
+  const overdue = open.filter(e=>e.bucket!=="current"&&e.bucket!=="unknown").reduce((s,e)=>s+e.amount,0);
+  const bucketTotal = b => open.filter(e=>e.bucket===b).reduce((s,e)=>s+e.amount,0);
+  // Per-counterparty aging
+  const byCp = {};
+  open.forEach(e=>{ const k=e.counterparty; if(!byCp[k]) byCp[k]={cp:k,total:0,client:e.client}; byCp[k][e.bucket]=(byCp[k][e.bucket]||0)+e.amount; byCp[k].total+=e.amount; });
+  const cpRows = Object.values(byCp).sort((a,b)=>b.total-a.total);
+
+  const markPaid = async (e) => {
+    const list = view==="AR" ? "inv" : "sub";
+    setBusy(e.client+e.id);
+    try {
+      const r = await api.getClientData(year, e.client);
+      const cd = r?.data; if(!cd || !Array.isArray(cd[list])) throw new Error("Δεν βρέθηκαν δεδομένα");
+      const row = cd[list].find(x=>x.id===e.id); if(!row) throw new Error("Δεν βρέθηκε το τιμολόγιο");
+      const nowPaid = !(row.paid==="paid"||row.paid===true);
+      row.paid = nowPaid ? "paid" : ""; row.paid_date = nowPaid ? new Date().toISOString().slice(0,10) : "";
+      await api.saveClientData(year, e.client, cd, r.version);
+      setData(p=>({ ...p, [e.client]: cd }));
+    } catch(err){ alert("Δεν αποθηκεύτηκε: "+(err.message||"σφάλμα")); }
+    finally{ setBusy(""); }
+  };
+
+  const bucketColor = {current:P.gn,"1-30":"#9E9D24","31-60":"#F57F17","61-90":"#EF6C00","90+":P.rd,unknown:P.tm};
+  const termLabel = terms===0 ? "από ημ/νία τιμολογίου" : `Net ${terms}`;
+
+  return (
+    <div style={{minHeight:"100vh",background:P.of,fontFamily:"Segoe UI,Tahoma,sans-serif"}}>
+      <div style={{background:P.em,color:"#fff",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:16}}>
+          <span style={{fontWeight:800,fontSize:20,letterSpacing:1}}>CBRE</span>
+          <button onClick={onBack} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",padding:"4px 12px",borderRadius:4,cursor:"pointer",fontSize:12}}>◀ Clients</button>
+          <span style={{fontSize:14,fontWeight:600,borderLeft:"1px solid rgba(255,255,255,.3)",paddingLeft:12}}>📒 AP / AR Ledger — {year}</span>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10,fontSize:13}}>
+          <span style={{opacity:.7}}>{user.name}</span>
+          <button onClick={onLogout} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>Logout</button>
+        </div>
+      </div>
+
+      <div style={{maxWidth:1300,margin:"0 auto",padding:"18px 24px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:12}}>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            {YEARS.map(y=>(<button key={y} onClick={()=>setYear(y)} style={{padding:"6px 14px",border:year===y?"2px solid "+P.em:"1px solid "+P.bd,borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:year===y?700:400,background:year===y?P.em:P.wh,color:year===y?"#fff":P.tx}}>{y}</button>))}
+          </div>
+          <div style={{display:"flex",gap:0,background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:4}}>
+            <button onClick={()=>setView("AR")} style={{background:view==="AR"?P.em:"transparent",color:view==="AR"?"#fff":P.tx,border:"none",padding:"7px 18px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>📤 AR — Πελάτες (εισπρακτέα)</button>
+            <button onClick={()=>setView("AP")} style={{background:view==="AP"?P.em:"transparent",color:view==="AP"?"#fff":P.tx,border:"none",padding:"7px 18px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>📥 AP — Προμηθευτές (πληρωτέα)</button>
+          </div>
+        </div>
+
+        <div style={{display:"flex",gap:14,alignItems:"center",marginBottom:16,flexWrap:"wrap"}}>
+          <span style={{fontSize:12,color:P.tm}}>Όροι πληρωμής:</span>
+          {[{v:30,l:"Net 30"},{v:60,l:"Net 60"},{v:0,l:"Από ημ/νία"}].map(t=>(
+            <button key={t.v} onClick={()=>setTerms(t.v)} style={{padding:"5px 12px",border:"1px solid "+P.bd,borderRadius:6,cursor:"pointer",fontSize:12,background:terms===t.v?P.ep:P.wh,color:P.tx,fontWeight:terms===t.v?700:400}}>{t.l}</button>
+          ))}
+          <label style={{fontSize:12,color:P.tm,display:"flex",alignItems:"center",gap:6,marginLeft:8,cursor:"pointer"}}><input type="checkbox" checked={showPaid} onChange={e=>setShowPaid(e.target.checked)} /> Εμφάνιση εξοφλημένων</label>
+        </div>
+
+        {loading ? <div style={{padding:40,textAlign:"center",color:P.tm}}>Loading…</div> : (
+        <>
+          {/* KPIs + aging buckets */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:12,marginBottom:18}}>
+            <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:10,padding:"14px 16px"}}><div style={{fontSize:12,color:P.tm}}>{view==="AR"?"Εισπρακτέα":"Πληρωτέα"} (ανοιχτά)</div><div style={{fontSize:22,fontWeight:800,color:P.em,marginTop:5}}>€{fmt(totalOpen)}</div></div>
+            <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:10,padding:"14px 16px"}}><div style={{fontSize:12,color:P.tm}}>Ληξιπρόθεσμα</div><div style={{fontSize:22,fontWeight:800,color:overdue>0?P.rd:P.gn,marginTop:5}}>€{fmt(overdue)}</div></div>
+            {AGING_BUCKETS.map(b=>(
+              <div key={b} style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:10,padding:"14px 16px"}}>
+                <div style={{fontSize:12,color:bucketColor[b]}}>● {b==="current"?"Τρέχον":b+" ημ"}</div>
+                <div style={{fontSize:18,fontWeight:700,color:P.tx,marginTop:5}}>€{fmt(bucketTotal(b))}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Per-counterparty aging */}
+          <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,marginBottom:16,overflowX:"auto"}}>
+            <div style={{padding:"10px 16px",fontSize:13,fontWeight:700,color:P.em,borderBottom:"1px solid "+P.bd}}>Aging ανά {view==="AR"?"πελάτη":"προμηθευτή"} ({termLabel})</div>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:820}}>
+              <thead><tr>{[view==="AR"?"Πελάτης":"Προμηθευτής","Τρέχον","1-30","31-60","61-90","90+","Σύνολο"].map((h,i)=>(<th key={i} style={{padding:"7px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:i===0?"left":"right"}}>{h}</th>))}</tr></thead>
+              <tbody>
+                {cpRows.map((r,i)=>(
+                  <tr key={r.cp} onClick={()=>view==="AR"&&onSelectClient&&onSelectClient(r.cp)} style={{background:i%2===0?P.wh:P.al,cursor:view==="AR"?"pointer":"default"}}>
+                    <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,fontWeight:600,color:P.em}}>{r.cp}</td>
+                    {AGING_BUCKETS.map(b=><td key={b} style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",color:(r[b]&&b!=="current")?bucketColor[b]:P.tx}}>{r[b]?fmt(r[b]):"-"}</td>)}
+                    <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",fontWeight:700,color:P.em}}>{fmt(r.total)}</td>
+                  </tr>
+                ))}
+                {!cpRows.length && <tr><td colSpan={7} style={{padding:24,textAlign:"center",color:P.tm,fontStyle:"italic"}}>Κανένα ανοιχτό υπόλοιπο 🎉</td></tr>}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Open items */}
+          <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,overflowX:"auto"}}>
+            <div style={{padding:"10px 16px",fontSize:13,fontWeight:700,color:P.em,borderBottom:"1px solid "+P.bd}}>{showPaid?"Όλα τα παραστατικά":"Ανοιχτά παραστατικά"} ({visible.length})</div>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:820}}>
+              <thead><tr>{["Ημ/νία",view==="AR"?"Πελάτης":"Προμηθευτής","Αρ. Τιμ.","Ποσό €","Aging","",].map((h,i)=>(<th key={i} style={{padding:"7px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:h==="Ποσό €"?"right":"left"}}>{h}</th>))}</tr></thead>
+              <tbody>
+                {visible.map((e,i)=>(
+                  <tr key={e.client+e.id+i} style={{background:e.paid?"#F1F8E9":i%2===0?P.wh:P.al}}>
+                    <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd}}>{e.date||"—"}</td>
+                    <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,fontWeight:600,color:P.em}}>{e.counterparty}{view==="AP"&&<span style={{fontSize:10,color:P.tm}}> ({e.client})</span>}</td>
+                    <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd}}>{e.invNo||"—"}</td>
+                    <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",fontWeight:600}}>{fmt(e.amount)}</td>
+                    <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd}}>{e.paid?<span style={{color:P.gn,fontWeight:600}}>✓ Paid</span>:<span style={{color:bucketColor[e.bucket],fontWeight:600}}>{e.bucket==="current"?"Τρέχον":e.bucket}</span>}</td>
+                    <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right"}}>
+                      <button onClick={()=>markPaid(e)} disabled={busy===e.client+e.id} style={{background:e.paid?"#FFF3E0":P.ep,color:e.paid?"#E65100":P.em,border:"none",padding:"3px 10px",borderRadius:4,fontSize:11,fontWeight:600,cursor:busy?"wait":"pointer"}}>{busy===e.client+e.id?"…":e.paid?"↩ Unpay":"✓ Paid"}</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{fontSize:11,color:P.tm,marginTop:8}}>Aging βάσει {termLabel}. Το «Paid» ενημερώνει το τιμολόγιο στον αντίστοιχο πελάτη (με έλεγχο έκδοσης).</div>
         </>
         )}
       </div>

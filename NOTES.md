@@ -111,4 +111,17 @@ Hybrid: deterministic forecast/risk flags + on-demand Claude narrative (aggregat
   AI-summary card. AiCard component is shared by both scopes.
 - Privacy: only aggregated monthly/total figures + risk labels are sent to the AI — never raw invoices.
 
-### Still proposed (not started): ERP/myDATA. See audit report artifact.
+## ERP — AP/AR Ledger + Aging (2026-07) — DONE (first ERP piece)
+- Payment tracking: new `paid` field ("paid"/"") + `paid_date` on inv/sub rows. Editable
+  "Πληρωμή" column added to CBRE Invoices and Sub Invoices tabs (no schema change — plain data).
+- calc.js: agingBucket(invoiceDate, termsDays) → current/1-30/31-60/61-90/90+ (unit-tested; 17 total).
+- ApArLedger view ("📒 AP/AR" button on client picker, finance/admin): loads all clients via
+  getYearData. AR = client invoices (receivable), AP = supplier sub invoices (payable). UI terms
+  selector (Net 30 / Net 60 / from invoice date). KPIs (open, overdue), aging-bucket tiles,
+  per-counterparty aging table, and an open-items list with a "Paid/Unpay" toggle.
+- Mark-paid writes back safely: getClientData (fresh + version) → set paid → saveClientData with
+  optimistic locking, then updates the local snapshot.
+- No backend changes — reuses existing data endpoints.
+
+### Still proposed (not started): myDATA/ΑΑΔΕ bridge (needs AADE credentials), Vendor/Customer
+### master, GL/chart-of-accounts. See audit report artifact.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { monthIdx, depreciation, allocFractions, parseDate, daysUntil, clientSeries, linregSlope, runRateFY, clientRisks } from "./calc.js";
+import { monthIdx, depreciation, allocFractions, parseDate, daysUntil, clientSeries, linregSlope, runRateFY, clientRisks, agingBucket } from "./calc.js";
 
 const FY26 = Array.from({ length: 12 }, (_, i) => `2026-${String(i + 1).padStart(2, "0")}`);
 
@@ -93,6 +93,14 @@ describe("analytics helpers", () => {
     expect(rr.monthsActive).toBe(3);
     expect(rr.actual.rev).toBe(3000);
     expect(rr.projected.rev).toBe(3000 / 3 * 12); // 12000
+  });
+  it("agingBucket classifies by days past due (Net 30)", () => {
+    const now = new Date(2026, 3, 1); // 1 Apr 2026
+    expect(agingBucket("2026-03-20", 30, now)).toBe("current"); // due 19 Apr → not due
+    expect(agingBucket("2026-03-01", 30, now)).toBe("1-30");    // due 31 Mar → 1d overdue
+    expect(agingBucket("2026-01-01", 30, now)).toBe("31-60");   // due 31 Jan → 60d overdue
+    expect(agingBucket("2025-10-01", 30, now)).toBe("90+");
+    expect(agingBucket("", 30, now)).toBe("unknown");
   });
   it("clientRisks flags an over-budget PO and an expiring contract", () => {
     const now = new Date(2026, 0, 1);

@@ -44,6 +44,20 @@ export const parseDate = (s) => {
 // Whole days from now until the date (negative = past). `now` injectable for tests.
 export const daysUntil = (s, now = new Date()) => { const d = parseDate(s); if (!d) return null; return Math.ceil((d - now) / 86400000); };
 
+// AP/AR aging bucket for an invoice, given payment terms in days (0 = age from invoice date).
+// Buckets are by days past the due date. `now` injectable for tests.
+export const agingBucket = (invoiceDate, termsDays, now = new Date()) => {
+  const d = parseDate(invoiceDate); if (!d) return "unknown";
+  const due = new Date(d.getTime()); due.setDate(due.getDate() + (Number(termsDays) || 0));
+  const overdue = Math.floor((now - due) / 86400000);
+  if (overdue <= 0) return "current";
+  if (overdue <= 30) return "1-30";
+  if (overdue <= 60) return "31-60";
+  if (overdue <= 90) return "61-90";
+  return "90+";
+};
+export const AGING_BUCKETS = ["current", "1-30", "31-60", "61-90", "90+"];
+
 // ── Analytics / forecasting (deterministic — the AI narrative sits on top of these) ──
 
 // Per-month revenue / cost / labour / GM series for a client's data blob.
