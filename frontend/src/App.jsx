@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { api, setToken, getToken } from "./api.js";
-import { allocFractions, depreciation, daysUntil, runRateFY, clientRisks } from "./calc.js";
+import { allocFractions, depreciation, daysUntil, clientSeries, runRateFY, clientRisks } from "./calc.js";
 import * as XLSX from "xlsx";
 // Bundled locally (no CDN dependency): zip handling + PDF rendering for the scanner
 import JSZip from "jszip";
