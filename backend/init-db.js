@@ -36,6 +36,14 @@ db.exec(`
     created_at INTEGER DEFAULT (strftime('%s','now'))
   );
 
+  CREATE TABLE IF NOT EXISTS finance_data (
+    year TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    version INTEGER DEFAULT 0,
+    updated_at INTEGER DEFAULT (strftime('%s','now')),
+    updated_by TEXT
+  );
+
   CREATE TABLE IF NOT EXISTS client_data (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     year TEXT NOT NULL,

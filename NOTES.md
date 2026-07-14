@@ -66,5 +66,18 @@ Full platform audit done; these were fixed and are safe to deploy:
   export (P&L sheet now has 3 labour lines; GM formulas subtract the matching segment's labour).
 - **UBR/UER** sign-based split confirmed correct by finance — no change.
 
-### Bigger modules proposed (not started): OPEX/CAPEX section, AI analytics/forecasting, ERP/myDATA.
-See the audit report artifact for the full roadmap.
+## OPEX / CAPEX module (2026-07) — DONE
+Company-wide (not per-client) OPEX/CAPEX section for finance+admin.
+- Backend: new `finance_data` table (one JSON blob per FY), `GET/PUT /api/finance/:year`
+  gated by requireRole("finance","admin"), optimistic locking (409) like client_data.
+- Frontend: `OpexCapex` full-screen view, opened via a "💰 OPEX/CAPEX" button on the client
+  picker (finance/admin only). Three sub-tabs:
+  - OPEX: editable category grid × months with an Actual / Budget / Variance toggle (variance =
+    actual−budget, red = over budget). Categories are add/rename/delete.
+  - CAPEX: register (desc, category, value, acquisition month, useful life, status, PO) with
+    straight-line depreciation columns computed live (monthly, accumulated-to-FY-end, NBV).
+  - Summary: KPI tiles + OPEX budget-vs-actual per category.
+- Blob shape: { opex:{cats:[{id,label}], budget:{catId:{month:n}}, actual:{...}}, capex:[{id,desc,cat,amount,month,life,status,po}] }.
+- Verified: finance GET/PUT + 409 locking + ops 403; depreciation math unit-checked; vite build clean.
+
+### Still proposed (not started): AI analytics/forecasting, ERP/myDATA. See audit report artifact.

@@ -128,6 +128,28 @@ const fPct = n => (n == null || isNaN(n) || !isFinite(n)) ? "-" : (n*100).toFixe
 
 const YEARS = ["FY24","FY25","FY26","FY27"];
 
+// ── Company-wide OPEX / CAPEX (finance/admin) ──
+const DEFAULT_OPEX_CATS = ["Payroll & overhead","Rent","Utilities","IT & Software","Telecom","Travel","Professional fees","Insurance","Office supplies","Marketing","Training","Other"];
+const CAPEX_CATS = ["IT Equipment","Furniture & Fixtures","Vehicles","Leasehold improvements","Software (capitalised)","Machinery","Other"];
+const CAPEX_STATUS = [{v:"Planned",c:"#78909C"},{v:"Approved",c:"#0277BD"},{v:"In progress",c:"#F57F17"},{v:"Capitalised",c:"#2E7D32"}];
+// Absolute month index (year*12 + month-1) from a "YYYY-MM" key, for depreciation math.
+const monthIdx = (ym) => { const m=/^(\d{4})-(\d{2})/.exec(String(ym||"")); return m ? (+m[1])*12 + (+m[2]-1) : null; };
+// Straight-line depreciation of a capex item as of the end of the given fiscal-year months.
+const depreciation = (item, fyMonths) => {
+  const amt = Number(item.amount)||0, life = Number(item.life)||0;
+  const acq = monthIdx(item.month);
+  const monthly = life>0 ? amt/life : 0;
+  const perMonth = {}; fyMonths.forEach(m=>{ perMonth[m]=0; });
+  let elapsedToYearEnd = 0;
+  const lastIdx = fyMonths.length ? monthIdx(fyMonths[fyMonths.length-1]) : null;
+  if (acq!=null && life>0) {
+    fyMonths.forEach(m => { const gi=monthIdx(m); const k=gi-acq; if (k>=0 && k<life) perMonth[m]=monthly; });
+    if (lastIdx!=null) elapsedToYearEnd = Math.min(life, Math.max(0, lastIdx - acq + 1));
+  }
+  const accumulated = Math.min(amt, elapsedToYearEnd*monthly);
+  return { monthly, perMonth, accumulated, nbv: Math.max(0, amt-accumulated) };
+};
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [authChecking, setAuthChecking] = useState(true);
@@ -146,6 +168,7 @@ export default function App() {
   const logout = () => { flushSave(); setToken(null); setUser(null); };
 
   const [client, setClient] = useState(null);
+  const [financeOpen, setFinanceOpen] = useState(false);
   const [year, setYear] = useState("FY26");
   setFiscalYear(year); // render-safe (idempotent): keeps MONTHS/ML aligned with the selected FY
   const [tab, setTab] = useState("contracts");
@@ -284,7 +307,9 @@ export default function App() {
   if (authChecking) return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Segoe UI,sans-serif",color:"#003F2D",fontSize:14}}>Loading…</div>;
   if (!user) return <Login onLogin={setUser} />;
   if (user.mustChange) return <ForcePw onDone={()=>setUser(p=>({...p,mustChange:false}))} onLogout={logout} />;
-  if (!client) return <ClientPicker user={user} year={year} setYear={setYear} onSelect={c=>{setClient(c);setTab("contracts");}} onLogout={logout} allData={yd} />;
+  if (!client && financeOpen && (user.role==="finance"||user.role==="admin"))
+    return <OpexCapex year={year} setYear={setYear} user={user} onBack={()=>setFinanceOpen(false)} onLogout={logout} />;
+  if (!client) return <ClientPicker user={user} year={year} setYear={setYear} onSelect={c=>{setClient(c);setTab("contracts");}} onLogout={logout} allData={yd} onOpenFinance={()=>setFinanceOpen(true)} />;
 
   const inv=cd.inv; const sub=cd.sub; const lab=cd.lab; const acc=cd.acc; const contracts=cd.contracts; const docs=cd.docs||[];
   const labAlloc=cd.labAlloc||mkAlloc();
@@ -836,7 +861,7 @@ export default function App() {
   );
 }
 
-function ClientPicker({user,year,setYear,onSelect,onLogout,allData}) {
+function ClientPicker({user,year,setYear,onSelect,onLogout,allData,onOpenFinance}) {
   const [search,setSearch] = useState("");
   const [sort,setSort] = useState("name");
   const [adminOpen,setAdminOpen] = useState(false);
@@ -881,6 +906,7 @@ function ClientPicker({user,year,setYear,onSelect,onLogout,allData}) {
         <div style={{display:"flex",alignItems:"center",gap:10,fontSize:13}}>
           <span style={{opacity:.7}}>{user.name}</span>
           {isAdmin&&<span style={{background:"rgba(255,255,255,.2)",padding:"2px 8px",borderRadius:10,fontSize:10}}>ADMIN</span>}
+          {(user.role==="finance"||user.role==="admin")&&<button onClick={onOpenFinance} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>💰 OPEX/CAPEX</button>}
           {user.role==="admin"&&<button onClick={()=>setAdminOpen(true)} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>⚙️ Admin</button>}
           <button onClick={onLogout} style={{background:"rgba(255,255,255,.12)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>Logout</button>
         </div>
@@ -2557,6 +2583,263 @@ function POTracker({inv,contracts}) {
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+// Company-wide OPEX / CAPEX (finance + admin). Separate from client P&L. One blob per FY.
+function OpexCapex({year,setYear,user,onBack,onLogout}) {
+  const [fin,setFin] = useState(null);
+  const [loaded,setLoaded] = useState(false);
+  const [saveState,setSaveState] = useState("idle");
+  const [sub,setSub] = useState("opex");            // opex | capex | summary
+  const [opexView,setOpexView] = useState("actual"); // actual | budget | variance
+  const [newCat,setNewCat] = useState("");
+  const [cf,setCf] = useState({desc:"",cat:CAPEX_CATS[0],amount:"",month:MONTHS[0],life:36,status:"Approved",po:""});
+  const verRef = useRef(0);
+  const dirtyRef = useRef(false);
+
+  const mkDefault = () => ({ opex:{ cats:DEFAULT_OPEX_CATS.map(l=>({id:uid(),label:l})), budget:{}, actual:{} }, capex:[] });
+
+  useEffect(()=>{
+    let cancelled=false; setLoaded(false);
+    (async()=>{
+      const r = await api.getFinanceData(year).catch(()=>null);
+      if(cancelled) return;
+      verRef.current = (r&&r.version)||0;
+      const d = (r&&r.data) || mkDefault();
+      if(!d.opex) d.opex = mkDefault().opex;
+      if(!Array.isArray(d.opex.cats)||!d.opex.cats.length) d.opex.cats = mkDefault().opex.cats;
+      if(!d.opex.budget) d.opex.budget={};
+      if(!d.opex.actual) d.opex.actual={};
+      if(!Array.isArray(d.capex)) d.capex=[];
+      setFin(d); dirtyRef.current=false; setSaveState("idle"); setLoaded(true);
+    })();
+    return ()=>{cancelled=true;};
+  // eslint-disable-next-line
+  },[year]);
+
+  useEffect(()=>{
+    if(!loaded||!fin||!dirtyRef.current) return;
+    setSaveState("saving");
+    const t=setTimeout(async()=>{
+      try{ const resp=await api.saveFinanceData(year, fin, verRef.current); verRef.current=(resp&&resp.version)||verRef.current+1; dirtyRef.current=false; setSaveState("saved"); }
+      catch(e){ setSaveState("error"); console.warn("finance save failed",e); }
+    },600);
+    return ()=>clearTimeout(t);
+  // eslint-disable-next-line
+  },[fin,loaded,year]);
+
+  const mutate = (fn)=>{ dirtyRef.current=true; setFin(p=>{ const n=JSON.parse(JSON.stringify(p)); fn(n); return n; }); };
+  const cats = fin?.opex?.cats || [];
+  const cellVal = (kind,cid,m)=> (fin?.opex?.[kind]?.[cid]?.[m]) ?? "";
+  const setCell = (kind,cid,m,v)=> mutate(n=>{ if(!n.opex[kind][cid]) n.opex[kind][cid]={}; n.opex[kind][cid][m]=parseFloat(v)||0; });
+  const catMonthTotal = (kind,cid)=> MONTHS.reduce((s,m)=>s+(Number(fin?.opex?.[kind]?.[cid]?.[m])||0),0);
+  const opexColTotal = (kind,m)=> cats.reduce((s,c)=>s+(Number(fin?.opex?.[kind]?.[c.id]?.[m])||0),0);
+  const opexGrand = (kind)=> cats.reduce((s,c)=>s+catMonthTotal(kind,c.id),0);
+
+  const addCat = ()=>{ const l=newCat.trim(); if(!l) return; mutate(n=>n.opex.cats.push({id:uid(),label:l})); setNewCat(""); };
+  const delCat = (id)=>{ if(!confirm("Διαγραφή κατηγορίας και των τιμών της;")) return; mutate(n=>{ n.opex.cats=n.opex.cats.filter(x=>x.id!==id); delete n.opex.budget[id]; delete n.opex.actual[id]; }); };
+  const renameCat = (id,l)=> mutate(n=>{ const c=n.opex.cats.find(x=>x.id===id); if(c) c.label=l; });
+
+  const addCapex = ()=>{ if(!cf.desc||!cf.amount) return; mutate(n=>n.capex.push({id:uid(),desc:cf.desc,cat:cf.cat,amount:parseFloat(cf.amount)||0,month:cf.month,life:parseInt(cf.life)||0,status:cf.status,po:cf.po})); setCf(x=>({...x,desc:"",amount:"",po:""})); };
+  const editCapex = (id,k,v)=> mutate(n=>{ const it=n.capex.find(x=>x.id===id); if(it) it[k]=(k==="amount"||k==="life")?(parseFloat(v)||0):v; });
+  const delCapex = (id)=> mutate(n=>{ n.capex=n.capex.filter(x=>x.id!==id); });
+
+  const capexItems = fin?.capex || [];
+  const deprRows = capexItems.map(it=>({it, d:depreciation(it,MONTHS)}));
+  const totCapex = capexItems.reduce((s,i)=>s+(Number(i.amount)||0),0);
+  const totDeprFY = deprRows.reduce((s,x)=>s+MONTHS.reduce((s2,m)=>s2+x.d.perMonth[m],0),0);
+  const totNBV = deprRows.reduce((s,x)=>s+x.d.nbv,0);
+  const totBudget = opexGrand("budget"), totActual = opexGrand("actual");
+
+  const thS = {padding:"6px 8px",textAlign:"center",fontSize:10,fontWeight:700,color:"#fff",background:P.em,whiteSpace:"nowrap"};
+  const inpS = {width:"100%",padding:"4px 5px",border:"1px solid "+P.bd,borderRadius:3,fontSize:11,textAlign:"right",background:P.ip,outline:"none",boxSizing:"border-box"};
+  const saveLbl = saveState==="saving"?"💾 Saving…":saveState==="saved"?"✓ Saved":saveState==="error"?"⚠ Save failed":"";
+
+  return (
+    <div style={{minHeight:"100vh",background:P.of,fontFamily:"Segoe UI,Tahoma,sans-serif"}}>
+      <div style={{background:P.em,color:"#fff",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:16}}>
+          <span style={{fontWeight:800,fontSize:20,letterSpacing:1}}>CBRE</span>
+          <button onClick={onBack} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",padding:"4px 12px",borderRadius:4,cursor:"pointer",fontSize:12}}>◀ Clients</button>
+          <span style={{fontSize:14,fontWeight:600,borderLeft:"1px solid rgba(255,255,255,.3)",paddingLeft:12}}>💰 OPEX / CAPEX — Company ({year})</span>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10,fontSize:13}}>
+          <span style={{fontSize:11,opacity:.9,minWidth:78,textAlign:"right"}}>{saveLbl}</span>
+          <span style={{opacity:.7}}>{user.name}</span>
+          <button onClick={onLogout} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>Logout</button>
+        </div>
+      </div>
+
+      <div style={{maxWidth:1400,margin:"0 auto",padding:"18px 24px"}}>
+        {/* Year + sub-tabs */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:12}}>
+          <div style={{display:"flex",gap:8}}>
+            {YEARS.map(y=>(<button key={y} onClick={()=>setYear(y)} style={{padding:"6px 16px",border:year===y?"2px solid "+P.em:"1px solid "+P.bd,borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:year===y?700:400,background:year===y?P.em:P.wh,color:year===y?"#fff":P.tx}}>{y}</button>))}
+          </div>
+          <div style={{display:"flex",gap:0,background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:4}}>
+            {[{v:"opex",l:"OPEX"},{v:"capex",l:"CAPEX"},{v:"summary",l:"Summary"}].map(t=>(
+              <button key={t.v} onClick={()=>setSub(t.v)} style={{background:sub===t.v?P.em:"transparent",color:sub===t.v?"#fff":P.tx,border:"none",padding:"7px 20px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>{t.l}</button>
+            ))}
+          </div>
+        </div>
+
+        {!loaded && <div style={{padding:40,textAlign:"center",color:P.tm}}>Loading…</div>}
+
+        {/* ── OPEX ── */}
+        {loaded && sub==="opex" && (
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:10}}>
+              <div style={{display:"flex",gap:0,background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:3}}>
+                {[{v:"actual",l:"Actual"},{v:"budget",l:"Budget"},{v:"variance",l:"Variance"}].map(t=>(
+                  <button key={t.v} onClick={()=>setOpexView(t.v)} style={{background:opexView===t.v?"#00897B":"transparent",color:opexView===t.v?"#fff":P.tx,border:"none",padding:"6px 16px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>{t.l}</button>
+                ))}
+              </div>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <input value={newCat} onChange={e=>setNewCat(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addCat()} placeholder="Νέα κατηγορία…" style={{padding:"6px 10px",border:"1px solid "+P.bd,borderRadius:6,fontSize:12,outline:"none"}} />
+                <button onClick={addCat} style={{background:P.em,color:"#fff",border:"none",padding:"6px 14px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>+ Κατηγορία</button>
+              </div>
+            </div>
+            <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed",minWidth:1150}}>
+                <colgroup><col style={{width:170}} />{MONTHS.map(m=><col key={m} style={{width:72}} />)}<col style={{width:95}} /><col style={{width:34}} /></colgroup>
+                <thead><tr>
+                  <th style={{...thS,textAlign:"left",borderRight:"2px solid #00695C"}}>Κατηγορία</th>
+                  {MONTHS.map(m=><th key={m} style={thS}>{ML[m]}</th>)}
+                  <th style={{...thS,background:"#00695C"}}>Total</th><th style={thS}></th>
+                </tr></thead>
+                <tbody>
+                  {cats.map((c,i)=>(
+                    <tr key={c.id} style={{background:i%2===0?P.wh:P.al}}>
+                      <td style={{padding:"3px 6px",borderBottom:"1px solid "+P.bd,borderRight:"2px solid "+P.bd}}>
+                        <input value={c.label} onChange={e=>renameCat(c.id,e.target.value)} style={{width:"100%",border:"none",background:"transparent",fontSize:12,fontWeight:500,outline:"none"}} />
+                      </td>
+                      {MONTHS.map(m=>{
+                        if(opexView==="variance"){ const v=(Number(cellVal("actual",c.id,m))||0)-(Number(cellVal("budget",c.id,m))||0); return <td key={m} style={{padding:"5px 6px",borderBottom:"1px solid "+P.bd,textAlign:"right",fontSize:11,fontWeight:v?600:400,color:v>0?P.rd:v<0?P.gn:P.tm}}>{v?fmt(v):"-"}</td>; }
+                        return <td key={m} style={{padding:"3px 4px",borderBottom:"1px solid "+P.bd}}><input type="number" step="0.01" value={cellVal(opexView,c.id,m)} onChange={e=>setCell(opexView,c.id,m,e.target.value)} style={inpS} /></td>;
+                      })}
+                      <td style={{padding:"5px 8px",textAlign:"right",fontSize:12,fontWeight:700,color:P.em,borderBottom:"1px solid "+P.bd,background:"#f5f5f5",borderLeft:"2px solid "+P.bd}}>
+                        {opexView==="variance"?fmt(catMonthTotal("actual",c.id)-catMonthTotal("budget",c.id)):fmt(catMonthTotal(opexView,c.id))}
+                      </td>
+                      <td style={{textAlign:"center",borderBottom:"1px solid "+P.bd}}><button onClick={()=>delCat(c.id)} style={{background:"none",border:"none",color:P.rd,cursor:"pointer",fontSize:14}}>×</button></td>
+                    </tr>
+                  ))}
+                  <tr style={{background:P.ep}}>
+                    <td style={{padding:"8px 8px",fontSize:12,fontWeight:700,borderRight:"2px solid #00695C"}}>ΣΥΝΟΛΟ {opexView==="variance"?"(Act−Bud)":opexView}</td>
+                    {MONTHS.map(m=>{ const v=opexView==="variance"?(opexColTotal("actual",m)-opexColTotal("budget",m)):opexColTotal(opexView,m); return <td key={m} style={{padding:"6px 6px",textAlign:"right",fontSize:11,fontWeight:700,color:opexView==="variance"&&v>0?P.rd:P.em}}>{fmt(v)}</td>; })}
+                    <td style={{padding:"6px 8px",textAlign:"right",fontSize:12,fontWeight:700,color:P.em,background:"#C8E6C9",borderLeft:"2px solid #00695C"}}>{fmt(opexView==="variance"?(totActual-totBudget):opexGrand(opexView))}</td>
+                    <td style={{background:P.ep}}></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div style={{fontSize:11,color:P.tm,marginTop:8}}>Variance = Actual − Budget (κόκκινο = υπέρβαση). Οι αλλαγές αποθηκεύονται αυτόματα.</div>
+          </div>
+        )}
+
+        {/* ── CAPEX ── */}
+        {loaded && sub==="capex" && (
+          <div>
+            <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:14,marginBottom:16,display:"flex",flexWrap:"wrap",gap:8,alignItems:"end"}}>
+              <Inp l="Περιγραφή" v={cf.desc} set={v=>setCf(x=>({...x,desc:v}))} w={180} />
+              <Sel l="Κατηγορία" v={cf.cat} set={v=>setCf(x=>({...x,cat:v}))} opts={CAPEX_CATS.map(c=>({v:c,l:c}))} w={160} />
+              <Inp l="Αξία €" v={cf.amount} set={v=>setCf(x=>({...x,amount:v}))} w={100} t="number" />
+              <Sel l="Μήνας κτήσης" v={cf.month} set={v=>setCf(x=>({...x,month:v}))} opts={MONTHS.map(m=>({v:m,l:ML[m]}))} w={110} />
+              <Inp l="Ωφ. ζωή (μήνες)" v={cf.life} set={v=>setCf(x=>({...x,life:v}))} w={110} t="number" />
+              <Sel l="Status" v={cf.status} set={v=>setCf(x=>({...x,status:v}))} opts={CAPEX_STATUS.map(s=>({v:s.v,l:s.v}))} w={120} />
+              <Inp l="PO No" v={cf.po} set={v=>setCf(x=>({...x,po:v}))} w={90} />
+              <button onClick={addCapex} style={{background:P.em,color:"#fff",border:"none",padding:"7px 18px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>+ Πάγιο</button>
+            </div>
+            <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:1000}}>
+                <thead><tr>{["Περιγραφή","Κατηγορία","Αξία €","Κτήση","Ωφ.ζωή","Μην. απόσβ.","Σωρευ. απόσβ.","NBV €","Status","PO",""].map((h,i)=>(
+                  <th key={i} style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:["Αξία €","Μην. απόσβ.","Σωρευ. απόσβ.","NBV €"].includes(h)?"right":"left"}}>{h}</th>
+                ))}</tr></thead>
+                <tbody>
+                  {deprRows.map(({it,d},i)=>(
+                    <tr key={it.id} style={{background:i%2===0?P.wh:P.al}}>
+                      <td style={{padding:"5px 8px",borderBottom:"1px solid "+P.bd}}><input value={it.desc} onChange={e=>editCapex(it.id,"desc",e.target.value)} style={{width:"100%",border:"none",background:"transparent",fontSize:12,outline:"none"}} /></td>
+                      <td style={{padding:"5px 8px",borderBottom:"1px solid "+P.bd,color:P.tm}}>{it.cat}</td>
+                      <td style={{padding:"3px 6px",borderBottom:"1px solid "+P.bd,textAlign:"right"}}><input type="number" value={it.amount} onChange={e=>editCapex(it.id,"amount",e.target.value)} style={{...inpS,width:90}} /></td>
+                      <td style={{padding:"5px 8px",borderBottom:"1px solid "+P.bd}}>{ML[it.month]||it.month}</td>
+                      <td style={{padding:"3px 6px",borderBottom:"1px solid "+P.bd,textAlign:"right"}}><input type="number" value={it.life} onChange={e=>editCapex(it.id,"life",e.target.value)} style={{...inpS,width:60}} /></td>
+                      <td style={{padding:"5px 8px",borderBottom:"1px solid "+P.bd,textAlign:"right",color:P.tm}}>{fmt(d.monthly)}</td>
+                      <td style={{padding:"5px 8px",borderBottom:"1px solid "+P.bd,textAlign:"right",color:P.tm}}>{fmt(d.accumulated)}</td>
+                      <td style={{padding:"5px 8px",borderBottom:"1px solid "+P.bd,textAlign:"right",fontWeight:600,color:P.em}}>{fmt(d.nbv)}</td>
+                      <td style={{padding:"5px 8px",borderBottom:"1px solid "+P.bd}}>
+                        <select value={it.status} onChange={e=>editCapex(it.id,"status",e.target.value)} style={{border:"1px solid "+P.bd,borderRadius:10,fontSize:10,fontWeight:700,padding:"2px 6px",color:"#fff",background:(CAPEX_STATUS.find(s=>s.v===it.status)||{}).c||P.tm,outline:"none"}}>
+                          {CAPEX_STATUS.map(s=><option key={s.v} value={s.v} style={{color:"#000",background:"#fff"}}>{s.v}</option>)}
+                        </select>
+                      </td>
+                      <td style={{padding:"5px 8px",borderBottom:"1px solid "+P.bd,color:P.tm}}>{it.po||"—"}</td>
+                      <td style={{padding:"5px 8px",borderBottom:"1px solid "+P.bd,textAlign:"center"}}><button onClick={()=>delCapex(it.id)} style={{background:"none",border:"none",color:P.rd,cursor:"pointer",fontSize:14}}>×</button></td>
+                    </tr>
+                  ))}
+                  {!capexItems.length && <tr><td colSpan={11} style={{padding:24,textAlign:"center",color:P.tm,fontStyle:"italic"}}>Κανένα πάγιο ακόμη — πρόσθεσε από πάνω</td></tr>}
+                  {capexItems.length>0 && (
+                    <tr style={{background:P.ep}}>
+                      <td colSpan={2} style={{padding:"8px 10px",fontWeight:700}}>ΣΥΝΟΛΑ</td>
+                      <td style={{padding:"8px 8px",textAlign:"right",fontWeight:700,color:P.em}}>{fmt(totCapex)}</td>
+                      <td colSpan={2}></td>
+                      <td style={{padding:"8px 8px",textAlign:"right",fontWeight:700,color:P.tm}} title="Συνολική απόσβεση εντός FY">{fmt(totDeprFY)}</td>
+                      <td></td>
+                      <td style={{padding:"8px 8px",textAlign:"right",fontWeight:700,color:P.em}}>{fmt(totNBV)}</td>
+                      <td colSpan={3}></td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div style={{fontSize:11,color:P.tm,marginTop:8}}>Απόσβεση: σταθερή (straight-line) = Αξία ÷ ωφέλιμη ζωή. «Σωρευ. απόσβ.» & «NBV» υπολογίζονται μέχρι το τέλος του {year}.</div>
+          </div>
+        )}
+
+        {/* ── SUMMARY ── */}
+        {loaded && sub==="summary" && (
+          <div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))",gap:14,marginBottom:20}}>
+              {[
+                {l:"OPEX Budget",v:totBudget,c:P.em},
+                {l:"OPEX Actual",v:totActual,c:P.tx},
+                {l:"OPEX Variance",v:totActual-totBudget,c:(totActual-totBudget)>0?P.rd:P.gn,sign:true},
+                {l:"CAPEX Investment",v:totCapex,c:P.em},
+                {l:"Απόσβεση "+year,v:totDeprFY,c:"#F57F17"},
+                {l:"Net Book Value",v:totNBV,c:P.gn},
+              ].map(k=>(
+                <div key={k.l} style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:10,padding:"16px 18px",boxShadow:"0 1px 2px rgba(0,0,0,.04)"}}>
+                  <div style={{fontSize:12,color:P.tm}}>{k.l}</div>
+                  <div style={{fontSize:24,fontWeight:800,color:k.c,marginTop:6}}>€{fmt(k.v)}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16}}>
+              <div style={{fontSize:13,fontWeight:700,color:P.em,marginBottom:10}}>OPEX — Budget vs Actual ανά κατηγορία ({year})</div>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead><tr>{["Κατηγορία","Budget €","Actual €","Variance €","%"].map((h,i)=>(<th key={i} style={{padding:"7px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:i===0?"left":"right"}}>{h}</th>))}</tr></thead>
+                <tbody>
+                  {cats.map((c,i)=>{ const b=catMonthTotal("budget",c.id),a=catMonthTotal("actual",c.id),v=a-b; return (
+                    <tr key={c.id} style={{background:i%2===0?P.wh:P.al}}>
+                      <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,fontWeight:500}}>{c.label}</td>
+                      <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right"}}>{fmt(b)}</td>
+                      <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right"}}>{fmt(a)}</td>
+                      <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",fontWeight:600,color:v>0?P.rd:v<0?P.gn:P.tm}}>{fmt(v)}</td>
+                      <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",color:P.tm}}>{b?fPct(v/b):"-"}</td>
+                    </tr>
+                  ); })}
+                  <tr style={{background:P.ep,fontWeight:700}}>
+                    <td style={{padding:"8px 10px"}}>ΣΥΝΟΛΟ</td>
+                    <td style={{padding:"8px 10px",textAlign:"right"}}>{fmt(totBudget)}</td>
+                    <td style={{padding:"8px 10px",textAlign:"right"}}>{fmt(totActual)}</td>
+                    <td style={{padding:"8px 10px",textAlign:"right",color:(totActual-totBudget)>0?P.rd:P.gn}}>{fmt(totActual-totBudget)}</td>
+                    <td style={{padding:"8px 10px",textAlign:"right"}}>{totBudget?fPct((totActual-totBudget)/totBudget):"-"}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -67,6 +67,13 @@ export const api = {
     } catch(e) { /* best-effort on unload */ }
   },
 
+  // Company-wide OPEX/CAPEX (finance/admin)
+  getFinanceData: (year) => req(`/finance/${year}`),
+  saveFinanceData: (year, data, baseVersion) => req(`/finance/${year}`, {
+    method: "PUT",
+    body: JSON.stringify(baseVersion === undefined ? data : { data, baseVersion })
+  }),
+
   // Files
   listFiles: (year, client) => req(`/files/${year}/${encodeURIComponent(client)}`),
   uploadFile: (year, client, file, type, contractRef) => {

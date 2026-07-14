@@ -50,6 +50,15 @@ db.exec(`CREATE TABLE IF NOT EXISTS password_resets (
   created_at INTEGER DEFAULT (strftime('%s','now'))
 )`);
 db.prepare("DELETE FROM password_resets WHERE expires_at < ?").run(Math.floor(Date.now() / 1000) - 24 * 3600);
+
+// Company-wide OPEX/CAPEX (one JSON blob per fiscal year — finance/admin only)
+db.exec(`CREATE TABLE IF NOT EXISTS finance_data (
+  year TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  version INTEGER DEFAULT 0,
+  updated_at INTEGER DEFAULT (strftime('%s','now')),
+  updated_by TEXT
+)`);
 // Flag any account still on the seeded default password → force change on next login
 try {
   for (const u of db.prepare("SELECT id, password_hash, must_change_password FROM users").all()) {
@@ -312,6 +321,32 @@ app.get("/api/data/:year", auth, (req, res) => {
   const result = {};
   filtered.forEach(r => { result[r.client] = JSON.parse(r.data); });
   res.json(result);
+});
+
+// ── Company-wide OPEX/CAPEX (finance + admin only) ──
+app.get("/api/finance/:year", auth, requireRole("finance", "admin"), (req, res) => {
+  const row = db.prepare("SELECT data, version, updated_at, updated_by FROM finance_data WHERE year = ?").get(req.params.year);
+  if (!row) return res.json({ data: null, version: 0 });
+  res.json({ data: JSON.parse(row.data), version: row.version || 0, updated_at: row.updated_at, updated_by: row.updated_by });
+});
+
+// Optimistic locking: { data, baseVersion } → 409 on version mismatch (no silent overwrite).
+app.put("/api/finance/:year", auth, requireRole("finance", "admin"), (req, res) => {
+  const { year } = req.params;
+  const hasEnvelope = req.body && typeof req.body === "object" && req.body.data !== undefined && ("baseVersion" in req.body);
+  const payload = hasEnvelope ? req.body.data : req.body;
+  const baseVersion = hasEnvelope ? Number(req.body.baseVersion) : undefined;
+  const row = db.prepare("SELECT version FROM finance_data WHERE year = ?").get(year);
+  const currentVersion = row ? (row.version || 0) : 0;
+  if (baseVersion !== undefined && !Number.isNaN(baseVersion) && row && currentVersion !== baseVersion) {
+    return res.status(409).json({ error: "Data was modified by another user", version: currentVersion });
+  }
+  const newVersion = currentVersion + 1;
+  db.prepare(`INSERT INTO finance_data (year, data, version, updated_at, updated_by)
+    VALUES (?, ?, ?, strftime('%s','now'), ?)
+    ON CONFLICT(year) DO UPDATE SET data=excluded.data, version=excluded.version, updated_at=excluded.updated_at, updated_by=excluded.updated_by`)
+    .run(year, JSON.stringify(payload), newVersion, req.user.username);
+  res.json({ ok: true, version: newVersion });
 });
 
 // ── File uploads ──
