@@ -713,8 +713,12 @@ app.post("/api/insights", auth, insightsLimiter, async (req, res) => {
   if (!anthropic) return res.status(503).json({ error: "AI δεν έχει ρυθμιστεί (λείπει ANTHROPIC_API_KEY)" });
   const scope = (req.body && req.body.scope) === "portfolio" ? "portfolio" : "client";
   const context = (req.body && req.body.context) || {};
+  const lang = (req.body && req.body.lang) === "en" ? "en" : "el";
+  const langLine = lang === "en"
+    ? "Write the commentary in ENGLISH."
+    : "Γράψε το commentary στα ΕΛΛΗΝΙΚΑ.";
   const prompt = `Είσαι έμπειρος οικονομικός αναλυτής για την CBRE Hellas (facility management, όλα σε EUR).
-Με βάση ΑΠΟΚΛΕΙΣΤΙΚΑ τα παρακάτω συγκεντρωτικά στοιχεία (${scope === "portfolio" ? "όλο το χαρτοφυλάκιο" : "ένας πελάτης"}), γράψε σύντομο, πρακτικό commentary στα Ελληνικά.
+Με βάση ΑΠΟΚΛΕΙΣΤΙΚΑ τα παρακάτω συγκεντρωτικά στοιχεία (${scope === "portfolio" ? "όλο το χαρτοφυλάκιο" : "ένας πελάτης"}), γράψε σύντομο, πρακτικό commentary. ${langLine}
 Δομή:
 • 2-3 προτάσεις για την τάση/πρόβλεψη (revenue, κόστος, GM).
 • Bullet list με τα κύρια ρίσκα (αν υπάρχουν στα δεδομένα).
@@ -754,16 +758,20 @@ app.post("/api/chat", auth, chatLimiter, async (req, res) => {
   const d = new Date().toISOString().slice(0, 10);
   if (d !== chatDay) { chatDay = d; chatCount = 0; }
   if (chatCount >= CHAT_DAILY_CAP) return res.status(429).json({ error: "Εξαντλήθηκε το ημερήσιο όριο AI. Δοκίμασε ξανά αύριο." });
-  const { question, history, snapshot } = req.body || {};
+  const { question, history, snapshot, lang } = req.body || {};
   if (!question || typeof question !== "string") return res.status(400).json({ error: "Λείπει η ερώτηση" });
   const hist = Array.isArray(history)
     ? history.slice(-9).filter(m => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string").map(m => ({ role: m.role, content: m.content.slice(0, 4000) }))
     : [];
+  // Override the default (Greek) answer language when the user's UI is in English.
+  const sys = lang === "en"
+    ? CHAT_SYSTEM + `\n\nIMPORTANT: The user's interface is in ENGLISH — write the "text" field in ENGLISH (keep the same JSON schema and view values).`
+    : CHAT_SYSTEM;
   const userMsg = `${String(question).slice(0, 2000)}\n\nΔΕΔΟΜΕΝΑ (snapshot — μόνο αυτά ισχύουν):\n${JSON.stringify(snapshot || {}).slice(0, 12000)}`;
   chatCount++;
   try {
     const resp = await anthropic.messages.create({
-      model: "claude-sonnet-4-6", max_tokens: 1000, system: CHAT_SYSTEM,
+      model: "claude-sonnet-4-6", max_tokens: 1000, system: sys,
       messages: [...hist, { role: "user", content: userMsg }]
     });
     const raw = resp.content?.[0]?.text || "";

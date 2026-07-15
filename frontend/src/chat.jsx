@@ -6,6 +6,7 @@ import { api } from "./api.js";
 import { P, MONTHS, ML } from "./constants.js";
 import { clientSeries, runRateFY, clientRisks, daysUntil } from "./calc.js";
 import { MdText } from "./ui.jsx";
+import { useT } from "./i18n.jsx";
 
 const grossAmt = r => Number(r.total) || (Number(r.amt)||0)+(Number(r.vat)||0) || Number(r.amt) || 0;
 const isPaid = r => r.paid==="paid" || r.paid===true;
@@ -47,6 +48,7 @@ function buildPortfolioSnapshot(data, year) {
   };
 }
 export function ChatWidget({user,year,ctx,nav}) {
+  const { t, lang } = useT();
   const [open,setOpen]=useState(false);
   const [msgs,setMsgs]=useState(()=>{ try{ return JSON.parse(localStorage.getItem("cbre_chat_v1")||"[]"); }catch{ return []; } });
   const [input,setInput]=useState("");
@@ -57,8 +59,8 @@ export function ChatWidget({user,year,ctx,nav}) {
   useEffect(()=>{ if(scrollRef.current) scrollRef.current.scrollTop=scrollRef.current.scrollHeight; },[msgs,busy,open]);
   const scope = ctx.client ? "client" : "portfolio";
   const suggestions = scope==="client"
-    ? ["Πώς πάει το GM;","Ποια είναι τα ρίσκα;","Ανάλυσε τα έσοδα","Τι λήγει σύντομα;"]
-    : ["Σύνοψη χαρτοφυλακίου","Ποιοι πελάτες έχουν ρίσκα;","Τι εκκρεμεί για έγκριση;","Top πελάτες κατά GM"];
+    ? [t("Πώς πάει το GM;","How is the GM doing?"),t("Ποια είναι τα ρίσκα;","What are the risks?"),t("Ανάλυσε τα έσοδα","Analyze the revenue"),t("Τι λήγει σύντομα;","What expires soon?")]
+    : [t("Σύνοψη χαρτοφυλακίου","Portfolio summary"),t("Ποιοι πελάτες έχουν ρίσκα;","Which clients are at risk?"),t("Τι εκκρεμεί για έγκριση;","What's pending approval?"),t("Top πελάτες κατά GM","Top clients by GM")];
   const buildSnapshot = async () => {
     if(ctx.client && ctx.cd) return { user:{name:user.name,role:user.role}, ...buildClientSnapshot(ctx.cd, ctx.client, year) };
     let data = portRef.current.year===year ? portRef.current.data : null;
@@ -71,31 +73,31 @@ export function ChatWidget({user,year,ctx,nav}) {
     try {
       const snapshot = await buildSnapshot();
       const history = next.slice(-9).map(m=>({role:m.role,content:m.content}));
-      const r = await api.chat(q, history, snapshot);
-      setMsgs(m=>[...m,{role:"assistant",content:r.text||"(κενή απάντηση)",actions:Array.isArray(r.actions)?r.actions:[]}]);
+      const r = await api.chat(q, history, snapshot, lang);
+      setMsgs(m=>[...m,{role:"assistant",content:r.text||t("(κενή απάντηση)","(empty response)"),actions:Array.isArray(r.actions)?r.actions:[]}]);
     } catch(e) {
-      const msg = e.status===429?"⚠️ Εξαντλήθηκε το ημερήσιο όριο AI για σήμερα.":e.status===503?"⚠️ Το AI δεν είναι ρυθμισμένο στον server.":"⚠️ Κάτι πήγε στραβά. Δοκίμασε ξανά.";
+      const msg = e.status===429?t("⚠️ Εξαντλήθηκε το ημερήσιο όριο AI για σήμερα.","⚠️ Today's AI limit has been reached."):e.status===503?t("⚠️ Το AI δεν είναι ρυθμισμένο στον server.","⚠️ AI is not configured on the server."):t("⚠️ Κάτι πήγε στραβά. Δοκίμασε ξανά.","⚠️ Something went wrong. Try again.");
       setMsgs(m=>[...m,{role:"assistant",content:msg,actions:[]}]);
     } finally { setBusy(false); }
   };
   const doAction = (a) => { if(a&&typeof a.view==="string") nav(a.view); setOpen(false); };
   if(!open) return (
-    <button onClick={()=>setOpen(true)} title="AI βοηθός" style={{position:"fixed",bottom:22,right:22,width:56,height:56,borderRadius:"50%",background:P.em,color:"#fff",border:"none",boxShadow:"0 6px 20px rgba(0,0,0,.25)",cursor:"pointer",fontSize:24,zIndex:1200,display:"flex",alignItems:"center",justifyContent:"center"}}>🤖</button>
+    <button onClick={()=>setOpen(true)} title={t("AI βοηθός","AI assistant")} style={{position:"fixed",bottom:22,right:22,width:56,height:56,borderRadius:"50%",background:P.em,color:"#fff",border:"none",boxShadow:"0 6px 20px rgba(0,0,0,.25)",cursor:"pointer",fontSize:24,zIndex:1200,display:"flex",alignItems:"center",justifyContent:"center"}}>🤖</button>
   );
   return (
     <div style={{position:"fixed",bottom:22,right:22,width:"min(420px, calc(100vw - 32px))",height:"min(600px, calc(100vh - 44px))",background:P.wh,borderRadius:14,boxShadow:"0 12px 48px rgba(0,0,0,.3)",zIndex:1200,display:"flex",flexDirection:"column",overflow:"hidden",border:"1px solid "+P.bd,fontFamily:"Segoe UI,Tahoma,sans-serif"}}>
       <div style={{background:P.em,color:"#fff",padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div style={{fontWeight:700,fontSize:14}}>🤖 AI Βοηθός <span style={{fontSize:11,opacity:.7,fontWeight:400}}>· {scope==="client"?ctx.client:"Portfolio"} · {year}</span></div>
+        <div style={{fontWeight:700,fontSize:14}}>🤖 {t("AI Βοηθός","AI Assistant")} <span style={{fontSize:11,opacity:.7,fontWeight:400}}>· {scope==="client"?ctx.client:t("Χαρτοφυλάκιο","Portfolio")} · {year}</span></div>
         <div style={{display:"flex",gap:6}}>
-          {msgs.length>0&&<button onClick={()=>setMsgs([])} title="Καθαρισμός" style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"4px 8px",borderRadius:5,cursor:"pointer",fontSize:11}}>🗑</button>}
+          {msgs.length>0&&<button onClick={()=>setMsgs([])} title={t("Καθαρισμός","Clear")} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"4px 8px",borderRadius:5,cursor:"pointer",fontSize:11}}>🗑</button>}
           <button onClick={()=>setOpen(false)} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",padding:"4px 10px",borderRadius:5,cursor:"pointer",fontSize:14,fontWeight:700}}>✕</button>
         </div>
       </div>
       <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:14,background:P.of,display:"flex",flexDirection:"column",gap:10}}>
         {msgs.length===0 && (
           <div style={{color:P.tm,fontSize:12.5,lineHeight:1.5}}>
-            Ρώτησέ με για {scope==="client"?`τον πελάτη ${ctx.client}`:"το χαρτοφυλάκιο"} — έσοδα, GM, ρίσκα, συμβόλαια, εκκρεμότητες.
-            <div style={{fontSize:10.5,color:P.tm,marginTop:6,opacity:.8}}>Βλέπω μόνο συγκεντρωτικά στοιχεία της τρέχουσας οθόνης.</div>
+            {t("Ρώτησέ με για ","Ask me about ")}{scope==="client"?t(`τον πελάτη ${ctx.client}`,`client ${ctx.client}`):t("το χαρτοφυλάκιο","the portfolio")}{t(" — έσοδα, GM, ρίσκα, συμβόλαια, εκκρεμότητες."," — revenue, GM, risks, contracts, pending items.")}
+            <div style={{fontSize:10.5,color:P.tm,marginTop:6,opacity:.8}}>{t("Βλέπω μόνο συγκεντρωτικά στοιχεία της τρέχουσας οθόνης.","I only see aggregate data for the current screen.")}</div>
           </div>
         )}
         {msgs.map((m,i)=> m.role==="user" ? (
@@ -105,12 +107,12 @@ export function ChatWidget({user,year,ctx,nav}) {
             <MdText text={m.content} />
             {Array.isArray(m.actions)&&m.actions.length>0&&(
               <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
-                {m.actions.map((a,j)=><button key={j} onClick={()=>doAction(a)} style={{background:P.ep,color:P.em,border:"1px solid "+P.bd,padding:"4px 10px",borderRadius:12,fontSize:11.5,fontWeight:600,cursor:"pointer"}}>{a.label||"Άνοιγμα"} →</button>)}
+                {m.actions.map((a,j)=><button key={j} onClick={()=>doAction(a)} style={{background:P.ep,color:P.em,border:"1px solid "+P.bd,padding:"4px 10px",borderRadius:12,fontSize:11.5,fontWeight:600,cursor:"pointer"}}>{a.label||t("Άνοιγμα","Open")} →</button>)}
               </div>
             )}
           </div>
         ))}
-        {busy && <div style={{alignSelf:"flex-start",color:P.tm,fontSize:12,fontStyle:"italic"}}>Σκέφτομαι…</div>}
+        {busy && <div style={{alignSelf:"flex-start",color:P.tm,fontSize:12,fontStyle:"italic"}}>{t("Σκέφτομαι…","Thinking…")}</div>}
       </div>
       {msgs.length===0 && (
         <div style={{padding:"8px 12px",display:"flex",flexWrap:"wrap",gap:6,borderTop:"1px solid "+P.bd,background:P.wh}}>
@@ -118,7 +120,7 @@ export function ChatWidget({user,year,ctx,nav}) {
         </div>
       )}
       <div style={{padding:10,borderTop:"1px solid "+P.bd,background:P.wh,display:"flex",gap:8}}>
-        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="Ρώτησε κάτι…" disabled={busy}
+        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder={t("Ρώτησε κάτι…","Ask something…")} disabled={busy}
           style={{flex:1,padding:"9px 12px",border:"1px solid "+P.bd,borderRadius:8,fontSize:13,outline:"none",background:P.ip}} />
         <button onClick={()=>send()} disabled={busy||!input.trim()} style={{background:P.em,color:"#fff",border:"none",padding:"0 16px",borderRadius:8,cursor:busy?"wait":"pointer",fontSize:14,fontWeight:600,opacity:(busy||!input.trim())?.5:1}}>➤</button>
       </div>

@@ -104,9 +104,9 @@ export const api = {
     return req("/extract/contract", { method: "POST", body: fd });
   },
   // AI narrative insights over aggregated numbers (scope: "client" | "portfolio")
-  getInsights: (scope, context) => req("/insights", { method: "POST", body: JSON.stringify({ scope, context }) }),
+  getInsights: (scope, context, lang) => req("/insights", { method: "POST", body: JSON.stringify({ scope, context, lang }) }),
   // AI chat assistant — single-shot with a client-built snapshot
-  chat: (question, history, snapshot) => req("/chat", { method: "POST", body: JSON.stringify({ question, history, snapshot }) }),
+  chat: (question, history, snapshot, lang) => req("/chat", { method: "POST", body: JSON.stringify({ question, history, snapshot, lang }) }),
 
   // Audit
   audit: () => req("/audit"),
