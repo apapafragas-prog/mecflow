@@ -6,6 +6,25 @@ Context file so any Claude session (local or cloud, any PC) can pick up the proj
 Internal CBRE Hellas reporting app: invoice scanning (AP = supplier costs, AR = client revenue),
 P&L per client, Excel export. React (Vite) frontend + Node backend + SQLite, runs in Docker on a Synology NAS.
 
+## Audit fixes (2026-07, round 2)
+Full audit (3 parallel review passes: finance calc, data integrity, security). Fixed:
+- **Controls/auditability:** audit_log now records every financial mutation (data_save,
+  finance_save, report_submitted/approved/rejected, file upload/download/preview/delete) — was
+  auth+user-admin only. `PATCH /api/users` bumps token_version on client/role change → access
+  revocation is immediate (was ≤24h stale). Removed JWT-from-URL. File previews served nosniff+CSP-sandbox.
+- **VAT:** explicit 0% rate/VAT is preserved (intra-community/reverse-charge/exempt) instead of being
+  coerced to 24% — backend validate.js (+tests) and manual AR/AP add.
+- **Saves:** client-data autosave serialized (in-flight guard + pending queue) → no self-inflicted 409.
+- **Import:** out-of-FY months map onto the active FY by MM (not collapsed to January).
+- **Balance sheet:** AR/AP honour paid_date (no retroactive change of prior months); ACCRUAL excluded
+  from trade AR/AP; auto 'Net VAT in open AR/AP' line so the check isn't structurally ~24% off.
+- **CAPEX:** Planned/Approved assets don't depreciate / show NBV (register + group BS).
+- **Files:** deleting an AR/AP row deletes its linked NAS file (no orphans).
+
+Held for a decision (bigger / policy): period-lock + maker-checker workflow, multi-currency,
+revenue recognition (IFRS 15), cash-flow statement + DSO/DPO, concurrent finance_data 409 UX,
+myDATA/ΑΑΔΕ. See chat audit report.
+
 ## Language (EL/EN)
 - `frontend/src/i18n.jsx` — bilingual layer. `useT()` → `{ t, lang, setLang }`; call sites carry both
   strings inline: `t("Ελληνικά","English")`. Choice persisted to localStorage (`cbre_lang`), default Greek.
