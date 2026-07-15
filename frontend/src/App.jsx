@@ -18,6 +18,7 @@ import { LogoImg, PwField, MdText, Inp, Sel, Tbl } from "./ui.jsx";
 import { Login, ForcePw, ResetPassword } from "./auth.jsx";
 import { PnL, InvTab, SubTab, AccTab, LabTab, POTracker } from "./reportTabs.jsx";
 import { Insights, AiCard } from "./insights.jsx";
+import { ChatWidget } from "./chat.jsx";
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -1962,127 +1963,6 @@ function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
           </div>
         </>
         )}
-      </div>
-    </div>
-  );
-}
-
-// ── AI Chat assistant (single-shot, client-built snapshot — no live DB tool-calling) ──
-const grossAmt = r => Number(r.total) || (Number(r.amt)||0)+(Number(r.vat)||0) || Number(r.amt) || 0;
-const isPaid = r => r.paid==="paid" || r.paid===true;
-function buildClientSnapshot(cd, client, year) {
-  const inv=cd?.inv||[], sub=cd?.sub||[], contracts=cd?.contracts||[];
-  const series = clientSeries(cd, MONTHS);
-  const rr = runRateFY(series);
-  const active = series.filter(s=>s.rev||s.cost||s.labour);
-  const rc={core:0,ew:0,pjm:0};
-  inv.forEach(i=>{ const c=i.cat||""; if(c.includes("Core"))rc.core+=Number(i.amt)||0; else if(c.includes("Extra"))rc.ew+=Number(i.amt)||0; else if(c.includes("PJM"))rc.pjm+=Number(i.amt)||0; });
-  const supMap={}; sub.forEach(s=>{ const n=s.supplier||"—"; supMap[n]=(supMap[n]||0)+(Number(s.amt)||0); });
-  const topSuppliers=Object.entries(supMap).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([name,amount])=>({name,amount:Math.round(amount)}));
-  const poSpend=contracts.filter(c=>c.type==="PO"&&c.po).map(c=>{ const spent=inv.filter(i=>i.po_no===c.po&&(i.act_acc||"").toUpperCase()==="ACTUAL").reduce((s,i)=>s+(Number(i.amt)||0),0); const b=Number(c.po_value)||0; return {po:c.po,budget:Math.round(b),spent:Math.round(spent),remaining:Math.round(b-spent)}; });
-  return {
-    scope:"client", year, client, status:cd?.status||"draft",
-    totals:{ revenue:Math.round(rr.actual.rev), sub_cost:Math.round(rr.actual.cost), labour:Math.round(rr.actual.labour), gm:Math.round(rr.actual.gm), gm_pct: rr.actual.rev?+((rr.actual.gm/rr.actual.rev)*100).toFixed(1):null },
-    projected_fy:{ revenue:Math.round(rr.projected.rev), gm:Math.round(rr.projected.gm) },
-    counts:{ cbre_invoices:inv.length, sub_invoices:sub.length, contracts:contracts.length },
-    monthly: active.map(s=>({month:ML[s.m]||s.m, rev:Math.round(s.rev), cost:Math.round(s.cost), gm:Math.round(s.gm)})),
-    revenue_by_category:{ core:Math.round(rc.core), extra_works:Math.round(rc.ew), pjm:Math.round(rc.pjm) },
-    top_suppliers: topSuppliers, po_spend: poSpend,
-    contracts: contracts.slice(0,12).map(c=>({type:c.type,ref:c.ref,expiry:c.expiry,fee_pct:c.fee_pct})),
-    ar_ap:{ receivable_open:Math.round(inv.filter(i=>!isPaid(i)).reduce((s,i)=>s+grossAmt(i),0)), payable_open:Math.round(sub.filter(i=>!isPaid(i)).reduce((s,i)=>s+grossAmt(i),0)) },
-    risk_flags: clientRisks(cd, MONTHS).map(r=>r.label),
-  };
-}
-function buildPortfolioSnapshot(data, year) {
-  const rows=Object.entries(data||{}).map(([name,cd])=>{ const inv=cd?.inv||[],sub=cd?.sub||[],lab=cd?.lab||{}; const rev=inv.reduce((s,i)=>s+(Number(i.amt)||0),0); const cost=sub.reduce((s,i)=>s+(Number(i.amt)||0),0); const labour=Object.values(lab).reduce((s,mo)=>s+Object.values(mo||{}).reduce((a,v)=>a+(Number(v)||0),0),0); return {name,rev,cost,labour,gm:rev-cost-labour,status:cd?.status||"draft",active:inv.length>0||sub.length>0}; });
-  const sum=k=>rows.reduce((s,r)=>s+r[k],0); const totRev=sum("rev"), totGM=rows.reduce((s,r)=>s+r.gm,0); const st=s=>rows.filter(r=>r.status===s).length;
-  const expiring=[], atRisk=[];
-  Object.entries(data||{}).forEach(([name,cd])=>{ (cd?.contracts||[]).forEach(c=>{ if(c.status==="Terminated"||c.status==="Expired")return; const dd=daysUntil(c.expiry); if(dd!=null&&dd<=90) expiring.push({client:name,ref:c.ref,days:dd}); }); const rk=clientRisks(cd,MONTHS); if(rk.length) atRisk.push({client:name,risks:rk.map(r=>r.label)}); });
-  expiring.sort((a,b)=>a.days-b.days);
-  return {
-    scope:"portfolio", year,
-    totals:{ revenue:Math.round(totRev), cost:Math.round(sum("cost")), labour:Math.round(sum("labour")), gm:Math.round(totGM), gm_pct: totRev?+((totGM/totRev)*100).toFixed(1):null, clients:rows.length, active:rows.filter(r=>r.active).length },
-    by_status:{ draft:st("draft"), submitted:st("submitted"), approved:st("approved"), rejected:st("rejected") },
-    top_clients: rows.filter(r=>r.active).sort((a,b)=>b.gm-a.gm).slice(0,8).map(r=>({name:r.name,revenue:Math.round(r.rev),gm:Math.round(r.gm)})),
-    expiring_contracts: expiring.slice(0,10), clients_at_risk: atRisk.slice(0,10),
-  };
-}
-// Minimal, XSS-safe markdown (bold + bullets + line breaks) — never injects model HTML.
-function ChatWidget({user,year,ctx,nav}) {
-  const [open,setOpen]=useState(false);
-  const [msgs,setMsgs]=useState(()=>{ try{ return JSON.parse(localStorage.getItem("cbre_chat_v1")||"[]"); }catch{ return []; } });
-  const [input,setInput]=useState("");
-  const [busy,setBusy]=useState(false);
-  const scrollRef=useRef(null);
-  const portRef=useRef({year:null,data:null});
-  useEffect(()=>{ try{ localStorage.setItem("cbre_chat_v1", JSON.stringify(msgs.slice(-30))); }catch{} },[msgs]);
-  useEffect(()=>{ if(scrollRef.current) scrollRef.current.scrollTop=scrollRef.current.scrollHeight; },[msgs,busy,open]);
-  const scope = ctx.client ? "client" : "portfolio";
-  const suggestions = scope==="client"
-    ? ["Πώς πάει το GM;","Ποια είναι τα ρίσκα;","Ανάλυσε τα έσοδα","Τι λήγει σύντομα;"]
-    : ["Σύνοψη χαρτοφυλακίου","Ποιοι πελάτες έχουν ρίσκα;","Τι εκκρεμεί για έγκριση;","Top πελάτες κατά GM"];
-  const buildSnapshot = async () => {
-    if(ctx.client && ctx.cd) return { user:{name:user.name,role:user.role}, ...buildClientSnapshot(ctx.cd, ctx.client, year) };
-    let data = portRef.current.year===year ? portRef.current.data : null;
-    if(!data){ data = await api.getYearData(year).catch(()=>({})); portRef.current={year,data}; }
-    return { user:{name:user.name,role:user.role}, ...buildPortfolioSnapshot(data, year) };
-  };
-  const send = async (text) => {
-    const q=(text||input).trim(); if(!q||busy) return;
-    setInput(""); const next=[...msgs,{role:"user",content:q}]; setMsgs(next); setBusy(true);
-    try {
-      const snapshot = await buildSnapshot();
-      const history = next.slice(-9).map(m=>({role:m.role,content:m.content}));
-      const r = await api.chat(q, history, snapshot);
-      setMsgs(m=>[...m,{role:"assistant",content:r.text||"(κενή απάντηση)",actions:Array.isArray(r.actions)?r.actions:[]}]);
-    } catch(e) {
-      const msg = e.status===429?"⚠️ Εξαντλήθηκε το ημερήσιο όριο AI για σήμερα.":e.status===503?"⚠️ Το AI δεν είναι ρυθμισμένο στον server.":"⚠️ Κάτι πήγε στραβά. Δοκίμασε ξανά.";
-      setMsgs(m=>[...m,{role:"assistant",content:msg,actions:[]}]);
-    } finally { setBusy(false); }
-  };
-  const doAction = (a) => { if(a&&typeof a.view==="string") nav(a.view); setOpen(false); };
-  if(!open) return (
-    <button onClick={()=>setOpen(true)} title="AI βοηθός" style={{position:"fixed",bottom:22,right:22,width:56,height:56,borderRadius:"50%",background:P.em,color:"#fff",border:"none",boxShadow:"0 6px 20px rgba(0,0,0,.25)",cursor:"pointer",fontSize:24,zIndex:1200,display:"flex",alignItems:"center",justifyContent:"center"}}>🤖</button>
-  );
-  return (
-    <div style={{position:"fixed",bottom:22,right:22,width:"min(420px, calc(100vw - 32px))",height:"min(600px, calc(100vh - 44px))",background:P.wh,borderRadius:14,boxShadow:"0 12px 48px rgba(0,0,0,.3)",zIndex:1200,display:"flex",flexDirection:"column",overflow:"hidden",border:"1px solid "+P.bd,fontFamily:"Segoe UI,Tahoma,sans-serif"}}>
-      <div style={{background:P.em,color:"#fff",padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div style={{fontWeight:700,fontSize:14}}>🤖 AI Βοηθός <span style={{fontSize:11,opacity:.7,fontWeight:400}}>· {scope==="client"?ctx.client:"Portfolio"} · {year}</span></div>
-        <div style={{display:"flex",gap:6}}>
-          {msgs.length>0&&<button onClick={()=>setMsgs([])} title="Καθαρισμός" style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"4px 8px",borderRadius:5,cursor:"pointer",fontSize:11}}>🗑</button>}
-          <button onClick={()=>setOpen(false)} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",padding:"4px 10px",borderRadius:5,cursor:"pointer",fontSize:14,fontWeight:700}}>✕</button>
-        </div>
-      </div>
-      <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:14,background:P.of,display:"flex",flexDirection:"column",gap:10}}>
-        {msgs.length===0 && (
-          <div style={{color:P.tm,fontSize:12.5,lineHeight:1.5}}>
-            Ρώτησέ με για {scope==="client"?`τον πελάτη ${ctx.client}`:"το χαρτοφυλάκιο"} — έσοδα, GM, ρίσκα, συμβόλαια, εκκρεμότητες.
-            <div style={{fontSize:10.5,color:P.tm,marginTop:6,opacity:.8}}>Βλέπω μόνο συγκεντρωτικά στοιχεία της τρέχουσας οθόνης.</div>
-          </div>
-        )}
-        {msgs.map((m,i)=> m.role==="user" ? (
-          <div key={i} style={{alignSelf:"flex-end",maxWidth:"85%",background:P.em,color:"#fff",padding:"8px 12px",borderRadius:"12px 12px 3px 12px",fontSize:13}}>{m.content}</div>
-        ) : (
-          <div key={i} style={{alignSelf:"flex-start",maxWidth:"90%",background:P.wh,border:"1px solid "+P.bd,color:P.tx,padding:"9px 12px",borderRadius:"12px 12px 12px 3px",fontSize:13,lineHeight:1.5}}>
-            <MdText text={m.content} />
-            {Array.isArray(m.actions)&&m.actions.length>0&&(
-              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
-                {m.actions.map((a,j)=><button key={j} onClick={()=>doAction(a)} style={{background:P.ep,color:P.em,border:"1px solid "+P.bd,padding:"4px 10px",borderRadius:12,fontSize:11.5,fontWeight:600,cursor:"pointer"}}>{a.label||"Άνοιγμα"} →</button>)}
-              </div>
-            )}
-          </div>
-        ))}
-        {busy && <div style={{alignSelf:"flex-start",color:P.tm,fontSize:12,fontStyle:"italic"}}>Σκέφτομαι…</div>}
-      </div>
-      {msgs.length===0 && (
-        <div style={{padding:"8px 12px",display:"flex",flexWrap:"wrap",gap:6,borderTop:"1px solid "+P.bd,background:P.wh}}>
-          {suggestions.map((s,i)=><button key={i} onClick={()=>send(s)} style={{background:P.of,border:"1px solid "+P.bd,color:P.tx,padding:"5px 10px",borderRadius:12,fontSize:11.5,cursor:"pointer"}}>{s}</button>)}
-        </div>
-      )}
-      <div style={{padding:10,borderTop:"1px solid "+P.bd,background:P.wh,display:"flex",gap:8}}>
-        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="Ρώτησε κάτι…" disabled={busy}
-          style={{flex:1,padding:"9px 12px",border:"1px solid "+P.bd,borderRadius:8,fontSize:13,outline:"none",background:P.ip}} />
-        <button onClick={()=>send()} disabled={busy||!input.trim()} style={{background:P.em,color:"#fff",border:"none",padding:"0 16px",borderRadius:8,cursor:busy?"wait":"pointer",fontSize:14,fontWeight:600,opacity:(busy||!input.trim())?.5:1}}>➤</button>
       </div>
     </div>
   );
