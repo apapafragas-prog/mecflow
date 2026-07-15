@@ -6,6 +6,16 @@ Context file so any Claude session (local or cloud, any PC) can pick up the proj
 Internal CBRE Hellas reporting app: invoice scanning (AP = supplier costs, AR = client revenue),
 P&L per client, Excel export. React (Vite) frontend + Node backend + SQLite, runs in Docker on a Synology NAS.
 
+## Language (EL/EN)
+- `frontend/src/i18n.jsx` — bilingual layer. `useT()` → `{ t, lang, setLang }`; call sites carry both
+  strings inline: `t("Ελληνικά","English")`. Choice persisted to localStorage (`cbre_lang`), default Greek.
+  Also exports `monthLabel(ym)` (Ιαν-26 / Jan-26), `statusLabel`, `catLabel`, and module-scope `tr()`.
+  `LangToggle` (in ui.jsx) is the EL/EN switch, on the login card + every header. Provider wraps `<App/>`
+  in main.jsx. AI (chat/insights) answers in the selected language — frontend passes `lang` to
+  `/api/chat` & `/api/insights`, backend adds a language directive to the prompt.
+- Excel export: P&L title + line labels translate; sheet tab names, month cells and SUMIFS category
+  strings stay canonical (formulas + re-import matching depend on them).
+
 ## Structure
 - `frontend/src/App.jsx` — App shell: auth gate, session/save orchestration, tab routing, header/nav (~770 lines).
   The old monolith was split (L-05) into focused modules under `frontend/src/`:
