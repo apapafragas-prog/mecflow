@@ -6,6 +6,7 @@ import { useState, useEffect, useRef } from "react";
 import { api } from "./api.js";
 import { P, MONTHS, ML, YEARS, uid, fmt, fPct, REPORT_STATUS, DEFAULT_OPEX_CATS, CAPEX_CATS, CAPEX_STATUS } from "./constants.js";
 import { agingBucket, AGING_BUCKETS, depreciation, daysUntil, parseDate, runRateFY, clientRisks } from "./calc.js";
+import { Inp, Sel } from "./ui.jsx";
 import { AiCard } from "./insights.jsx";
 
 // Consolidated portfolio dashboard (finance/admin + ops for their own clients).

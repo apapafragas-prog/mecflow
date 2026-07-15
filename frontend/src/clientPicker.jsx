@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { P, CLIENTS, YEARS, REPORT_STATUS, fmt, fPct } from "./constants.js";
 import { LogoImg } from "./ui.jsx";
+import { AdminPanel } from "./admin.jsx";
 
 
 export function ClientPicker({user,year,setYear,onSelect,onLogout,allData,onOpenFinance,onOpenDash,onOpenLedger}) {
