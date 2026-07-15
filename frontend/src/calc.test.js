@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { monthIdx, depreciation, allocFractions, parseDate, daysUntil, clientSeries, linregSlope, runRateFY, clientRisks, agingBucket } from "./calc.js";
+import { monthIdx, depreciation, nbvAtMonth, groupPnLSeries, allocFractions, parseDate, daysUntil, clientSeries, linregSlope, runRateFY, clientRisks, agingBucket } from "./calc.js";
 
 const FY26 = Array.from({ length: 12 }, (_, i) => `2026-${String(i + 1).padStart(2, "0")}`);
 
@@ -33,6 +33,47 @@ describe("depreciation (straight-line)", () => {
   it("zero useful life → no depreciation", () => {
     const d = depreciation({ amount: 1000, life: 0, month: "2026-01" }, FY26);
     expect(d.monthly).toBe(0); expect(d.nbv).toBe(1000);
+  });
+});
+
+describe("nbvAtMonth", () => {
+  it("is 0 before acquisition, full cost in the acquisition month for a 1-month view", () => {
+    expect(nbvAtMonth({ amount: 12000, life: 24, month: "2026-06" }, "2026-05")).toBe(0);
+    // acquired Jun, end of Jun = 1 month elapsed → 12000 - 500 = 11500
+    expect(nbvAtMonth({ amount: 12000, life: 24, month: "2026-06" }, "2026-06")).toBe(11500);
+  });
+  it("depreciates straight-line across FY boundaries and caps at 0", () => {
+    // acquired Jan-2025, end of Jan-2026 = 13 months × 500 = 6500 accumulated → NBV 5500
+    expect(nbvAtMonth({ amount: 12000, life: 24, month: "2025-01" }, "2026-01")).toBe(5500);
+    expect(nbvAtMonth({ amount: 12000, life: 12, month: "2024-01" }, "2026-12")).toBe(0); // fully depreciated
+  });
+  it("non-depreciating (life 0) stays at cost once on the books", () => {
+    expect(nbvAtMonth({ amount: 5000, life: 0, month: "2026-01" }, "2026-06")).toBe(5000);
+    expect(nbvAtMonth({ amount: 5000, life: 0, month: "2026-07" }, "2026-06")).toBe(0);
+  });
+});
+
+describe("groupPnLSeries (consolidated monthly P&L)", () => {
+  const months = ["2026-01", "2026-02"];
+  const allData = {
+    A: { inv: [{ month: "2026-01", amt: 1000 }], sub: [{ month: "2026-01", amt: 200 }], lab: { "2026-01": { onsite: 100 } } },
+    B: { inv: [{ month: "2026-01", amt: 500 }, { month: "2026-02", amt: 700 }], sub: [], lab: {} },
+  };
+  const finance = {
+    opex: { cats: [{ id: "c1" }, { id: "c2" }], actual: { c1: { "2026-01": 150 }, c2: { "2026-01": 50 } } },
+    capex: [{ amount: 1200, life: 12, month: "2026-01" }], // 100/mo depreciation
+    pnl: { interest: { "2026-01": 30 }, tax: { "2026-01": 20 } },
+  };
+  it("builds the full revenue → GM → EBITDA → EBIT → net bridge", () => {
+    const s = groupPnLSeries(allData, finance, months);
+    // Jan: rev 1500, sub 200, labour 100 → GM 1200; opex 200 → EBITDA 1000; D&A 100 → EBIT 900; -30 -20 → net 850
+    expect(s[0]).toMatchObject({ rev: 1500, sub: 200, labour: 100, gm: 1200, opex: 200, ebitda: 1000, da: 100, ebit: 900, interest: 30, tax: 20, net: 850 });
+    // Feb: only B revenue 700, nothing else; D&A still 100
+    expect(s[1]).toMatchObject({ rev: 700, sub: 0, labour: 0, gm: 700, opex: 0, ebitda: 700, da: 100, ebit: 600, net: 600 });
+  });
+  it("handles missing finance blob gracefully (no opex/capex/pnl)", () => {
+    const s = groupPnLSeries(allData, {}, months);
+    expect(s[0]).toMatchObject({ gm: 1200, opex: 0, ebitda: 1200, da: 0, ebit: 1200, net: 1200 });
   });
 });
 

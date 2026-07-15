@@ -23,6 +23,48 @@ export const depreciation = (item, fyMonths) => {
   return { monthly, perMonth, accumulated, nbv: Math.max(0, amt - accumulated) };
 };
 
+// Net book value of a capex item at the END of month `ym` ("YYYY-MM"), across FY boundaries.
+// 0 before it is acquired; straight-line, capped at cost. Used by the group balance sheet.
+export const nbvAtMonth = (item, ym) => {
+  const amt = Number(item.amount) || 0, life = Number(item.life) || 0;
+  const acq = monthIdx(item.month), at = monthIdx(ym);
+  if (acq == null || at == null || at < acq) return 0;      // not on the books yet
+  if (life <= 0) return amt;                                 // non-depreciating
+  const monthly = amt / life;
+  const elapsed = Math.min(life, at - acq + 1);
+  return Math.max(0, amt - Math.min(amt, elapsed * monthly));
+};
+
+// Consolidated (company-wide) monthly P&L across ALL clients + company OPEX/CAPEX.
+//   allData : { clientName: { inv:[], sub:[], lab:{} } }   (from api.getYearData)
+//   finance : { opex:{cats,actual}, capex:[], pnl:{interest,tax} }  (from api.getFinanceData)
+// Returns one row per month: revenue → GM → EBITDA → EBIT → net income.
+export const groupPnLSeries = (allData, finance, months) => {
+  const cats = finance?.opex?.cats || [];
+  const actual = finance?.opex?.actual || {};
+  const capex = Array.isArray(finance?.capex) ? finance.capex : [];
+  const pnl = finance?.pnl || {};
+  // Pre-compute per-item straight-line depreciation within these FY months.
+  const depr = capex.map(it => depreciation(it, months));
+  return months.map(m => {
+    let rev = 0, sub = 0, labour = 0;
+    Object.values(allData || {}).forEach(cd => {
+      (cd?.inv || []).forEach(i => { if (i.month === m) rev += Number(i.amt) || 0; });
+      (cd?.sub || []).forEach(i => { if (i.month === m) sub += Number(i.amt) || 0; });
+      if (cd?.lab?.[m]) labour += Object.values(cd.lab[m]).reduce((s, v) => s + (Number(v) || 0), 0);
+    });
+    const gm = rev - sub - labour;
+    const opex = cats.reduce((s, c) => s + (Number(actual?.[c.id]?.[m]) || 0), 0);
+    const da = depr.reduce((s, d) => s + (d.perMonth[m] || 0), 0);
+    const interest = Number(pnl?.interest?.[m]) || 0;
+    const tax = Number(pnl?.tax?.[m]) || 0;
+    const ebitda = gm - opex;
+    const ebit = ebitda - da;
+    const net = ebit - interest - tax;
+    return { m, rev, sub, labour, gm, opex, ebitda, da, ebit, interest, tax, net };
+  });
+};
+
 // Read a month's labour allocation as normalized fractions that ALWAYS sum to 1 (proportional
 // to the weights) so the split can never change the total labour cost. Empty/zero → 100% Core.
 export const allocFractions = (labAlloc, m) => {

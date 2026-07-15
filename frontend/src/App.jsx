@@ -19,6 +19,7 @@ import { PnL, InvTab, SubTab, AccTab, LabTab, POTracker } from "./reportTabs.jsx
 import { Insights } from "./insights.jsx";
 import { ChatWidget } from "./chat.jsx";
 import { Dashboard, ApArLedger, OpexCapex } from "./finance.jsx";
+import { GroupReports } from "./groupReports.jsx";
 import { AdminPanel } from "./admin.jsx";
 import { Scan } from "./scan.jsx";
 import { ClientPicker } from "./clientPicker.jsx";
@@ -45,6 +46,7 @@ export default function App() {
   const [financeOpen, setFinanceOpen] = useState(false);
   const [dashOpen, setDashOpen] = useState(false);
   const [ledgerOpen, setLedgerOpen] = useState(false);
+  const [groupOpen, setGroupOpen] = useState(false);
   const [year, setYear] = useState("FY26");
   setFiscalYear(year); // render-safe (idempotent): keeps MONTHS/ML aligned with the selected FY
   const [tab, setTab] = useState("contracts");
@@ -189,12 +191,13 @@ export default function App() {
   const navChat = (view) => {
     if (typeof view !== "string") return;
     const fin = user.role==="finance"||user.role==="admin";
-    if (view==="dashboard") { setClient(null); setFinanceOpen(false); setLedgerOpen(false); setDashOpen(true); }
-    else if (view==="ledger" && fin) { setClient(null); setDashOpen(false); setFinanceOpen(false); setLedgerOpen(true); }
-    else if (view==="opex" && fin) { setClient(null); setDashOpen(false); setLedgerOpen(false); setFinanceOpen(true); }
-    else if (view==="clients") { setClient(null); setDashOpen(false); setLedgerOpen(false); setFinanceOpen(false); }
+    if (view==="dashboard") { setClient(null); setFinanceOpen(false); setLedgerOpen(false); setGroupOpen(false); setDashOpen(true); }
+    else if (view==="ledger" && fin) { setClient(null); setDashOpen(false); setFinanceOpen(false); setGroupOpen(false); setLedgerOpen(true); }
+    else if (view==="opex" && fin) { setClient(null); setDashOpen(false); setLedgerOpen(false); setGroupOpen(false); setFinanceOpen(true); }
+    else if (view==="group" && fin) { setClient(null); setDashOpen(false); setLedgerOpen(false); setFinanceOpen(false); setGroupOpen(true); }
+    else if (view==="clients") { setClient(null); setDashOpen(false); setLedgerOpen(false); setFinanceOpen(false); setGroupOpen(false); }
     else if (view.startsWith("tab:")) { if (client) setTab(view.slice(4)); }
-    else if (view.startsWith("client:")) { const p=view.split(":"); if (p[1]) { setDashOpen(false); setLedgerOpen(false); setFinanceOpen(false); setClient(p[1]); setTab(p[2]||"contracts"); } }
+    else if (view.startsWith("client:")) { const p=view.split(":"); if (p[1]) { setDashOpen(false); setLedgerOpen(false); setFinanceOpen(false); setGroupOpen(false); setClient(p[1]); setTab(p[2]||"contracts"); } }
   };
   const chatEl = <ChatWidget user={user} year={year} ctx={{client, cd:(client&&cd)?cd:null, tab}} nav={navChat} />;
   const withChat = (screen) => <>{screen}{chatEl}</>;
@@ -205,7 +208,9 @@ export default function App() {
     return withChat(<ApArLedger year={year} setYear={setYear} user={user} onBack={()=>setLedgerOpen(false)} onLogout={logout} onSelectClient={c=>{setLedgerOpen(false);setClient(c);setTab("inv");}} />);
   if (!client && financeOpen && (user.role==="finance"||user.role==="admin"))
     return withChat(<OpexCapex year={year} setYear={setYear} user={user} onBack={()=>setFinanceOpen(false)} onLogout={logout} />);
-  if (!client) return withChat(<ClientPicker user={user} year={year} setYear={setYear} onSelect={c=>{setClient(c);setTab("contracts");}} onLogout={logout} allData={yd} onOpenFinance={()=>setFinanceOpen(true)} onOpenDash={()=>setDashOpen(true)} onOpenLedger={()=>setLedgerOpen(true)} />);
+  if (!client && groupOpen && (user.role==="finance"||user.role==="admin"))
+    return withChat(<GroupReports year={year} setYear={setYear} user={user} onBack={()=>setGroupOpen(false)} onLogout={logout} />);
+  if (!client) return withChat(<ClientPicker user={user} year={year} setYear={setYear} onSelect={c=>{setClient(c);setTab("contracts");}} onLogout={logout} allData={yd} onOpenFinance={()=>setFinanceOpen(true)} onOpenDash={()=>setDashOpen(true)} onOpenLedger={()=>setLedgerOpen(true)} onOpenGroup={()=>setGroupOpen(true)} />);
 
   const inv=cd.inv; const sub=cd.sub; const lab=cd.lab; const contracts=cd.contracts; const docs=cd.docs||[];
   const labAlloc=cd.labAlloc||mkAlloc();

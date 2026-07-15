@@ -5,7 +5,7 @@ import { LogoImg } from "./ui.jsx";
 import { AdminPanel } from "./admin.jsx";
 
 
-export function ClientPicker({user,year,setYear,onSelect,onLogout,allData,onOpenFinance,onOpenDash,onOpenLedger}) {
+export function ClientPicker({user,year,setYear,onSelect,onLogout,allData,onOpenFinance,onOpenDash,onOpenLedger,onOpenGroup}) {
   const [search,setSearch] = useState("");
   const [sort,setSort] = useState("name");
   const [adminOpen,setAdminOpen] = useState(false);
@@ -53,6 +53,7 @@ export function ClientPicker({user,year,setYear,onSelect,onLogout,allData,onOpen
           <button onClick={onOpenDash} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>📊 Dashboard</button>
           {(user.role==="finance"||user.role==="admin")&&<button onClick={onOpenLedger} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>📒 AP/AR</button>}
           {(user.role==="finance"||user.role==="admin")&&<button onClick={onOpenFinance} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>💰 OPEX/CAPEX</button>}
+          {(user.role==="finance"||user.role==="admin")&&<button onClick={onOpenGroup} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>🏢 Group P&L/BS</button>}
           {user.role==="admin"&&<button onClick={()=>setAdminOpen(true)} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>⚙️ Admin</button>}
           <button onClick={onLogout} style={{background:"rgba(255,255,255,.12)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>Logout</button>
         </div>

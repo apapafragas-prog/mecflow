@@ -15,6 +15,12 @@ P&L per client, Excel export. React (Vite) frontend + Node backend + SQLite, run
   - `scan.jsx` (invoice/doc scanner + AI extraction), `reportTabs.jsx` (PnL/InvTab/SubTab/AccTab/LabTab/POTracker)
   - `insights.jsx` (AiCard + Insights), `chat.jsx` (ChatWidget + snapshot builders)
   - `finance.jsx` (Dashboard/ApArLedger/OpexCapex), `admin.jsx` (AdminPanel)
+  - `groupReports.jsx` (GroupReports): company-wide consolidated **Group P&L** (monthly, all
+    clients + OPEX/CAPEX → GM → **EBITDA** → EBIT → Net) and a monthly **Balance Sheet**
+    (Πάγια-NBV/AR/AP/retained-earnings auto-derived; cash/loans/capital/opening balances manual).
+    Stored in the same finance_data blob under keys `pnl` (interest/tax) and `bs` (accounts+values).
+    Guard: `scripts/check-jsx-imports.mjs` (run by `npm run lint`) catches undefined JSX components,
+    which ESLint core `no-undef` does not.
   - Safety net: ESLint `no-undef` (CI) catches any missing import when moving code between modules.
 - `backend/server.js` — API + Claude Vision invoice extraction (`POST /api/extract/invoice`). Prompt + validation live here.
 - `backend/init-db.js`, `backend/excel_report.py` — DB init, Excel report helper.
