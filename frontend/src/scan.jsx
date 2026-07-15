@@ -5,8 +5,10 @@ import { useState, useEffect, useRef } from "react";
 import { api } from "./api.js";
 import { P, MONTHS, ML, REV_CATS, COST_CATS, SVC_CATS } from "./constants.js";
 import { Inp, Sel } from "./ui.jsx";
+import { useT, monthLabel, catLabel } from "./i18n.jsx";
 
 export function Scan({onAdd,onAddAR,goTo,year,client}) {
+  const { t } = useT();
   const [files, setFiles] = useState([]);
   const [results, setResults] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -111,9 +113,9 @@ export function Scan({onAdd,onAddAR,goTo,year,client}) {
       if(isZip(f)) {
         // Extract ZIP contents
         if(!window.JSZip) {
-          setProg("Loading ZIP support...");
+          setProg(t("Φόρτωση υποστήριξης ZIP...","Loading ZIP support..."));
           const ok = await waitForLib("zip");
-          if(!ok) { alert("ZIP support could not be loaded. Please try again."); continue; }
+          if(!ok) { alert(t("Δεν φορτώθηκε η υποστήριξη ZIP. Δοκίμασε ξανά.","ZIP support could not be loaded. Please try again.")); continue; }
           setProg("");
         }
         try {
@@ -131,7 +133,7 @@ export function Scan({onAdd,onAddAR,goTo,year,client}) {
           }
         } catch(e) {
           console.error("ZIP extraction failed:",e);
-          alert(`Failed to extract ${f.name}: ${e.message}`);
+          alert(t(`Αποτυχία εξαγωγής ${f.name}: ${e.message}`,`Failed to extract ${f.name}: ${e.message}`));
         }
       } else if(f.type==="application/pdf"||f.type.startsWith("image/")) {
         out.push(f);
@@ -245,7 +247,7 @@ export function Scan({onAdd,onAddAR,goTo,year,client}) {
     setBusy(true); setResults([]); setApproved({sub:0,inv:0}); const out = [];
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
-      setProg(`🤖 AI reading ${i+1}/${files.length}: ${f.name}`);
+      setProg(t(`🤖 AI ανάγνωση ${i+1}/${files.length}: ${f.name}`,`🤖 AI reading ${i+1}/${files.length}: ${f.name}`));
       try {
         const scanMode = autoMode ? "AUTO" : mode;
         const ex = await api.extractInvoice(f, scanMode);
@@ -319,11 +321,11 @@ export function Scan({onAdd,onAddAR,goTo,year,client}) {
             text = await extractPdfText(f);
             if(text.replace(/\s/g,"").length < 30){
               const canvas = await pdfPageToImage(f, 1);
-              text = await ocrImage(canvas, pct => setProg(`OCR fallback: ${f.name} (${pct}%)`));
+              text = await ocrImage(canvas, pct => setProg(t(`OCR εφεδρικό: ${f.name} (${pct}%)`,`OCR fallback: ${f.name} (${pct}%)`)));
             }
           } else {
             const url = URL.createObjectURL(f);
-            text = await ocrImage(url, pct => setProg(`OCR: ${f.name} (${pct}%)`));
+            text = await ocrImage(url, pct => setProg(t(`OCR: ${f.name} (${pct}%)`,`OCR: ${f.name} (${pct}%)`)));
             URL.revokeObjectURL(url);
           }
           const parsed = parseInvoice(text, f.name);
@@ -349,7 +351,7 @@ export function Scan({onAdd,onAddAR,goTo,year,client}) {
     // Use targetMonth if set, otherwise the row's month, otherwise block
     const m = targetMonth || ((r.month||"").slice(0,7));
     if(!MONTHS.includes(m)) {
-      alert(`Cannot approve "${r._file}" — invalid month "${m||"(empty)"}"\n\nSet a Target Month above or fix this row's month dropdown.`);
+      alert(t(`Αδυναμία έγκρισης "${r._file}" — μη έγκυρος μήνας "${m||"(κενό)"}"\n\nΌρισε Μήνα-στόχο παραπάνω ή διόρθωσε τον μήνα της γραμμής.`,`Cannot approve "${r._file}" — invalid month "${m||"(empty)"}"\n\nSet a Target Month above or fix this row's month dropdown.`));
       return;
     }
     // Store the original file on the NAS and link it to the entry
@@ -373,7 +375,7 @@ export function Scan({onAdd,onAddAR,goTo,year,client}) {
   };
   const approveAll = () => {
     if(!targetMonth && results.some(r=>r._st==="ready"&&!MONTHS.includes((r.month||"").slice(0,7)))) {
-      alert("Some invoices have invalid months. Please set a Target Month above or fix individual rows first.");
+      alert(t("Κάποια τιμολόγια έχουν μη έγκυρους μήνες. Όρισε Μήνα-στόχο παραπάνω ή διόρθωσε τις γραμμές πρώτα.","Some invoices have invalid months. Please set a Target Month above or fix individual rows first."));
       return;
     }
     results.forEach((_,i) => approve(i));
@@ -383,44 +385,44 @@ export function Scan({onAdd,onAddAR,goTo,year,client}) {
 
   return (
     <div>
-      <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 6px"}}>Invoice Scanner — AI-Powered</h2>
-      <p style={{fontSize:13,color:P.tm,margin:"0 0 12px"}}>Drop invoices (PDF, images, ZIP). Claude reads each invoice directly — no regex, no OCR guesswork. Auto-detects credit notes (πιστωτικά) and applies negative amounts.</p>
+      <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 6px"}}>{t("Σαρωτής Τιμολογίων — με AI","Invoice Scanner — AI-Powered")}</h2>
+      <p style={{fontSize:13,color:P.tm,margin:"0 0 12px"}}>{t("Ρίξε τιμολόγια (PDF, εικόνες, ZIP). Το Claude διαβάζει κάθε τιμολόγιο απευθείας — χωρίς regex/OCR μαντεψιές. Ανιχνεύει πιστωτικά και εφαρμόζει αρνητικά ποσά.","Drop invoices (PDF, images, ZIP). Claude reads each invoice directly — no regex, no OCR guesswork. Auto-detects credit notes and applies negative amounts.")}</p>
 
       {/* Libraries status */}
       <div style={{display:"flex",gap:10,fontSize:11,marginBottom:10,color:P.tm}}>
-        <span>{libsReady.pdf?"✓":"⏳"} PDF parser</span>
-        <span>{libsReady.ocr?"✓":"⏳"} OCR engine</span>
-        <span>{libsReady.zip?"✓":"⏳"} ZIP support</span>
-        {(!libsReady.pdf||!libsReady.ocr||!libsReady.zip) && <span style={{color:"#F57F17"}}>Loading libraries from CDN...</span>}
+        <span>{libsReady.pdf?"✓":"⏳"} {t("Ανάλυση PDF","PDF parser")}</span>
+        <span>{libsReady.ocr?"✓":"⏳"} {t("Μηχανή OCR","OCR engine")}</span>
+        <span>{libsReady.zip?"✓":"⏳"} {t("Υποστήριξη ZIP","ZIP support")}</span>
+        {(!libsReady.pdf||!libsReady.ocr||!libsReady.zip) && <span style={{color:"#F57F17"}}>{t("Φόρτωση βιβλιοθηκών από CDN...","Loading libraries from CDN...")}</span>}
       </div>
 
       {/* Mode toggle */}
       <div style={{display:"flex",gap:0,marginBottom:14,background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:4,width:"fit-content"}}>
-        <button onClick={()=>setMode("AP")} style={{background:mode==="AP"?P.em:"transparent",color:mode==="AP"?"#fff":P.tx,border:"none",padding:"8px 18px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>📥 AP — Supplier Invoices → Sub Costs</button>
-        <button onClick={()=>setMode("AR")} style={{background:mode==="AR"?P.em:"transparent",color:mode==="AR"?"#fff":P.tx,border:"none",padding:"8px 18px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>📤 AR — Client Invoices → CBRE Revenue</button>
+        <button onClick={()=>setMode("AP")} style={{background:mode==="AP"?P.em:"transparent",color:mode==="AP"?"#fff":P.tx,border:"none",padding:"8px 18px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>📥 {t("AP — Τιμολόγια Προμηθευτών → Κόστη Υπεργ.","AP — Supplier Invoices → Sub Costs")}</button>
+        <button onClick={()=>setMode("AR")} style={{background:mode==="AR"?P.em:"transparent",color:mode==="AR"?"#fff":P.tx,border:"none",padding:"8px 18px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>📤 {t("AR — Τιμολόγια Πελατών → Έσοδα CBRE","AR — Client Invoices → CBRE Revenue")}</button>
       </div>
 
       <div onClick={pickFiles}
-        onDrop={e=>{e.preventDefault();setDrag(false);const items=Array.from(e.dataTransfer.items||[]);const hasDir=items.some(it=>{const en=it.webkitGetAsEntry&&it.webkitGetAsEntry();return en&&en.isDirectory;});if(hasDir){alert("Σύρε ΑΡΧΕΙΑ (PDF/εικόνες), όχι ολόκληρο φάκελο.\n\nΓια ένα αρχείο: πάτα το κουμπί «Select a file».\nΓια πολλά: διάλεξέ τα μέσα στον φάκελο και σύρ' τα μαζί.");return;}setFiles([]);setResults([]);setApproved({sub:0,inv:0});addFiles(e.dataTransfer.files);}} onDragOver={e=>{e.preventDefault();setDrag(true);}} onDragLeave={()=>setDrag(false)}
+        onDrop={e=>{e.preventDefault();setDrag(false);const items=Array.from(e.dataTransfer.items||[]);const hasDir=items.some(it=>{const en=it.webkitGetAsEntry&&it.webkitGetAsEntry();return en&&en.isDirectory;});if(hasDir){alert(t("Σύρε ΑΡΧΕΙΑ (PDF/εικόνες), όχι ολόκληρο φάκελο.\n\nΓια ένα αρχείο: πάτα το κουμπί «Επιλογή αρχείου».\nΓια πολλά: διάλεξέ τα μέσα στον φάκελο και σύρ' τα μαζί.","Drag FILES (PDF/images), not a whole folder.\n\nFor one file: click the «Select a file» button.\nFor many: select them inside the folder and drag them together."));return;}setFiles([]);setResults([]);setApproved({sub:0,inv:0});addFiles(e.dataTransfer.files);}} onDragOver={e=>{e.preventDefault();setDrag(true);}} onDragLeave={()=>setDrag(false)}
         style={{display:"block",border:"3px dashed "+(drag?P.em:P.bd),borderRadius:12,padding:"36px 20px",textAlign:"center",cursor:"pointer",background:drag?P.ep:P.wh,transition:"all .2s",marginBottom:10}}>
         <input ref={fileInputRef} type="file" multiple accept=".pdf,.zip,image/*" style={{display:"none"}} onChange={e=>{addFiles(e.target.files);e.target.value="";}} />
         <input ref={folderInputRef} type="file" multiple style={{display:"none"}} onChange={e=>{addFiles(e.target.files);e.target.value="";}} />
         <div style={{fontSize:36,marginBottom:6}}>{mode==="AR"?"📤":"📥"}</div>
-        <div style={{fontSize:14,fontWeight:600,color:P.em}}>Drop {mode==="AR"?"client (AR) invoices":"supplier (AP) invoices"} here</div>
-        <div style={{fontSize:11,color:P.tm,marginTop:4}}>{mode==="AR"?"Will feed CBRE Invoices (Revenue)":"Will feed Sub Invoices (Costs)"} — drag one or more files here, or pick a single file with the button</div>
+        <div style={{fontSize:14,fontWeight:600,color:P.em}}>{t("Ρίξε εδώ ","Drop ")}{mode==="AR"?t("τιμολόγια πελατών (AR)","client (AR) invoices"):t("τιμολόγια προμηθευτών (AP)","supplier (AP) invoices")}{t("","  here")}</div>
+        <div style={{fontSize:11,color:P.tm,marginTop:4}}>{mode==="AR"?t("Θα τροφοδοτήσει Τιμολόγια CBRE (Έσοδα)","Will feed CBRE Invoices (Revenue)"):t("Θα τροφοδοτήσει Τιμολόγια Υπεργ. (Κόστη)","Will feed Sub Invoices (Costs)")} — {t("σύρε ένα ή περισσότερα αρχεία εδώ, ή διάλεξε ένα με το κουμπί","drag one or more files here, or pick a single file with the button")}</div>
       </div>
       <div style={{display:"flex",justifyContent:"center",gap:10,marginBottom:16}}>
-        <button type="button" onClick={pickFiles} style={{background:P.em,color:"#fff",border:"none",padding:"10px 24px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:700}}>📄 Select a file</button>
-        <button type="button" onClick={pickFolder} style={{background:"#0277BD",color:"#fff",border:"none",padding:"10px 24px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:700}}>📁 Σάρωση φακέλου (auto AP/AR)</button>
+        <button type="button" onClick={pickFiles} style={{background:P.em,color:"#fff",border:"none",padding:"10px 24px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:700}}>📄 {t("Επιλογή αρχείου","Select a file")}</button>
+        <button type="button" onClick={pickFolder} style={{background:"#0277BD",color:"#fff",border:"none",padding:"10px 24px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:700}}>📁 {t("Σάρωση φακέλου (auto AP/AR)","Scan folder (auto AP/AR)")}</button>
       </div>
-      {autoMode && <div style={{textAlign:"center",marginBottom:14,padding:"8px 14px",background:"#E1F5FE",border:"1px solid #0277BD",borderRadius:6,fontSize:12,color:"#01579B",fontWeight:600}}>🔍 Auto-ανίχνευση ΕΝΕΡΓΗ — κάθε τιμολόγιο ταξινομείται μόνο του σε 📥 AP (κόστος) ή 📤 AR (έσοδο). Έλεγξε/διόρθωσε το badge κάθε κάρτας (κλικ ⇄) πριν το Approve.</div>}
+      {autoMode && <div style={{textAlign:"center",marginBottom:14,padding:"8px 14px",background:"#E1F5FE",border:"1px solid #0277BD",borderRadius:6,fontSize:12,color:"#01579B",fontWeight:600}}>🔍 {t("Auto-ανίχνευση ΕΝΕΡΓΗ — κάθε τιμολόγιο ταξινομείται μόνο του σε 📥 AP (κόστος) ή 📤 AR (έσοδο). Έλεγξε/διόρθωσε το badge κάθε κάρτας (κλικ ⇄) πριν το Approve.","Auto-detect ON — each invoice self-classifies as 📥 AP (cost) or 📤 AR (revenue). Check/fix each card's badge (click ⇄) before Approve.")}</div>}
       {files.length > 0 && (
         <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:14,marginBottom:16}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <span style={{fontSize:13,fontWeight:600,color:P.em}}>{files.length} file(s)</span>
+            <span style={{fontSize:13,fontWeight:600,color:P.em}}>{files.length} {t("αρχείο(α)","file(s)")}</span>
             <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>{setFiles([]);setAutoMode(false);}} style={{background:"none",border:"1px solid "+P.bd,padding:"5px 12px",borderRadius:4,cursor:"pointer",fontSize:12}}>Clear</button>
-              <button onClick={scan} disabled={busy} style={{background:P.em,color:"#fff",border:"none",padding:"7px 20px",borderRadius:6,cursor:busy?"wait":"pointer",fontSize:13,fontWeight:600,opacity:busy?0.5:1}}>{busy?"AI processing...":"🤖 Extract All with AI"}</button>
+              <button onClick={()=>{setFiles([]);setAutoMode(false);}} style={{background:"none",border:"1px solid "+P.bd,padding:"5px 12px",borderRadius:4,cursor:"pointer",fontSize:12}}>{t("Καθαρισμός","Clear")}</button>
+              <button onClick={scan} disabled={busy} style={{background:P.em,color:"#fff",border:"none",padding:"7px 20px",borderRadius:6,cursor:busy?"wait":"pointer",fontSize:13,fontWeight:600,opacity:busy?0.5:1}}>{busy?t("Επεξεργασία AI...","AI processing..."):t("🤖 Εξαγωγή Όλων με AI","🤖 Extract All with AI")}</button>
             </div>
           </div>
           {files.map((f,i)=><div key={i} style={{display:"flex",gap:8,padding:"3px 0",fontSize:12,alignItems:"center"}}><span>{f.type.includes("pdf")?"📄":"🖼️"}</span><span style={{flex:1}}>{f.name}</span><span style={{color:P.tm}}>{(f.size/1024).toFixed(0)}KB</span><button onClick={()=>setFiles(p=>p.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:P.rd,cursor:"pointer"}}>×</button></div>)}
@@ -429,54 +431,54 @@ export function Scan({onAdd,onAddAR,goTo,year,client}) {
       )}
       {(approved.sub>0||approved.inv>0) && (
         <div style={{background:P.gn,color:"#fff",borderRadius:8,padding:"10px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",fontSize:13,fontWeight:600}}>
-          <span>✓ Καταχωρήθηκαν:</span>
-          {approved.sub>0 && <span>{approved.sub} → Sub Invoices (Costs)</span>}
-          {approved.inv>0 && <span>{approved.inv} → CBRE Invoices (Revenue)</span>}
-          {approved.sub>0 && <button onClick={()=>goTo&&goTo("sub")} style={{background:"#fff",color:P.em,border:"none",padding:"5px 12px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700}}>→ Sub Invoices</button>}
-          {approved.inv>0 && <button onClick={()=>goTo&&goTo("inv")} style={{background:"#fff",color:P.em,border:"none",padding:"5px 12px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700}}>→ CBRE Invoices</button>}
+          <span>✓ {t("Καταχωρήθηκαν:","Registered:")}</span>
+          {approved.sub>0 && <span>{approved.sub} → {t("Τιμολόγια Υπεργ. (Κόστη)","Sub Invoices (Costs)")}</span>}
+          {approved.inv>0 && <span>{approved.inv} → {t("Τιμολόγια CBRE (Έσοδα)","CBRE Invoices (Revenue)")}</span>}
+          {approved.sub>0 && <button onClick={()=>goTo&&goTo("sub")} style={{background:"#fff",color:P.em,border:"none",padding:"5px 12px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700}}>→ {t("Τιμολόγια Υπεργ.","Sub Invoices")}</button>}
+          {approved.inv>0 && <button onClick={()=>goTo&&goTo("inv")} style={{background:"#fff",color:P.em,border:"none",padding:"5px 12px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700}}>→ {t("Τιμολόγια CBRE","CBRE Invoices")}</button>}
         </div>
       )}
       {results.length > 0 && (
         <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,overflow:"hidden"}}>
           <div style={{background:P.ep,padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span style={{fontSize:14,fontWeight:700,color:P.em}}>Extracted — Review & Approve</span>
-            <button onClick={approveAll} style={{background:P.gn,color:"#fff",border:"none",padding:"7px 18px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>✓ Approve All ({results.filter(r=>r._st==="ready").length})</button>
+            <span style={{fontSize:14,fontWeight:700,color:P.em}}>{t("Εξήχθησαν — Έλεγχος & Έγκριση","Extracted — Review & Approve")}</span>
+            <button onClick={approveAll} style={{background:P.gn,color:"#fff",border:"none",padding:"7px 18px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>✓ {t("Έγκριση Όλων","Approve All")} ({results.filter(r=>r._st==="ready").length})</button>
           </div>
           {results.map((r,i) => (
             <div key={i} style={{padding:"12px 16px",borderBottom:"1px solid "+P.bd,background:r._st==="done"?"#E8F5E9":r._st==="error"?"#FFEBEE":i%2===0?P.wh:P.al}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <span style={{fontSize:11,color:P.tm}}>{r._file}</span>
-                  <button onClick={()=>r._st==="ready"&&flipMode(i)} title="Κλικ για εναλλαγή AP/AR" style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10,color:"#fff",border:"none",cursor:r._st==="ready"?"pointer":"default",background:(r._mode||"AP")==="AR"?"#0277BD":"#00897B"}}>{(r._mode||"AP")==="AR"?"📤 AR":"📥 AP"}{r._st==="ready"?" ⇄":""}</button>
-                  <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10,color:"#fff",background:r._st==="done"?P.gn:r._st==="error"?P.rd:r._st==="rejected"?P.rd:P.em}}>{r._st==="done"?"✓ APPROVED":r._st==="saving"?"⏳ SAVING…":r._st==="error"?"ERROR":r._st==="rejected"?"✗ REJECTED":"READY"}</span>
+                  <button onClick={()=>r._st==="ready"&&flipMode(i)} title={t("Κλικ για εναλλαγή AP/AR","Click to toggle AP/AR")} style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10,color:"#fff",border:"none",cursor:r._st==="ready"?"pointer":"default",background:(r._mode||"AP")==="AR"?"#0277BD":"#00897B"}}>{(r._mode||"AP")==="AR"?"📤 AR":"📥 AP"}{r._st==="ready"?" ⇄":""}</button>
+                  <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10,color:"#fff",background:r._st==="done"?P.gn:r._st==="error"?P.rd:r._st==="rejected"?P.rd:P.em}}>{r._st==="done"?t("✓ ΕΓΚΡΙΘΗΚΕ","✓ APPROVED"):r._st==="saving"?t("⏳ ΑΠΟΘΗΚΕΥΣΗ…","⏳ SAVING…"):r._st==="error"?t("ΣΦΑΛΜΑ","ERROR"):r._st==="rejected"?t("✗ ΑΠΟΡΡΙΦΘΗΚΕ","✗ REJECTED"):t("ΕΤΟΙΜΟ","READY")}</span>
                   {r.afm&&<span style={{fontSize:10,color:P.tm}}>ΑΦΜ: {r.afm}</span>}
                 </div>
                 <div style={{display:"flex",gap:6}}>
-                  {r._fileObj && <button onClick={()=>setPreview({url:URL.createObjectURL(r._fileObj),name:r._file,isPdf:(r._fileObj.type||"").includes("pdf")||(r._file||"").toLowerCase().endsWith(".pdf")})} style={{background:"none",border:"1px solid "+P.bd,padding:"3px 8px",borderRadius:4,cursor:"pointer",fontSize:10}}>👁 Preview</button>}
+                  {r._fileObj && <button onClick={()=>setPreview({url:URL.createObjectURL(r._fileObj),name:r._file,isPdf:(r._fileObj.type||"").includes("pdf")||(r._file||"").toLowerCase().endsWith(".pdf")})} style={{background:"none",border:"1px solid "+P.bd,padding:"3px 8px",borderRadius:4,cursor:"pointer",fontSize:10}}>👁 {t("Προεπισκόπηση","Preview")}</button>}
                   <button onClick={()=>setShowRaw(showRaw===i?null:i)} style={{background:"none",border:"1px solid "+P.bd,padding:"3px 8px",borderRadius:4,cursor:"pointer",fontSize:10}}>📋 Raw</button>
-                  {r._st==="ready" && <button onClick={()=>approve(i)} style={{background:P.gn,color:"#fff",border:"none",padding:"4px 12px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600}}>✓ Approve</button>}
-                  {r._st==="ready" && <button onClick={()=>setResults(p=>p.map((x,j)=>j===i?{...x,_st:"rejected"}:x))} style={{background:P.rd,color:"#fff",border:"none",padding:"4px 10px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600}}>✗ Reject</button>}
-                  {r._st==="rejected" && <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10,color:"#fff",background:P.rd}}>✗ REJECTED</span>}
-                  {r._st==="rejected" && <button onClick={()=>setResults(p=>p.map((x,j)=>j===i?{...x,_st:"ready"}:x))} style={{background:"none",border:"1px solid "+P.bd,padding:"3px 8px",borderRadius:4,cursor:"pointer",fontSize:10}}>↩ Undo</button>}
+                  {r._st==="ready" && <button onClick={()=>approve(i)} style={{background:P.gn,color:"#fff",border:"none",padding:"4px 12px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600}}>✓ {t("Έγκριση","Approve")}</button>}
+                  {r._st==="ready" && <button onClick={()=>setResults(p=>p.map((x,j)=>j===i?{...x,_st:"rejected"}:x))} style={{background:P.rd,color:"#fff",border:"none",padding:"4px 10px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600}}>✗ {t("Απόρριψη","Reject")}</button>}
+                  {r._st==="rejected" && <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10,color:"#fff",background:P.rd}}>✗ {t("ΑΠΟΡΡΙΦΘΗΚΕ","REJECTED")}</span>}
+                  {r._st==="rejected" && <button onClick={()=>setResults(p=>p.map((x,j)=>j===i?{...x,_st:"ready"}:x))} style={{background:"none",border:"1px solid "+P.bd,padding:"3px 8px",borderRadius:4,cursor:"pointer",fontSize:10}}>↩ {t("Αναίρεση","Undo")}</button>}
                 </div>
               </div>
               <div style={{display:"flex",flexWrap:"wrap",gap:8,fontSize:12}}>
-                <Inp l={(r._mode||"AP")==="AR"?"Client":"Supplier"} v={r.supplier_name||""} set={v=>upd(i,"supplier_name",v)} w={160} />
-                <Inp l="Invoice #" v={r.invoice_number||""} set={v=>upd(i,"invoice_number",v)} w={90} />
-                <Inp l="Date" v={r.invoice_date||""} set={v=>upd(i,"invoice_date",v)} w={90} />
-                <Sel l="Month" v={(r.month||"").slice(0,7)} set={v=>upd(i,"month",v)} opts={MONTHS.map(m=>({v:m,l:ML[m]}))} w={100} />
-                <Inp l="Net €" v={r.net_amount||0} set={v=>upd(i,"net_amount",parseFloat(v)||0)} w={80} t="number" />
-                <Inp l="VAT €" v={r.vat_amount||0} set={v=>upd(i,"vat_amount",parseFloat(v)||0)} w={70} t="number" />
-                <Inp l="Total €" v={r.total_amount||0} set={v=>upd(i,"total_amount",parseFloat(v)||0)} w={80} t="number" />
+                <Inp l={(r._mode||"AP")==="AR"?t("Πελάτης","Client"):t("Προμηθευτής","Supplier")} v={r.supplier_name||""} set={v=>upd(i,"supplier_name",v)} w={160} />
+                <Inp l={t("Αρ. Τιμολ.","Invoice #")} v={r.invoice_number||""} set={v=>upd(i,"invoice_number",v)} w={90} />
+                <Inp l={t("Ημ/νία","Date")} v={r.invoice_date||""} set={v=>upd(i,"invoice_date",v)} w={90} />
+                <Sel l={t("Μήνας","Month")} v={(r.month||"").slice(0,7)} set={v=>upd(i,"month",v)} opts={MONTHS.map(m=>({v:m,l:monthLabel(m)}))} w={100} />
+                <Inp l={t("Καθαρό €","Net €")} v={r.net_amount||0} set={v=>upd(i,"net_amount",parseFloat(v)||0)} w={80} t="number" />
+                <Inp l={t("ΦΠΑ €","VAT €")} v={r.vat_amount||0} set={v=>upd(i,"vat_amount",parseFloat(v)||0)} w={70} t="number" />
+                <Inp l={t("Σύνολο €","Total €")} v={r.total_amount||0} set={v=>upd(i,"total_amount",parseFloat(v)||0)} w={80} t="number" />
                 {(r._mode||"AP")==="AR" ? (
-                  <Sel l="Revenue Category" v={r.cost_category||REV_CATS[0]} set={v=>upd(i,"cost_category",v)} opts={REV_CATS.map(c=>({v:c,l:c}))} w={220} />
+                  <Sel l={t("Κατηγορία Εσόδων","Revenue Category")} v={r.cost_category||REV_CATS[0]} set={v=>upd(i,"cost_category",v)} opts={REV_CATS.map(c=>({v:c,l:catLabel(c)}))} w={220} />
                 ) : (
                   <>
-                    <Sel l="Cost Cat" v={r.cost_category||COST_CATS[0]} set={v=>upd(i,"cost_category",v)} opts={COST_CATS.map(c=>({v:c,l:c}))} w={190} />
-                    <Sel l="Service" v={r.service_category||"Other"} set={v=>upd(i,"service_category",v)} opts={SVC_CATS.map(c=>({v:c,l:c}))} w={160} />
+                    <Sel l={t("Κατ. Κόστους","Cost Cat")} v={r.cost_category||COST_CATS[0]} set={v=>upd(i,"cost_category",v)} opts={COST_CATS.map(c=>({v:c,l:catLabel(c)}))} w={190} />
+                    <Sel l={t("Υπηρεσία","Service")} v={r.service_category||"Other"} set={v=>upd(i,"service_category",v)} opts={SVC_CATS.map(c=>({v:c,l:catLabel(c)}))} w={160} />
                   </>
                 )}
-                <Inp l="Description" v={r.description||""} set={v=>upd(i,"description",v)} w={180} />
+                <Inp l={t("Περιγραφή","Description")} v={r.description||""} set={v=>upd(i,"description",v)} w={180} />
               </div>
               {showRaw===i && r._raw && (
                 <div style={{marginTop:8,padding:10,background:"#f5f5f5",borderRadius:6,fontSize:10,fontFamily:"monospace",maxHeight:150,overflow:"auto",whiteSpace:"pre-wrap",color:P.tm}}>{r._raw}</div>
