@@ -8,6 +8,8 @@ import { useState, useEffect, useRef } from "react";
 import { api } from "./api.js";
 import { P, MONTHS, ML, YEARS, uid, fmt, fPct } from "./constants.js";
 import { groupPnLSeries, nbvAtMonth } from "./calc.js";
+import { LangToggle } from "./ui.jsx";
+import { useT, monthLabel } from "./i18n.jsx";
 
 const grossAmt = r => Number(r.total) || ((Number(r.amt) || 0) + (Number(r.vat) || 0)) || Number(r.amt) || 0;
 const isPaid = r => r.paid === "paid" || r.paid === true;
@@ -26,12 +28,13 @@ const mkDefaultBS = () => ({
 });
 
 const SECTIONS = [
-  { k: "asset", l: "ΕΝΕΡΓΗΤΙΚΟ (Assets)" },
-  { k: "liability", l: "ΥΠΟΧΡΕΩΣΕΙΣ (Liabilities)" },
-  { k: "equity", l: "ΙΔΙΑ ΚΕΦΑΛΑΙΑ (Equity)" },
+  { k: "asset", el: "ΕΝΕΡΓΗΤΙΚΟ (Assets)", en: "ASSETS", short_el: "Ενεργητικού", short_en: "Assets" },
+  { k: "liability", el: "ΥΠΟΧΡΕΩΣΕΙΣ (Liabilities)", en: "LIABILITIES", short_el: "Υποχρεώσεων", short_en: "Liabilities" },
+  { k: "equity", el: "ΙΔΙΑ ΚΕΦΑΛΑΙΑ (Equity)", en: "EQUITY", short_el: "Ιδίων Κεφαλαίων", short_en: "Equity" },
 ];
 
 export function GroupReports({ year, setYear, user, onBack, onLogout }) {
+  const { t } = useT();
   const [allData, setAllData] = useState({});
   const [fin, setFin] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -98,17 +101,17 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
     run += byMonth[m]?.net || 0; cumNet[m] = run;
   });
   const DERIVED = [
-    { section: "asset", label: "Πάγια — Αναπόσβεστη αξία (NBV)", fn: m => nbvByMonth[m] },
-    { section: "asset", label: "Απαιτήσεις πελατών (AR, ανοιχτά)", fn: m => arByMonth[m] },
-    { section: "liability", label: "Υποχρεώσεις προμηθευτών (AP, ανοιχτά)", fn: m => apByMonth[m] },
-    { section: "equity", label: "Αποτέλεσμα περιόδου (σωρευτικά)", fn: m => cumNet[m] },
+    { section: "asset", label: t("Πάγια — Αναπόσβεστη αξία (NBV)", "Fixed assets — Net book value (NBV)"), fn: m => nbvByMonth[m] },
+    { section: "asset", label: t("Απαιτήσεις πελατών (AR, ανοιχτά)", "Trade receivables (AR, open)"), fn: m => arByMonth[m] },
+    { section: "liability", label: t("Υποχρεώσεις προμηθευτών (AP, ανοιχτά)", "Trade payables (AP, open)"), fn: m => apByMonth[m] },
+    { section: "equity", label: t("Αποτέλεσμα περιόδου (σωρευτικά)", "Result for the period (cumulative)"), fn: m => cumNet[m] },
   ];
 
   const accts = fin?.bs?.accounts || [];
   const bsVal = (id, m) => fin?.bs?.values?.[id]?.[m] ?? "";
   const setBsVal = (id, m, v) => mutate(n => { if (!n.bs.values[id]) n.bs.values[id] = {}; n.bs.values[id][m] = parseFloat(v) || 0; });
   const renameAcct = (id, l) => mutate(n => { const a = n.bs.accounts.find(x => x.id === id); if (a) a.label = l; });
-  const delAcct = (id) => { if (!confirm("Διαγραφή λογαριασμού και των τιμών του;")) return; mutate(n => { n.bs.accounts = n.bs.accounts.filter(a => a.id !== id); delete n.bs.values[id]; }); };
+  const delAcct = (id) => { if (!confirm(t("Διαγραφή λογαριασμού και των τιμών του;", "Delete this account and its values?"))) return; mutate(n => { n.bs.accounts = n.bs.accounts.filter(a => a.id !== id); delete n.bs.values[id]; }); };
   const addAcct = () => { const l = na.label.trim(); if (!l) return; mutate(n => n.bs.accounts.push({ id: uid(), section: na.section, label: l })); setNa({ label: "", section: na.section }); };
 
   const manualIn = sec => accts.filter(a => a.section === sec);
@@ -121,24 +124,24 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
 
   const thS = { padding: "6px 8px", textAlign: "center", fontSize: 10, fontWeight: 700, color: "#fff", background: P.em, whiteSpace: "nowrap" };
   const inpS = { width: "100%", padding: "4px 5px", border: "1px solid " + P.bd, borderRadius: 3, fontSize: 11, textAlign: "right", background: P.ip, outline: "none", boxSizing: "border-box" };
-  const saveLbl = saveState === "saving" ? "💾 Saving…" : saveState === "saved" ? "✓ Saved" : saveState === "error" ? "⚠ Save failed" : "";
+  const saveLbl = saveState === "saving" ? t("💾 Αποθήκευση…", "💾 Saving…") : saveState === "saved" ? t("✓ Αποθηκεύτηκε", "✓ Saved") : saveState === "error" ? t("⚠ Αποτυχία", "⚠ Save failed") : "";
 
   // ── P&L rows ──
   const R = [
-    { k: "rev", l: "Έσοδα (Revenue)" },
-    { k: "sub", l: "Κόστος υπεργολάβων", cost: true },
-    { k: "labour", l: "Κόστος εργασίας (Labour)", cost: true },
-    { k: "gm", l: "Μικτό Κέρδος (Gross Margin)", b: true, hl: P.ep },
+    { k: "rev", l: t("Έσοδα (Revenue)", "Revenue") },
+    { k: "sub", l: t("Κόστος υπεργολάβων", "Subcontractor cost"), cost: true },
+    { k: "labour", l: t("Κόστος εργασίας (Labour)", "Labour cost"), cost: true },
+    { k: "gm", l: t("Μικτό Κέρδος (Gross Margin)", "Gross Margin"), b: true, hl: P.ep },
     { pct: true, num: "gm", den: "rev", l: "GM %", muted: true },
-    { k: "opex", l: "Λειτουργικά έξοδα (OPEX)", cost: true },
+    { k: "opex", l: t("Λειτουργικά έξοδα (OPEX)", "Operating expenses (OPEX)"), cost: true },
     { k: "ebitda", l: "EBITDA", b: true, hl: "#C8E6C9" },
     { pct: true, num: "ebitda", den: "rev", l: "EBITDA %", muted: true },
-    { k: "da", l: "Αποσβέσεις (D&A)", cost: true },
-    { k: "ebit", l: "EBIT (Λειτουργικό αποτέλεσμα)", b: true, hl: P.ep },
-    { k: "interest", l: "Τόκοι / χρηματοοικονομικά", cost: true, edit: true },
-    { k: "tax", l: "Φόροι", cost: true, edit: true },
-    { k: "net", l: "Καθαρό Αποτέλεσμα (Net)", b: true, hl: "#C8E6C9" },
-    { pct: true, num: "net", den: "rev", l: "Καθαρό %", muted: true },
+    { k: "da", l: t("Αποσβέσεις (D&A)", "Depreciation & Amortization (D&A)"), cost: true },
+    { k: "ebit", l: t("EBIT (Λειτουργικό αποτέλεσμα)", "EBIT (Operating result)"), b: true, hl: P.ep },
+    { k: "interest", l: t("Τόκοι / χρηματοοικονομικά", "Interest / financial"), cost: true, edit: true },
+    { k: "tax", l: t("Φόροι", "Taxes"), cost: true, edit: true },
+    { k: "net", l: t("Καθαρό Αποτέλεσμα (Net)", "Net result"), b: true, hl: "#C8E6C9" },
+    { pct: true, num: "net", den: "rev", l: t("Καθαρό %", "Net %"), muted: true },
   ];
   const cellNum = (r, m) => {
     const row = byMonth[m] || {};
@@ -160,13 +163,14 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
       <div style={{ background: P.em, color: "#fff", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <span style={{ fontWeight: 800, fontSize: 20, letterSpacing: 1 }}>CBRE</span>
-          <button onClick={onBack} style={{ background: "rgba(255,255,255,.2)", border: "none", color: "#fff", padding: "4px 12px", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>◀ Clients</button>
-          <span style={{ fontSize: 14, fontWeight: 600, borderLeft: "1px solid rgba(255,255,255,.3)", paddingLeft: 12 }}>🏢 Group P&amp;L / Balance Sheet — {year}</span>
+          <button onClick={onBack} style={{ background: "rgba(255,255,255,.2)", border: "none", color: "#fff", padding: "4px 12px", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>◀ {t("Πελάτες", "Clients")}</button>
+          <span style={{ fontSize: 14, fontWeight: 600, borderLeft: "1px solid rgba(255,255,255,.3)", paddingLeft: 12 }}>🏢 {t("Όμιλος P&L / Ισολογισμός", "Group P&L / Balance Sheet")} — {year}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13 }}>
           <span style={{ fontSize: 11, opacity: .9, minWidth: 78, textAlign: "right" }}>{saveLbl}</span>
+          <LangToggle dark />
           <span style={{ opacity: .7 }}>{user.name}</span>
-          <button onClick={onLogout} style={{ background: "rgba(255,255,255,.15)", border: "none", color: "#fff", padding: "5px 14px", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>Logout</button>
+          <button onClick={onLogout} style={{ background: "rgba(255,255,255,.15)", border: "none", color: "#fff", padding: "5px 14px", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>{t("Αποσύνδεση", "Logout")}</button>
         </div>
       </div>
 
@@ -176,30 +180,30 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
             {YEARS.map(y => (<button key={y} onClick={() => setYear(y)} style={{ padding: "6px 16px", border: year === y ? "2px solid " + P.em : "1px solid " + P.bd, borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: year === y ? 700 : 400, background: year === y ? P.em : P.wh, color: year === y ? "#fff" : P.tx }}>{y}</button>))}
           </div>
           <div style={{ display: "flex", gap: 0, background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, padding: 4 }}>
-            {[{ v: "pnl", l: "📈 P&L (Group)" }, { v: "bs", l: "⚖️ Balance Sheet" }].map(t => (
-              <button key={t.v} onClick={() => setTab(t.v)} style={{ background: tab === t.v ? P.em : "transparent", color: tab === t.v ? "#fff" : P.tx, border: "none", padding: "7px 20px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>{t.l}</button>
+            {[{ v: "pnl", l: t("📈 P&L (Όμιλος)", "📈 P&L (Group)") }, { v: "bs", l: t("⚖️ Ισολογισμός", "⚖️ Balance Sheet") }].map(o => (
+              <button key={o.v} onClick={() => setTab(o.v)} style={{ background: tab === o.v ? P.em : "transparent", color: tab === o.v ? "#fff" : P.tx, border: "none", padding: "7px 20px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>{o.l}</button>
             ))}
           </div>
         </div>
 
-        {!loaded && <div style={{ padding: 40, textAlign: "center", color: P.tm }}>Loading…</div>}
+        {!loaded && <div style={{ padding: 40, textAlign: "center", color: P.tm }}>{t("Φόρτωση…", "Loading…")}</div>}
 
         {/* ── GROUP P&L ── */}
         {loaded && tab === "pnl" && (
           <div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 12, marginBottom: 16 }}>
-              {kpi("Revenue (YTD)", ytd("rev"), P.gn)}
-              {kpi("Gross Margin (YTD)", ytd("gm"), ytd("gm") >= 0 ? P.gn : P.rd)}
+              {kpi(t("Έσοδα (YTD)", "Revenue (YTD)"), ytd("rev"), P.gn)}
+              {kpi(t("Μικτό Κέρδος (YTD)", "Gross Margin (YTD)"), ytd("gm"), ytd("gm") >= 0 ? P.gn : P.rd)}
               {kpi("EBITDA (YTD)", ytd("ebitda"), ytd("ebitda") >= 0 ? P.em : P.rd)}
               {kpi("EBITDA %", ytd("rev") ? ytd("ebitda") / ytd("rev") : null, P.em, true)}
-              {kpi("Καθαρό (YTD)", ytd("net"), ytd("net") >= 0 ? P.gn : P.rd)}
+              {kpi(t("Καθαρό (YTD)", "Net (YTD)"), ytd("net"), ytd("net") >= 0 ? P.gn : P.rd)}
             </div>
             <div style={{ background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", minWidth: 1250 }}>
                 <colgroup><col style={{ width: 230 }} />{MONTHS.map(m => <col key={m} style={{ width: 72 }} />)}<col style={{ width: 100 }} /></colgroup>
                 <thead><tr>
-                  <th style={{ ...thS, textAlign: "left", borderRight: "2px solid #00695C" }}>Γραμμή</th>
-                  {MONTHS.map(m => <th key={m} style={thS}>{ML[m]}</th>)}
+                  <th style={{ ...thS, textAlign: "left", borderRight: "2px solid #00695C" }}>{t("Γραμμή", "Line")}</th>
+                  {MONTHS.map(m => <th key={m} style={thS}>{monthLabel(m)}</th>)}
                   <th style={{ ...thS, background: "#00695C" }}>YTD</th>
                 </tr></thead>
                 <tbody>
@@ -226,8 +230,8 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
               </table>
             </div>
             <div style={{ fontSize: 11, color: P.tm, marginTop: 8, lineHeight: 1.6 }}>
-              Ενοποιημένο για <b>όλους τους πελάτες</b> ({Object.keys(allData || {}).length}) + εταιρικά OPEX/CAPEX. Τα κόστη εμφανίζονται θετικά· τα υποσύνολα (GM, EBITDA, EBIT, Καθαρό) είναι τα καθαρά αποτελέσματα.
-              <b> EBITDA</b> = Μικτό Κέρδος − OPEX. <b>EBIT</b> = EBITDA − Αποσβέσεις. Τόκοι &amp; Φόροι καταχωρούνται χειροκίνητα (αποθηκεύονται αυτόματα).
+              {t(`Ενοποιημένο για όλους τους πελάτες (${Object.keys(allData || {}).length}) + εταιρικά OPEX/CAPEX. Τα κόστη εμφανίζονται θετικά· τα υποσύνολα (GM, EBITDA, EBIT, Καθαρό) είναι τα καθαρά αποτελέσματα. EBITDA = Μικτό Κέρδος − OPEX. EBIT = EBITDA − Αποσβέσεις. Τόκοι & Φόροι καταχωρούνται χειροκίνητα (αποθηκεύονται αυτόματα).`,
+                 `Consolidated across all clients (${Object.keys(allData || {}).length}) + company OPEX/CAPEX. Costs are shown positive; the subtotals (GM, EBITDA, EBIT, Net) are the net results. EBITDA = Gross Margin − OPEX. EBIT = EBITDA − Depreciation. Interest & Taxes are entered manually (saved automatically).`)}
             </div>
           </div>
         )}
@@ -237,41 +241,41 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
           <div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 10, alignItems: "center", flexWrap: "wrap" }}>
               <select value={na.section} onChange={e => setNa(x => ({ ...x, section: e.target.value }))} style={{ padding: "6px 10px", border: "1px solid " + P.bd, borderRadius: 6, fontSize: 12, outline: "none" }}>
-                {SECTIONS.map(s => <option key={s.k} value={s.k}>{s.l}</option>)}
+                {SECTIONS.map(s => <option key={s.k} value={s.k}>{t(s.el, s.en)}</option>)}
               </select>
-              <input value={na.label} onChange={e => setNa(x => ({ ...x, label: e.target.value }))} onKeyDown={e => e.key === "Enter" && addAcct()} placeholder="Νέος λογαριασμός…" style={{ padding: "6px 10px", border: "1px solid " + P.bd, borderRadius: 6, fontSize: 12, outline: "none", width: 220 }} />
-              <button onClick={addAcct} style={{ background: P.em, color: "#fff", border: "none", padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>+ Λογαριασμός</button>
+              <input value={na.label} onChange={e => setNa(x => ({ ...x, label: e.target.value }))} onKeyDown={e => e.key === "Enter" && addAcct()} placeholder={t("Νέος λογαριασμός…", "New account…")} style={{ padding: "6px 10px", border: "1px solid " + P.bd, borderRadius: 6, fontSize: 12, outline: "none", width: 220 }} />
+              <button onClick={addAcct} style={{ background: P.em, color: "#fff", border: "none", padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>+ {t("Λογαριασμός", "Account")}</button>
             </div>
             <div style={{ background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", minWidth: 1250 }}>
                 <colgroup><col style={{ width: 230 }} />{MONTHS.map(m => <col key={m} style={{ width: 72 }} />)}<col style={{ width: 100 }} /><col style={{ width: 34 }} /></colgroup>
                 <thead><tr>
-                  <th style={{ ...thS, textAlign: "left", borderRight: "2px solid #00695C" }}>Λογαριασμός</th>
-                  {MONTHS.map(m => <th key={m} style={thS}>{ML[m]}</th>)}
-                  <th style={{ ...thS, background: "#00695C" }}>Τέλος έτους</th><th style={thS}></th>
+                  <th style={{ ...thS, textAlign: "left", borderRight: "2px solid #00695C" }}>{t("Λογαριασμός", "Account")}</th>
+                  {MONTHS.map(m => <th key={m} style={thS}>{monthLabel(m)}</th>)}
+                  <th style={{ ...thS, background: "#00695C" }}>{t("Τέλος έτους", "Year-end")}</th><th style={thS}></th>
                 </tr></thead>
                 <tbody>
                   {SECTIONS.map(sec => (
-                    <SectionBlock key={sec.k} sec={sec} derived={derivedIn(sec.k)} manual={manualIn(sec.k)}
+                    <SectionBlock key={sec.k} sec={sec} secLabel={t(sec.el, sec.en)} secShort={t("Σύνολο " + sec.short_el, "Total " + sec.short_en)} autoTag={t("auto", "auto")} derived={derivedIn(sec.k)} manual={manualIn(sec.k)}
                       bsVal={bsVal} setBsVal={setBsVal} renameAcct={renameAcct} delAcct={delAcct} acctTotal={acctTotal}
                       sectionTotal={sectionTotal} inpS={inpS} />
                   ))}
                   {/* Balance check */}
                   <tr style={{ background: "#263238" }}>
-                    <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: "#fff", borderRight: "2px solid #00695C" }}>Σ Ενεργητικό</td>
+                    <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: "#fff", borderRight: "2px solid #00695C" }}>{t("Σ Ενεργητικό", "Σ Assets")}</td>
                     {MONTHS.map(m => <td key={m} style={{ padding: "6px 6px", textAlign: "right", fontSize: 11, fontWeight: 700, color: "#A5D6A7" }}>{fmt(totalAssets(m))}</td>)}
                     <td style={{ padding: "6px 8px", textAlign: "right", fontSize: 12, fontWeight: 700, color: "#A5D6A7", borderLeft: "2px solid #00695C" }}>{fmt(totalAssets(MONTHS[MONTHS.length - 1]))}</td>
                     <td style={{ background: "#263238" }}></td>
                   </tr>
                   <tr style={{ background: "#37474F" }}>
-                    <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: "#fff", borderRight: "2px solid #00695C" }}>Σ Υποχρ. + Ίδια Κεφ.</td>
+                    <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: "#fff", borderRight: "2px solid #00695C" }}>{t("Σ Υποχρ. + Ίδια Κεφ.", "Σ Liab. + Equity")}</td>
                     {MONTHS.map(m => <td key={m} style={{ padding: "6px 6px", textAlign: "right", fontSize: 11, fontWeight: 700, color: "#90CAF9" }}>{fmt(totalLE(m))}</td>)}
                     <td style={{ padding: "6px 8px", textAlign: "right", fontSize: 12, fontWeight: 700, color: "#90CAF9", borderLeft: "2px solid #00695C" }}>{fmt(totalLE(MONTHS[MONTHS.length - 1]))}</td>
                     <td style={{ background: "#37474F" }}></td>
                   </tr>
                   <tr style={{ background: P.ep }}>
-                    <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: P.em, borderRight: "2px solid #00695C" }}>Έλεγχος (πρέπει = 0)</td>
-                    {MONTHS.map(m => { const c = check(m); const ok = Math.abs(c) < 1; return <td key={m} style={{ padding: "6px 6px", textAlign: "right", fontSize: 11, fontWeight: 700, color: ok ? P.gn : P.rd }} title={ok ? "Ισοσκελισμένο" : "Διαφορά — συμπλήρωσε ταμείο/opening balances"}>{ok ? "✓" : fmt(c)}</td>; })}
+                    <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: P.em, borderRight: "2px solid #00695C" }}>{t("Έλεγχος (πρέπει = 0)", "Check (must = 0)")}</td>
+                    {MONTHS.map(m => { const c = check(m); const ok = Math.abs(c) < 1; return <td key={m} style={{ padding: "6px 6px", textAlign: "right", fontSize: 11, fontWeight: 700, color: ok ? P.gn : P.rd }} title={ok ? t("Ισοσκελισμένο", "Balanced") : t("Διαφορά — συμπλήρωσε ταμείο/opening balances", "Difference — fill cash/opening balances")}>{ok ? "✓" : fmt(c)}</td>; })}
                     <td style={{ borderLeft: "2px solid #00695C", background: P.ep }}></td>
                     <td style={{ background: P.ep }}></td>
                   </tr>
@@ -279,8 +283,8 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
               </table>
             </div>
             <div style={{ fontSize: 11, color: P.tm, marginTop: 8, lineHeight: 1.6 }}>
-              Τιμές = <b>υπόλοιπο τέλους κάθε μήνα</b>. Οι <i>auto</i> γραμμές (Πάγια/AR/AP/Αποτέλεσμα) υπολογίζονται από τα δεδομένα και είναι read-only.
-              Οι υπόλοιπες (ταμείο, δάνεια, κεφάλαιο, opening balances) καταχωρούνται χειροκίνητα. Ο «Έλεγχος» δείχνει τη διαφορά Ενεργητικού − (Υποχρεώσεις + Ίδια Κεφάλαια)· συμπλήρωσε ταμείο/opening balances ώσπου να μηδενίσει.
+              {t("Τιμές = υπόλοιπο τέλους κάθε μήνα. Οι auto γραμμές (Πάγια/AR/AP/Αποτέλεσμα) υπολογίζονται από τα δεδομένα και είναι read-only. Οι υπόλοιπες (ταμείο, δάνεια, κεφάλαιο, opening balances) καταχωρούνται χειροκίνητα. Ο «Έλεγχος» δείχνει τη διαφορά Ενεργητικού − (Υποχρεώσεις + Ίδια Κεφάλαια)· συμπλήρωσε ταμείο/opening balances ώσπου να μηδενίσει.",
+                 "Values = closing balance for each month. The auto rows (Fixed assets/AR/AP/Result) are computed from the data and read-only. The rest (cash, loans, capital, opening balances) are entered manually. The 'Check' shows Assets − (Liabilities + Equity); fill cash/opening balances until it hits zero.")}
             </div>
           </div>
         )}
@@ -291,15 +295,15 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
 
 // One balance-sheet section (Assets / Liabilities / Equity): heading, auto-derived rows,
 // editable manual rows, then the section subtotal.
-function SectionBlock({ sec, derived, manual, bsVal, setBsVal, renameAcct, delAcct, acctTotal, sectionTotal, inpS }) {
+function SectionBlock({ sec, secLabel, secShort, autoTag, derived, manual, bsVal, setBsVal, renameAcct, delAcct, acctTotal, sectionTotal, inpS }) {
   return (
     <>
       <tr style={{ background: "#00695C" }}>
-        <td colSpan={MONTHS.length + 3} style={{ padding: "6px 10px", fontSize: 12, fontWeight: 700, color: "#fff" }}>{sec.l}</td>
+        <td colSpan={MONTHS.length + 3} style={{ padding: "6px 10px", fontSize: 12, fontWeight: 700, color: "#fff" }}>{secLabel}</td>
       </tr>
       {derived.map((d, i) => (
         <tr key={"d" + i} style={{ background: "#F1F5F3" }}>
-          <td style={{ padding: "5px 10px", fontSize: 11.5, fontStyle: "italic", color: P.tm, borderBottom: "1px solid " + P.bd, borderRight: "2px solid " + P.bd, whiteSpace: "nowrap" }}>{d.label} <span style={{ fontSize: 9, background: P.ep, color: P.em, padding: "0 5px", borderRadius: 6, fontStyle: "normal", fontWeight: 700 }}>auto</span></td>
+          <td style={{ padding: "5px 10px", fontSize: 11.5, fontStyle: "italic", color: P.tm, borderBottom: "1px solid " + P.bd, borderRight: "2px solid " + P.bd, whiteSpace: "nowrap" }}>{d.label} <span style={{ fontSize: 9, background: P.ep, color: P.em, padding: "0 5px", borderRadius: 6, fontStyle: "normal", fontWeight: 700 }}>{autoTag}</span></td>
           {MONTHS.map(m => { const v = d.fn(m); return <td key={m} style={{ padding: "5px 6px", textAlign: "right", fontSize: 11, color: v ? P.tx : P.tm, borderBottom: "1px solid " + P.bd }}>{v ? fmt(v) : "-"}</td>; })}
           <td style={{ padding: "5px 8px", textAlign: "right", fontSize: 11, fontWeight: 600, color: P.em, background: "#f5f5f5", borderLeft: "2px solid " + P.bd, borderBottom: "1px solid " + P.bd }}>{fmt(d.fn(MONTHS[MONTHS.length - 1]))}</td>
           <td style={{ borderBottom: "1px solid " + P.bd }}></td>
@@ -320,7 +324,7 @@ function SectionBlock({ sec, derived, manual, bsVal, setBsVal, renameAcct, delAc
         </tr>
       ))}
       <tr style={{ background: P.ep }}>
-        <td style={{ padding: "6px 10px", fontSize: 11.5, fontWeight: 700, color: P.em, borderRight: "2px solid #00695C" }}>Σύνολο {sec.l.split(" ")[0]}</td>
+        <td style={{ padding: "6px 10px", fontSize: 11.5, fontWeight: 700, color: P.em, borderRight: "2px solid #00695C" }}>{secShort}</td>
         {MONTHS.map(m => <td key={m} style={{ padding: "5px 6px", textAlign: "right", fontSize: 11, fontWeight: 700, color: P.em }}>{fmt(sectionTotal(sec.k, m))}</td>)}
         <td style={{ padding: "5px 8px", textAlign: "right", fontSize: 11, fontWeight: 700, color: P.em, background: "#C8E6C9", borderLeft: "2px solid #00695C" }}>{fmt(sectionTotal(sec.k, MONTHS[MONTHS.length - 1]))}</td>
         <td style={{ background: P.ep }}></td>
