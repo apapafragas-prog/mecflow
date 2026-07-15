@@ -10,8 +10,10 @@ import { api } from "./api.js";
 import { MONTHS, ML, P, fmt, fPct, uid, SITES, REV_CATS, COST_CATS, SVC_CATS, LAB_ROWS } from "./constants.js";
 import { allocFractions } from "./calc.js";
 import { Inp, Sel, Tbl } from "./ui.jsx";
+import { useT, monthLabel, catLabel } from "./i18n.jsx";
 
 export function PnL({inv,sub,lab,labAlloc}) {
+  const { t } = useT();
   const [drill,setDrill] = useState(null);
   const pnl = {};
   MONTHS.forEach(m => {
@@ -87,17 +89,17 @@ export function PnL({inv,sub,lab,labAlloc}) {
   };
 
   const rows = [
-    {l:"CLIENT REVENUE - FM Core",k:"rc"},{l:"CLIENT REVENUE - FM Extra Works",k:"re"},{l:"CLIENT REVENUE - PJMs",k:"rp"},
-    {l:"Total Sales / Revenue",k:"tr",b:true},{l:"_"},
-    {l:"Labour Cost - FM Core",k:"lc"},{l:"Labour Cost - FM Extra Works",k:"lc_ew"},{l:"Labour Cost - PJMs",k:"lc_pjm"},
-    {l:"Total Labour Cost",k:"lc_total",b:true},{l:"_"},
-    {l:"CLIENT Subcontractors cost - FM Core",k:"sc"},{l:"CLIENT Subcontractors cost - FM Extra Works",k:"se"},{l:"CLIENT Subcontractors cost - PJMs",k:"sp"},
-    {l:"Total Subcontractor",k:"sub_total",b:true},{l:"_"},
-    {l:"Total Cost",k:"tc",b:true},{l:"_"},
-    {l:"GM - Total",k:"gm",b:true,g:true},{l:"GM - Total %",k:"gm_pct",pct:true,b:true},{l:"_"},
+    {l:t("ΕΣΟΔΑ ΠΕΛΑΤΗ - FM Core","CLIENT REVENUE - FM Core"),k:"rc"},{l:t("ΕΣΟΔΑ ΠΕΛΑΤΗ - Πρόσθετες Εργασίες","CLIENT REVENUE - FM Extra Works"),k:"re"},{l:t("ΕΣΟΔΑ ΠΕΛΑΤΗ - Έργα (PJMs)","CLIENT REVENUE - PJMs"),k:"rp"},
+    {l:t("Σύνολο Πωλήσεων / Εσόδων","Total Sales / Revenue"),k:"tr",b:true},{l:"_"},
+    {l:t("Κόστος Εργασίας - FM Core","Labour Cost - FM Core"),k:"lc"},{l:t("Κόστος Εργασίας - Πρόσθετες Εργασίες","Labour Cost - FM Extra Works"),k:"lc_ew"},{l:t("Κόστος Εργασίας - Έργα (PJMs)","Labour Cost - PJMs"),k:"lc_pjm"},
+    {l:t("Σύνολο Κόστους Εργασίας","Total Labour Cost"),k:"lc_total",b:true},{l:"_"},
+    {l:t("Κόστος Υπεργολάβων - FM Core","CLIENT Subcontractors cost - FM Core"),k:"sc"},{l:t("Κόστος Υπεργολάβων - Πρόσθετες Εργασίες","CLIENT Subcontractors cost - FM Extra Works"),k:"se"},{l:t("Κόστος Υπεργολάβων - Έργα (PJMs)","CLIENT Subcontractors cost - PJMs"),k:"sp"},
+    {l:t("Σύνολο Υπεργολάβων","Total Subcontractor"),k:"sub_total",b:true},{l:"_"},
+    {l:t("Συνολικό Κόστος","Total Cost"),k:"tc",b:true},{l:"_"},
+    {l:t("GM - Σύνολο","GM - Total"),k:"gm",b:true,g:true},{l:t("GM - Σύνολο %","GM - Total %"),k:"gm_pct",pct:true,b:true},{l:"_"},
     {l:"GM - FM Core",k:"gc",g:true},{l:"GM - FM Core %",k:"gc_pct",pct:true},
-    {l:"GM - FM Extra Works",k:"ge",g:true},{l:"GM - FM Extra Works %",k:"ge_pct",pct:true},
-    {l:"GM - FM PJM",k:"gp",g:true},
+    {l:t("GM - Πρόσθετες Εργασίες","GM - FM Extra Works"),k:"ge",g:true},{l:t("GM - Πρόσθετες Εργασίες %","GM - FM Extra Works %"),k:"ge_pct",pct:true},
+    {l:t("GM - Έργα (PJM)","GM - FM PJM"),k:"gp",g:true},
   ];
 
   const H = {padding:"8px 12px",textAlign:"right",fontSize:12,fontWeight:700,color:"#fff",background:P.em,position:"sticky",top:0};
@@ -105,11 +107,11 @@ export function PnL({inv,sub,lab,labAlloc}) {
 
   return (
     <div>
-      <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 6px"}}>Profit & Loss (EUR)</h2>
-      <p style={{fontSize:11,color:P.tm,margin:"0 0 16px"}}>💡 Click any number to drill down to source records</p>
+      <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 6px"}}>{t("Κατάσταση Αποτελεσμάτων (EUR)","Profit & Loss (EUR)")}</h2>
+      <p style={{fontSize:11,color:P.tm,margin:"0 0 16px"}}>💡 {t("Κάνε κλικ σε οποιονδήποτε αριθμό για ανάλυση στις πηγές","Click any number to drill down to source records")}</p>
       <div style={{overflowX:"auto",background:P.wh,borderRadius:8,border:"1px solid "+P.bd}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
-          <thead><tr><th style={{...H,textAlign:"left",minWidth:220}}>Line</th>{am.map(m=><th key={m} style={H}>{ML[m]}</th>)}<th style={H}>YTD</th></tr></thead>
+          <thead><tr><th style={{...H,textAlign:"left",minWidth:220}}>{t("Γραμμή","Line")}</th>{am.map(m=><th key={m} style={H}>{monthLabel(m)}</th>)}<th style={H}>YTD</th></tr></thead>
           <tbody>{rows.map((r,i) => {
             if (r.l === "_") return <tr key={i}><td colSpan={am.length+2} style={{height:6,background:P.of}} /></tr>;
             const drillable = !r.pct && r.k;
@@ -145,16 +147,16 @@ export function PnL({inv,sub,lab,labAlloc}) {
           <div style={{background:P.wh,borderRadius:12,width:"95%",maxWidth:1100,maxHeight:"90vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.3)"}} onClick={e=>e.stopPropagation()}>
             <div style={{background:P.em,color:"#fff",padding:"16px 24px",borderRadius:"12px 12px 0 0",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:1}}>
               <div>
-                <div style={{fontWeight:700,fontSize:16}}>{drill.label} — {drill.month==="ytd"?"YTD Total":ML[drill.month]}</div>
-                <div style={{fontSize:12,opacity:.8,marginTop:2}}>Total: €{fmt(drill.value)} · {drill.records.length} records</div>
+                <div style={{fontWeight:700,fontSize:16}}>{drill.label} — {drill.month==="ytd"?t("Σύνολο YTD","YTD Total"):monthLabel(drill.month)}</div>
+                <div style={{fontSize:12,opacity:.8,marginTop:2}}>{t("Σύνολο","Total")}: €{fmt(drill.value)} · {drill.records.length} {t("εγγραφές","records")}</div>
               </div>
               <button onClick={()=>setDrill(null)} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",padding:"6px 14px",borderRadius:6,cursor:"pointer",fontSize:14,fontWeight:700}}>✕</button>
             </div>
             <div style={{padding:20}}>
               {drill.records.length>0 ? (
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                  <thead><tr>{["Type","Month","Category","Description","Supplier/Site","Amount €","VAT","Total €","Reference","Act/Acc","Date"].map(h=>(
-                    <th key={h} style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:h.includes("€")||h==="VAT"?"right":"left",position:"sticky",top:0}}>{h}</th>
+                  <thead><tr>{[["Type",t("Τύπος","Type")],["Month",t("Μήνας","Month")],["Category",t("Κατηγορία","Category")],["Description",t("Περιγραφή","Description")],["Supplier/Site",t("Προμηθευτής/Site","Supplier/Site")],["Amount €",t("Ποσό €","Amount €")],["VAT",t("ΦΠΑ","VAT")],["Total €",t("Σύνολο €","Total €")],["Reference",t("Αναφορά","Reference")],["Act/Acc","Act/Acc"],["Date",t("Ημ/νία","Date")]].map(([k,h])=>(
+                    <th key={k} style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:k.includes("€")||k==="VAT"?"right":"left",position:"sticky",top:0}}>{h}</th>
                   ))}</tr></thead>
                   <tbody>
                     {drill.records.sort((a,b)=>a.month.localeCompare(b.month)).map((r,i)=>(
@@ -162,7 +164,7 @@ export function PnL({inv,sub,lab,labAlloc}) {
                         <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,fontSize:11}}>
                           <span style={{padding:"1px 8px",borderRadius:8,background:r.type==="Revenue"?"#E8F5E9":r.type==="Sub Cost"?"#FFEBEE":"#FFF8E1",color:r.type==="Revenue"?P.gn:r.type==="Sub Cost"?P.rd:"#F57F17",fontSize:10,fontWeight:600}}>{r.type}</span>
                         </td>
-                        <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd}}>{ML[r.month]||r.month}</td>
+                        <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd}}>{monthLabel(r.month)}</td>
                         <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,fontSize:11}}>{r.cat}</td>
                         <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd}}>{r.desc||"-"}</td>
                         <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd}}>{r.supplier||"-"}</td>
@@ -175,7 +177,7 @@ export function PnL({inv,sub,lab,labAlloc}) {
                       </tr>
                     ))}
                     <tr style={{background:P.ep,fontWeight:700}}>
-                      <td colSpan={5} style={{padding:"8px 10px",fontSize:12}}>Total — {drill.records.length} records</td>
+                      <td colSpan={5} style={{padding:"8px 10px",fontSize:12}}>{t("Σύνολο","Total")} — {drill.records.length} {t("εγγραφές","records")}</td>
                       <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:P.em}}>{fmt(drill.records.reduce((s,r)=>s+(Number(r.amt)||0),0))}</td>
                       <td style={{padding:"8px 10px",textAlign:"right"}}>{fmt(drill.records.reduce((s,r)=>s+(Number(r.vat)||0),0))}</td>
                       <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:P.em}}>{fmt(drill.records.reduce((s,r)=>s+(Number(r.total)||0),0))}</td>
@@ -195,46 +197,48 @@ export function PnL({inv,sub,lab,labAlloc}) {
 }
 
 export function InvTab({data,set,contracts,year,client}) {
+  const { t } = useT();
   const poList = (contracts||[]).filter(c=>c.type==="PO"&&c.po).map(c=>c.po);
-  const poOpts = [{v:"",l:"— None —"},...poList.map(p=>({v:p,l:p}))];
+  const poOpts = [{v:"",l:t("— Κανένα —","— None —")},...poList.map(p=>({v:p,l:p}))];
   const [f,sF] = useState({client:"",site:SITES[0],month:MONTHS[0],cat:REV_CATS[0],amt:"",vat:"",inv_no:"",date:"",comments:"",act_acc:"ACTUAL",po_no:""});
   const add = () => { if(!f.amt) return; const a=parseFloat(f.amt); const v=parseFloat(f.vat)||a*.24; set(p=>[...p,{...f,id:uid(),amt:a,vat:v,total:a+v}]); sF(x=>({...x,amt:"",vat:"",inv_no:"",date:"",comments:"",po_no:""})); };
   return (
     <div>
-      <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 16px"}}>CBRE Invoices — Revenue</h2>
+      <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 16px"}}>{t("Τιμολόγια CBRE — Έσοδα","CBRE Invoices — Revenue")}</h2>
       <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:14,marginBottom:16,display:"flex",flexWrap:"wrap",gap:8,alignItems:"end"}}>
         <Sel l="Site" v={f.site} set={v=>sF(x=>({...x,site:v}))} opts={SITES.map(s=>({v:s,l:s}))} w={90} />
-        <Sel l="Month" v={f.month} set={v=>sF(x=>({...x,month:v}))} opts={MONTHS.map(m=>({v:m,l:ML[m]}))} w={100} />
-        <Sel l="Revenue Category" v={f.cat} set={v=>sF(x=>({...x,cat:v}))} opts={REV_CATS.map(c=>({v:c,l:c}))} w={200} />
-        <Inp l="Amount €" v={f.amt} set={v=>sF(x=>({...x,amt:v}))} w={110} t="number" />
-        <Inp l="VAT €" v={f.vat} set={v=>sF(x=>({...x,vat:v}))} w={90} t="number" />
-        <Inp l="Invoice No" v={f.inv_no} set={v=>sF(x=>({...x,inv_no:v}))} w={110} />
-        <Inp l="Date" v={f.date} set={v=>sF(x=>({...x,date:v}))} w={100} />
+        <Sel l={t("Μήνας","Month")} v={f.month} set={v=>sF(x=>({...x,month:v}))} opts={MONTHS.map(m=>({v:m,l:monthLabel(m)}))} w={100} />
+        <Sel l={t("Κατηγορία Εσόδων","Revenue Category")} v={f.cat} set={v=>sF(x=>({...x,cat:v}))} opts={REV_CATS.map(c=>({v:c,l:catLabel(c)}))} w={200} />
+        <Inp l={t("Ποσό €","Amount €")} v={f.amt} set={v=>sF(x=>({...x,amt:v}))} w={110} t="number" />
+        <Inp l={t("ΦΠΑ €","VAT €")} v={f.vat} set={v=>sF(x=>({...x,vat:v}))} w={90} t="number" />
+        <Inp l={t("Αρ. Τιμολογίου","Invoice No")} v={f.inv_no} set={v=>sF(x=>({...x,inv_no:v}))} w={110} />
+        <Inp l={t("Ημ/νία","Date")} v={f.date} set={v=>sF(x=>({...x,date:v}))} w={100} />
         <Sel l="Actual/Accrual" v={f.act_acc} set={v=>sF(x=>({...x,act_acc:v}))} opts={[{v:"ACTUAL",l:"ACTUAL"},{v:"ACCRUAL",l:"ACCRUAL"}]} w={110} />
         <Sel l="PO No" v={f.po_no||""} set={v=>sF(x=>({...x,po_no:v}))} opts={poOpts} w={120} />
-        <Inp l="Comments" v={f.comments} set={v=>sF(x=>({...x,comments:v}))} w={120} />
-        <button onClick={add} style={{background:P.em,color:"#fff",border:"none",padding:"7px 18px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>+ Add</button>
+        <Inp l={t("Σχόλια","Comments")} v={f.comments} set={v=>sF(x=>({...x,comments:v}))} w={120} />
+        <button onClick={add} style={{background:P.em,color:"#fff",border:"none",padding:"7px 18px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>+ {t("Προσθήκη","Add")}</button>
       </div>
       <Tbl cols={[
-        {k:"month",l:"Month",opts:MONTHS.map(m=>({v:m,l:ML[m]})),mw:90},
+        {k:"month",l:t("Μήνας","Month"),opts:MONTHS.map(m=>({v:m,l:monthLabel(m)})),mw:90},
         {k:"site",l:"Site",opts:SITES.map(s=>({v:s,l:s})),mw:70},
-        {k:"cat",l:"Revenue Cat",opts:REV_CATS.map(c=>({v:c,l:c})),mw:150},
-        {k:"amt",l:"Amount €",a:"right",edit:true,t:"number",mw:90},
-        {k:"vat",l:"VAT 24%",a:"right",edit:true,t:"number",mw:80},
-        {k:"total",l:"Total €",a:"right",r:fmt},
-        {k:"inv_no",l:"Invoice No",edit:true,mw:90},
-        {k:"date",l:"Date",edit:true,mw:85},
-        {k:"comments",l:"Comments",edit:true,mw:100},
+        {k:"cat",l:t("Κατ. Εσόδων","Revenue Cat"),opts:REV_CATS.map(c=>({v:c,l:catLabel(c)})),mw:150},
+        {k:"amt",l:t("Ποσό €","Amount €"),a:"right",edit:true,t:"number",mw:90},
+        {k:"vat",l:t("ΦΠΑ 24%","VAT 24%"),a:"right",edit:true,t:"number",mw:80},
+        {k:"total",l:t("Σύνολο €","Total €"),a:"right",r:fmt},
+        {k:"inv_no",l:t("Αρ. Τιμολ.","Invoice No"),edit:true,mw:90},
+        {k:"date",l:t("Ημ/νία","Date"),edit:true,mw:85},
+        {k:"comments",l:t("Σχόλια","Comments"),edit:true,mw:100},
         {k:"act_acc",l:"Act/Acc",opts:[{v:"ACTUAL",l:"ACTUAL"},{v:"ACCRUAL",l:"ACCRUAL"}],mw:90},
         {k:"po_no",l:"PO No",opts:poOpts,mw:100},
-        {k:"paid",l:"Πληρωμή",opts:[{v:"",l:"Unpaid"},{v:"paid",l:"Paid"}],mw:80},
-        {k:"docId",l:"File",mw:80,r:(v,row)=>row&&row.docId?(<span style={{whiteSpace:"nowrap"}}><a href="#" onClick={async e=>{e.preventDefault();try{window.open(await api.getFileLink(year,client,row.docId),"_blank");}catch{alert("Could not open file");}}} title="Preview" style={{textDecoration:"none",marginRight:8,fontSize:15}}>👁</a><a href="#" onClick={async e=>{e.preventDefault();try{window.location.assign(await api.getFileLink(year,client,row.docId,true));}catch{alert("Could not download file");}}} title="Download" style={{textDecoration:"none",fontSize:15}}>⬇</a></span>):<span style={{color:P.tm}}>—</span>}
+        {k:"paid",l:t("Πληρωμή","Payment"),opts:[{v:"",l:t("Απλήρωτο","Unpaid")},{v:"paid",l:t("Πληρωμένο","Paid")}],mw:80},
+        {k:"docId",l:t("Αρχείο","File"),mw:80,r:(v,row)=>row&&row.docId?(<span style={{whiteSpace:"nowrap"}}><a href="#" onClick={async e=>{e.preventDefault();try{window.open(await api.getFileLink(year,client,row.docId),"_blank");}catch{alert(t("Αδυναμία ανοίγματος αρχείου","Could not open file"));}}} title={t("Προεπισκόπηση","Preview")} style={{textDecoration:"none",marginRight:8,fontSize:15}}>👁</a><a href="#" onClick={async e=>{e.preventDefault();try{window.location.assign(await api.getFileLink(year,client,row.docId,true));}catch{alert(t("Αδυναμία λήψης αρχείου","Could not download file"));}}} title={t("Λήψη","Download")} style={{textDecoration:"none",fontSize:15}}>⬇</a></span>):<span style={{color:P.tm}}>—</span>}
       ]} data={data} del={id=>set(p=>p.filter(x=>x.id!==id))} onEdit={(id,k,v)=>set(p=>p.map(r=>r.id===id?{...r,[k]:v,total:k==="amt"||k==="vat"?(k==="amt"?parseFloat(v)||0:r.amt)+(k==="vat"?parseFloat(v)||0:r.vat):r.total}:r))} />
     </div>
   );
 }
 
 export function SubTab({data,set,contracts,year,client}) {
+  const { t } = useT();
   const activeFee = (contracts||[]).find(c=>c.status==="Active"&&c.type==="MSA")?.fee_pct || 5.5;
   const [f,sF] = useState({site:SITES[0],month:MONTHS[0],cat:COST_CATS[0],gl:"",supplier:"",svc_cat:SVC_CATS[0],svc_desc:"",inv_no:"",date:"",amt:"",vat:"",act_acc:"ACTUAL",comments:"",fee_pct:activeFee});
   const add = () => { if(!f.amt) return; const a=parseFloat(f.amt); const v2=parseFloat(f.vat)||a*.24; const fp=parseFloat(f.fee_pct)||activeFee; const fee=a*fp/100; set(p=>[...p,{...f,id:uid(),amt:a,vat:v2,total:a+v2,fee_pct:fp,cbre_fee:Math.round(fee*100)/100,cbre_bill:Math.round((a+fee)*100)/100}]); sF(x=>({...x,gl:"",supplier:"",svc_desc:"",inv_no:"",date:"",amt:"",vat:"",comments:""})); };
@@ -247,46 +251,47 @@ export function SubTab({data,set,contracts,year,client}) {
   }));
   return (
     <div>
-      <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 6px"}}>Subcontractor Invoices</h2>
-      <p style={{fontSize:13,color:P.tm,margin:"0 0 16px"}}>Contract fee: <strong style={{color:P.em}}>{activeFee}%</strong> (from active MSA)</p>
+      <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 6px"}}>{t("Τιμολόγια Υπεργολάβων","Subcontractor Invoices")}</h2>
+      <p style={{fontSize:13,color:P.tm,margin:"0 0 16px"}}>{t("Αμοιβή συμβολαίου","Contract fee")}: <strong style={{color:P.em}}>{activeFee}%</strong> {t("(από ενεργό MSA)","(from active MSA)")}</p>
       <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:14,marginBottom:16,display:"flex",flexWrap:"wrap",gap:8,alignItems:"end"}}>
-        <Sel l="Month" v={f.month} set={v=>sF(x=>({...x,month:v}))} opts={MONTHS.map(m=>({v:m,l:ML[m]}))} w={100} />
-        <Sel l="Cost Cat" v={f.cat} set={v=>sF(x=>({...x,cat:v}))} opts={COST_CATS.map(c=>({v:c,l:c}))} w={190} />
-        <Inp l="Supplier" v={f.supplier} set={v=>sF(x=>({...x,supplier:v}))} w={130} />
-        <Sel l="Service" v={f.svc_cat} set={v=>sF(x=>({...x,svc_cat:v}))} opts={SVC_CATS.map(c=>({v:c,l:c}))} w={150} />
-        <Inp l="Description" v={f.svc_desc||""} set={v=>sF(x=>({...x,svc_desc:v}))} w={120} />
-        <Inp l="Invoice No" v={f.inv_no||""} set={v=>sF(x=>({...x,inv_no:v}))} w={100} />
-        <Inp l="Date" v={f.date||""} set={v=>sF(x=>({...x,date:v}))} w={90} />
-        <Inp l="Amount €" v={f.amt} set={v=>sF(x=>({...x,amt:v}))} w={95} t="number" />
-        <Inp l="Fee %" v={f.fee_pct} set={v=>sF(x=>({...x,fee_pct:v}))} w={55} t="number" />
+        <Sel l={t("Μήνας","Month")} v={f.month} set={v=>sF(x=>({...x,month:v}))} opts={MONTHS.map(m=>({v:m,l:monthLabel(m)}))} w={100} />
+        <Sel l={t("Κατ. Κόστους","Cost Cat")} v={f.cat} set={v=>sF(x=>({...x,cat:v}))} opts={COST_CATS.map(c=>({v:c,l:catLabel(c)}))} w={190} />
+        <Inp l={t("Προμηθευτής","Supplier")} v={f.supplier} set={v=>sF(x=>({...x,supplier:v}))} w={130} />
+        <Sel l={t("Υπηρεσία","Service")} v={f.svc_cat} set={v=>sF(x=>({...x,svc_cat:v}))} opts={SVC_CATS.map(c=>({v:c,l:catLabel(c)}))} w={150} />
+        <Inp l={t("Περιγραφή","Description")} v={f.svc_desc||""} set={v=>sF(x=>({...x,svc_desc:v}))} w={120} />
+        <Inp l={t("Αρ. Τιμολ.","Invoice No")} v={f.inv_no||""} set={v=>sF(x=>({...x,inv_no:v}))} w={100} />
+        <Inp l={t("Ημ/νία","Date")} v={f.date||""} set={v=>sF(x=>({...x,date:v}))} w={90} />
+        <Inp l={t("Ποσό €","Amount €")} v={f.amt} set={v=>sF(x=>({...x,amt:v}))} w={95} t="number" />
+        <Inp l={t("Αμοιβή %","Fee %")} v={f.fee_pct} set={v=>sF(x=>({...x,fee_pct:v}))} w={55} t="number" />
         <Sel l="Act/Acc" v={f.act_acc} set={v=>sF(x=>({...x,act_acc:v}))} opts={[{v:"ACTUAL",l:"ACTUAL"},{v:"ACCRUAL",l:"ACCRUAL"}]} w={90} />
-        <Inp l="Comments" v={f.comments||""} set={v=>sF(x=>({...x,comments:v}))} w={110} />
-        <button onClick={add} style={{background:P.em,color:"#fff",border:"none",padding:"7px 18px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>+ Add</button>
+        <Inp l={t("Σχόλια","Comments")} v={f.comments||""} set={v=>sF(x=>({...x,comments:v}))} w={110} />
+        <button onClick={add} style={{background:P.em,color:"#fff",border:"none",padding:"7px 18px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>+ {t("Προσθήκη","Add")}</button>
       </div>
       <Tbl cols={[
-        {k:"month",l:"Month",opts:MONTHS.map(m=>({v:m,l:ML[m]})),mw:90},
-        {k:"cat",l:"Sub Category",opts:COST_CATS.map(c=>({v:c,l:c})),mw:140},
-        {k:"supplier",l:"Supplier",edit:true,mw:120},
-        {k:"svc_cat",l:"Service",opts:SVC_CATS.map(c=>({v:c,l:c})),mw:120},
-        {k:"svc_desc",l:"Description",edit:true,mw:120},
-        {k:"inv_no",l:"Inv No",edit:true,mw:80},
-        {k:"date",l:"Date",edit:true,mw:80},
-        {k:"amt",l:"Amount €",a:"right",edit:true,t:"number",mw:80},
-        {k:"vat",l:"VAT €",a:"right",edit:true,t:"number",mw:70},
-        {k:"total",l:"Total €",a:"right",r:fmt},
-        {k:"fee_pct",l:"Fee %",a:"right",edit:true,t:"number",mw:55},
-        {k:"cbre_fee",l:"CBRE Fee €",a:"right",r:fmt},
-        {k:"cbre_bill",l:"CBRE Billing €",a:"right",r:fmt},
+        {k:"month",l:t("Μήνας","Month"),opts:MONTHS.map(m=>({v:m,l:monthLabel(m)})),mw:90},
+        {k:"cat",l:t("Κατ. Υπεργ.","Sub Category"),opts:COST_CATS.map(c=>({v:c,l:catLabel(c)})),mw:140},
+        {k:"supplier",l:t("Προμηθευτής","Supplier"),edit:true,mw:120},
+        {k:"svc_cat",l:t("Υπηρεσία","Service"),opts:SVC_CATS.map(c=>({v:c,l:catLabel(c)})),mw:120},
+        {k:"svc_desc",l:t("Περιγραφή","Description"),edit:true,mw:120},
+        {k:"inv_no",l:t("Αρ. Τιμ.","Inv No"),edit:true,mw:80},
+        {k:"date",l:t("Ημ/νία","Date"),edit:true,mw:80},
+        {k:"amt",l:t("Ποσό €","Amount €"),a:"right",edit:true,t:"number",mw:80},
+        {k:"vat",l:t("ΦΠΑ €","VAT €"),a:"right",edit:true,t:"number",mw:70},
+        {k:"total",l:t("Σύνολο €","Total €"),a:"right",r:fmt},
+        {k:"fee_pct",l:t("Αμοιβή %","Fee %"),a:"right",edit:true,t:"number",mw:55},
+        {k:"cbre_fee",l:t("Αμοιβή CBRE €","CBRE Fee €"),a:"right",r:fmt},
+        {k:"cbre_bill",l:t("Χρέωση CBRE €","CBRE Billing €"),a:"right",r:fmt},
         {k:"act_acc",l:"Act/Acc",opts:[{v:"ACTUAL",l:"ACTUAL"},{v:"ACCRUAL",l:"ACCRUAL"}],mw:90},
-        {k:"comments",l:"Comments",edit:true,mw:100},
-        {k:"paid",l:"Πληρωμή",opts:[{v:"",l:"Unpaid"},{v:"paid",l:"Paid"}],mw:80},
-        {k:"docId",l:"File",mw:80,r:(v,row)=>row&&row.docId?(<span style={{whiteSpace:"nowrap"}}><a href="#" onClick={async e=>{e.preventDefault();try{window.open(await api.getFileLink(year,client,row.docId),"_blank");}catch{alert("Could not open file");}}} title="Preview" style={{textDecoration:"none",marginRight:8,fontSize:15}}>👁</a><a href="#" onClick={async e=>{e.preventDefault();try{window.location.assign(await api.getFileLink(year,client,row.docId,true));}catch{alert("Could not download file");}}} title="Download" style={{textDecoration:"none",fontSize:15}}>⬇</a></span>):<span style={{color:P.tm}}>—</span>}
+        {k:"comments",l:t("Σχόλια","Comments"),edit:true,mw:100},
+        {k:"paid",l:t("Πληρωμή","Payment"),opts:[{v:"",l:t("Απλήρωτο","Unpaid")},{v:"paid",l:t("Πληρωμένο","Paid")}],mw:80},
+        {k:"docId",l:t("Αρχείο","File"),mw:80,r:(v,row)=>row&&row.docId?(<span style={{whiteSpace:"nowrap"}}><a href="#" onClick={async e=>{e.preventDefault();try{window.open(await api.getFileLink(year,client,row.docId),"_blank");}catch{alert(t("Αδυναμία ανοίγματος αρχείου","Could not open file"));}}} title={t("Προεπισκόπηση","Preview")} style={{textDecoration:"none",marginRight:8,fontSize:15}}>👁</a><a href="#" onClick={async e=>{e.preventDefault();try{window.location.assign(await api.getFileLink(year,client,row.docId,true));}catch{alert(t("Αδυναμία λήψης αρχείου","Could not download file"));}}} title={t("Λήψη","Download")} style={{textDecoration:"none",fontSize:15}}>⬇</a></span>):<span style={{color:P.tm}}>—</span>}
       ]} data={data} del={id=>set(p=>p.filter(x=>x.id!==id))} onEdit={edit} />
     </div>
   );
 }
 
 export function AccTab({inv,sub}) {
+  const { t } = useT();
   const thS = {padding:"6px 8px",textAlign:"center",fontSize:10,fontWeight:700,color:"#fff",background:P.em,whiteSpace:"nowrap"};
   const cellS = {padding:"6px 8px",textAlign:"right",fontSize:12,borderBottom:"1px solid "+P.bd};
 
@@ -301,15 +306,15 @@ export function AccTab({inv,sub}) {
   const catLabels = ["FM Core","FM Extra Works","FM PJMs"];
 
   const sections = [
-    {t:"Revenue Accruals — UBR (Unbilled Revenue)",sub:"UBR",rows:cats.map((c,i)=>({l:catLabels[i],fn:m=>revAcc(c,m,"+")}))},
-    {t:"Revenue Accruals — UER (Unearned Revenue)",sub:"UER",rows:cats.map((c,i)=>({l:catLabels[i],fn:m=>revAcc(c,m,"-")}))},
-    {t:"Expense Accruals (from Sub Invoices — Accrual entries)",sub:"Total",rows:costCats.map((c,i)=>({l:catLabels[i],fn:m=>costAcc(c,m)}))},
+    {t:t("Δουλευμένα Εσόδων — UBR (Ανείσπρακτα Έσοδα)","Revenue Accruals — UBR (Unbilled Revenue)"),sub:"UBR",rows:cats.map((c,i)=>({l:catLabels[i],fn:m=>revAcc(c,m,"+")}))},
+    {t:t("Δουλευμένα Εσόδων — UER (Έσοδα Επόμενων Χρήσεων)","Revenue Accruals — UER (Unearned Revenue)"),sub:"UER",rows:cats.map((c,i)=>({l:catLabels[i],fn:m=>revAcc(c,m,"-")}))},
+    {t:t("Δουλευμένα Εξόδων (από Τιμολόγια Υπεργολάβων — εγγραφές Accrual)","Expense Accruals (from Sub Invoices — Accrual entries)"),sub:"Total",rows:costCats.map((c,i)=>({l:catLabels[i],fn:m=>costAcc(c,m)}))},
   ];
 
   return (
     <div>
-      <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 6px"}}>Accruals</h2>
-      <p style={{fontSize:12,color:P.tm,margin:"0 0 16px"}}>Auto-populated from invoices marked as ACCRUAL — read-only</p>
+      <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 6px"}}>{t("Δουλευμένα (Accruals)","Accruals")}</h2>
+      <p style={{fontSize:12,color:P.tm,margin:"0 0 16px"}}>{t("Αυτόματη συμπλήρωση από τιμολόγια με σήμανση ACCRUAL — μόνο για ανάγνωση","Auto-populated from invoices marked as ACCRUAL — read-only")}</p>
       {sections.map(sec => (
         <div key={sec.t} style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,marginBottom:16}}>
           <div style={{background:sec.bold?"#00695C":P.ep,padding:"10px 16px",fontWeight:700,fontSize:13,color:sec.bold?"#fff":P.em}}>{sec.t}</div>
@@ -321,9 +326,9 @@ export function AccTab({inv,sub}) {
                 <col style={{width:95}} />
               </colgroup>
               <thead><tr>
-                <th style={{...thS,textAlign:"left",borderRight:"2px solid #00695C"}}>Category</th>
-                {MONTHS.map(m=><th key={m} style={thS}>{ML[m]}</th>)}
-                <th style={{...thS,background:"#00695C"}}>Total</th>
+                <th style={{...thS,textAlign:"left",borderRight:"2px solid #00695C"}}>{t("Κατηγορία","Category")}</th>
+                {MONTHS.map(m=><th key={m} style={thS}>{monthLabel(m)}</th>)}
+                <th style={{...thS,background:"#00695C"}}>{t("Σύνολο","Total")}</th>
               </tr></thead>
               <tbody>
                 {sec.rows.map((r,ri) => {
@@ -340,7 +345,7 @@ export function AccTab({inv,sub}) {
                   );
                 })}
                 <tr style={{background:P.ep}}>
-                  <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,borderRight:"2px solid #00695C"}}>Sub-Total {sec.sub}</td>
+                  <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,borderRight:"2px solid #00695C"}}>{t("Υποσύνολο","Sub-Total")} {sec.sub}</td>
                   {MONTHS.map(m => {
                     const v = sec.rows.reduce((s,r)=>s+r.fn(m),0);
                     return <td key={m} style={{padding:"6px 8px",textAlign:"right",fontSize:12,fontWeight:700,color:v<0?P.rd:P.em}}>{fmt(v)}</td>;
@@ -359,6 +364,7 @@ export function AccTab({inv,sub}) {
 }
 
 export function LabTab({data,set,alloc,setAlloc}) {
+  const { t } = useT();
   const up = (m,k,v) => set(p => ({...p,[m]:{...p[m],[k]:parseFloat(v)||0}}));
   const A = alloc || {};
   const av = (m,seg) => { const a=A[m]; return a && a[seg]!==undefined ? a[seg] : (seg==="core"?100:0); };
@@ -369,7 +375,7 @@ export function LabTab({data,set,alloc,setAlloc}) {
   const inpS = {width:"100%",padding:"4px 5px",border:"1px solid "+P.bd,borderRadius:3,fontSize:11,textAlign:"right",background:P.ip,outline:"none",boxSizing:"border-box"};
   return (
     <div>
-      <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 16px"}}>Labour Cost</h2>
+      <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 16px"}}>{t("Κόστος Εργασίας","Labour Cost")}</h2>
       <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd}}>
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed",minWidth:1100}}>
@@ -379,9 +385,9 @@ export function LabTab({data,set,alloc,setAlloc}) {
               <col style={{width:95}} />
             </colgroup>
             <thead><tr>
-              <th style={{...thS,textAlign:"left",borderRight:"2px solid #00695C"}}>Category</th>
-              {MONTHS.map(m=><th key={m} style={thS}>{ML[m]}</th>)}
-              <th style={{...thS,background:"#00695C"}}>Total</th>
+              <th style={{...thS,textAlign:"left",borderRight:"2px solid #00695C"}}>{t("Κατηγορία","Category")}</th>
+              {MONTHS.map(m=><th key={m} style={thS}>{monthLabel(m)}</th>)}
+              <th style={{...thS,background:"#00695C"}}>{t("Σύνολο","Total")}</th>
             </tr></thead>
             <tbody>
               {LAB_ROWS.map((r,i) => (
@@ -414,8 +420,8 @@ export function LabTab({data,set,alloc,setAlloc}) {
 
       {/* ── Labour allocation across segments ── */}
       <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,marginTop:16}}>
-        <div style={{background:P.ep,padding:"10px 16px",fontWeight:700,fontSize:13,color:P.em}}>Κατανομή Labour ανά segment (βάρη)</div>
-        <div style={{padding:"6px 16px 0",fontSize:11.5,color:P.tm}}>Default 100% στο FM Core. Άλλαξε τα βάρη για να κατανεμηθεί το labour κάθε μήνα σε Core / Extra Works / PJM — το <b>συνολικό</b> κόστος labour &amp; GM δεν αλλάζει, μόνο η ανά-segment ανάλυση. Ιδανικά κάθε μήνας αθροίζει 100.</div>
+        <div style={{background:P.ep,padding:"10px 16px",fontWeight:700,fontSize:13,color:P.em}}>{t("Κατανομή Labour ανά segment (βάρη)","Labour allocation per segment (weights)")}</div>
+        <div style={{padding:"6px 16px 0",fontSize:11.5,color:P.tm}}>{t("Default 100% στο FM Core. Άλλαξε τα βάρη για να κατανεμηθεί το labour κάθε μήνα σε Core / Extra Works / PJM — το συνολικό κόστος labour & GM δεν αλλάζει, μόνο η ανά-segment ανάλυση. Ιδανικά κάθε μήνας αθροίζει 100.","Default 100% to FM Core. Change the weights to split each month's labour across Core / Extra Works / PJM — the total labour cost & GM don't change, only the per-segment breakdown. Ideally each month sums to 100.")}</div>
         <div style={{overflowX:"auto",padding:"10px 0 4px"}}>
           <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed",minWidth:1100}}>
             <colgroup>
@@ -425,8 +431,8 @@ export function LabTab({data,set,alloc,setAlloc}) {
             </colgroup>
             <thead><tr>
               <th style={{...thS,textAlign:"left",borderRight:"2px solid #00695C"}}>Segment</th>
-              {MONTHS.map(m=><th key={m} style={thS}>{ML[m]}</th>)}
-              <th style={{...thS,background:"#00695C"}}>€ / μήνα</th>
+              {MONTHS.map(m=><th key={m} style={thS}>{monthLabel(m)}</th>)}
+              <th style={{...thS,background:"#00695C"}}>{t("€ / μήνα","€ / month")}</th>
             </tr></thead>
             <tbody>
               {ALLOC_SEGS.map((seg,i)=>(
@@ -443,8 +449,8 @@ export function LabTab({data,set,alloc,setAlloc}) {
                 </tr>
               ))}
               <tr style={{background:P.ep}}>
-                <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,borderRight:"2px solid #00695C"}}>Άθροισμα βαρών</td>
-                {MONTHS.map(m=>{const s=av(m,"core")+av(m,"ew")+av(m,"pjm");const ok=Math.abs(s-100)<0.01;return <td key={m} style={{padding:"6px 8px",textAlign:"center",fontSize:11,fontWeight:700,color:ok?P.gn:s===0?P.tm:P.rd}} title={ok?"":"Δεν αθροίζει 100 — η κατανομή γίνεται αναλογικά"}>{s||0}</td>;})}
+                <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,borderRight:"2px solid #00695C"}}>{t("Άθροισμα βαρών","Sum of weights")}</td>
+                {MONTHS.map(m=>{const s=av(m,"core")+av(m,"ew")+av(m,"pjm");const ok=Math.abs(s-100)<0.01;return <td key={m} style={{padding:"6px 8px",textAlign:"center",fontSize:11,fontWeight:700,color:ok?P.gn:s===0?P.tm:P.rd}} title={ok?"":t("Δεν αθροίζει 100 — η κατανομή γίνεται αναλογικά","Doesn't sum to 100 — allocation is proportional")}>{s||0}</td>;})}
                 <td style={{background:"#C8E6C9",borderLeft:"2px solid #00695C"}}></td>
               </tr>
             </tbody>
@@ -456,6 +462,7 @@ export function LabTab({data,set,alloc,setAlloc}) {
 }
 
 export function POTracker({inv,contracts}) {
+  const { t } = useT();
   const [open,setOpen] = useState({});
   const toggle = po => setOpen(p=>({...p,[po]:!p[po]}));
   const poContracts = (contracts||[]).filter(c=>c.type==="PO"&&c.po);
@@ -477,8 +484,8 @@ export function POTracker({inv,contracts}) {
 
   return (
     <div>
-      <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 6px"}}>PO Spend Tracker</h2>
-      <p style={{fontSize:13,color:P.tm,margin:"0 0 16px"}}>Actuals only (excl. accruals) — {allPOs.length} POs — Budget: €{fmt(totalBudget)} — Spent: €{fmt(totalSpent)} — Remaining: €{fmt(totalBudget-totalSpent)}</p>
+      <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 6px"}}>{t("Παρακολούθηση Δαπανών PO","PO Spend Tracker")}</h2>
+      <p style={{fontSize:13,color:P.tm,margin:"0 0 16px"}}>{t("Μόνο πραγματικά (χωρίς accruals)","Actuals only (excl. accruals)")} — {allPOs.length} POs — Budget: €{fmt(totalBudget)} — {t("Δαπάνη","Spent")}: €{fmt(totalSpent)} — {t("Υπόλοιπο","Remaining")}: €{fmt(totalBudget-totalSpent)}</p>
 
       {/* Summary cards */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14,marginBottom:20}}>
@@ -497,13 +504,13 @@ export function POTracker({inv,contracts}) {
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
                   <div style={{textAlign:"center"}}><div style={{fontSize:10,color:P.tm}}>Budget</div><div style={{fontSize:14,fontWeight:700,color:P.em}}>€{fmt(pd.budget)}</div></div>
-                  <div style={{textAlign:"center"}}><div style={{fontSize:10,color:P.tm}}>Spent (net)</div><div style={{fontSize:14,fontWeight:700,color:bc}}>€{fmt(pd.spent)}</div></div>
-                  <div style={{textAlign:"center"}}><div style={{fontSize:10,color:P.tm}}>Remaining</div><div style={{fontSize:14,fontWeight:700,color:pd.remaining<0?P.rd:P.gn}}>€{fmt(pd.remaining)}</div></div>
+                  <div style={{textAlign:"center"}}><div style={{fontSize:10,color:P.tm}}>{t("Δαπάνη (καθ.)","Spent (net)")}</div><div style={{fontSize:14,fontWeight:700,color:bc}}>€{fmt(pd.spent)}</div></div>
+                  <div style={{textAlign:"center"}}><div style={{fontSize:10,color:P.tm}}>{t("Υπόλοιπο","Remaining")}</div><div style={{fontSize:14,fontWeight:700,color:pd.remaining<0?P.rd:P.gn}}>€{fmt(pd.remaining)}</div></div>
                 </div>
                 <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:P.tm}}>
-                  <span>{(pd.pct*100).toFixed(1)}% consumed</span>
-                  <span>{pd.actuals.length} invoices</span>
-                  {pd.expiry && <span>Expires: {pd.expiry}</span>}
+                  <span>{(pd.pct*100).toFixed(1)}% {t("αναλώθηκε","consumed")}</span>
+                  <span>{pd.actuals.length} {t("τιμολόγια","invoices")}</span>
+                  {pd.expiry && <span>{t("Λήγει","Expires")}: {pd.expiry}</span>}
                 </div>
               </div>
             </div>
@@ -515,21 +522,21 @@ export function POTracker({inv,contracts}) {
       {poData.map(pd => (
         <div key={pd.po} style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,marginBottom:12,overflow:"hidden"}}>
           <div onClick={()=>toggle(pd.po)} style={{background:P.ep,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",userSelect:"none"}}>
-            <span style={{fontWeight:700,fontSize:13,color:P.em}}>{open[pd.po]?"▼":"▶"} PO {pd.po} — {pd.scope} ({pd.actuals.length} actuals)</span>
+            <span style={{fontWeight:700,fontSize:13,color:P.em}}>{open[pd.po]?"▼":"▶"} PO {pd.po} — {pd.scope} ({pd.actuals.length} {t("πραγματικά","actuals")})</span>
             <span style={{fontSize:12,fontWeight:600,color:pd.remaining<0?P.rd:P.gn}}>€{fmt(pd.spent)} / €{fmt(pd.budget)}</span>
           </div>
           {open[pd.po] && (
             <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead><tr>
-                  {["Month","Category","Amount €","VAT €","Total €","Invoice No","Date"].map(h=>(
-                    <th key={h} style={{padding:"6px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:h.includes("€")?"right":"left"}}>{h}</th>
+                  {[["Month",t("Μήνας","Month")],["Category",t("Κατηγορία","Category")],["Amount €",t("Ποσό €","Amount €")],["VAT €",t("ΦΠΑ €","VAT €")],["Total €",t("Σύνολο €","Total €")],["Invoice No",t("Αρ. Τιμολ.","Invoice No")],["Date",t("Ημ/νία","Date")]].map(([k,h])=>(
+                    <th key={k} style={{padding:"6px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:k.includes("€")?"right":"left"}}>{h}</th>
                   ))}
                 </tr></thead>
                 <tbody>
                   {pd.actuals.map((iv,i) => (
                     <tr key={iv.id||i} style={{background:i%2===0?P.wh:P.al}}>
-                      <td style={{padding:"5px 10px",borderBottom:"1px solid "+P.bd}}>{ML[iv.month]||iv.month}</td>
+                      <td style={{padding:"5px 10px",borderBottom:"1px solid "+P.bd}}>{monthLabel(iv.month)}</td>
                       <td style={{padding:"5px 10px",borderBottom:"1px solid "+P.bd}}>{iv.cat}</td>
                       <td style={{padding:"5px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right"}}>{fmt(iv.amt)}</td>
                       <td style={{padding:"5px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right"}}>{fmt(iv.vat)}</td>
@@ -539,7 +546,7 @@ export function POTracker({inv,contracts}) {
                     </tr>
                   ))}
                   <tr style={{background:P.ep}}>
-                    <td colSpan={2} style={{padding:"6px 10px",fontWeight:700}}>Total Actuals</td>
+                    <td colSpan={2} style={{padding:"6px 10px",fontWeight:700}}>{t("Σύνολο Πραγματικών","Total Actuals")}</td>
                     <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,color:P.em}}>{fmt(pd.spent)}</td>
                     <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,color:P.em}}>{fmt(pd.actuals.reduce((s,i)=>s+(Number(i.vat)||0),0))}</td>
                     <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,color:P.em}}>{fmt(pd.spentTotal)}</td>
