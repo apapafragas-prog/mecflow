@@ -279,11 +279,17 @@ app.post("/api/users", auth, requireRole("admin"), (req, res) => {
 app.patch("/api/users/:id", auth, requireRole("admin"), (req, res) => {
   const u = db.prepare("SELECT id FROM users WHERE id = ?").get(req.params.id);
   if (!u) return res.status(404).json({ error: "Not found" });
-  const { email, name, clients } = req.body || {};
+  const { email, name, clients, role } = req.body || {};
   if (email !== undefined) db.prepare("UPDATE users SET email = ? WHERE id = ?").run(String(email), req.params.id);
   if (name !== undefined) db.prepare("UPDATE users SET name = ? WHERE id = ?").run(String(name), req.params.id);
+  if (role !== undefined && ["ops", "finance", "admin"].includes(role)) db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, req.params.id);
   if (clients !== undefined) db.prepare("UPDATE users SET clients = ? WHERE id = ?").run(clients === "ALL" ? "ALL" : JSON.stringify(clients || []), req.params.id);
-  audit(req.user.username, "user_updated", req.params.id, req);
+  // Entitlement changes (client access or role) must take effect immediately — revoke live sessions
+  // by bumping token_version so the stale JWT snapshot (which carries clients/role) stops validating.
+  if (clients !== undefined || role !== undefined) {
+    db.prepare("UPDATE users SET token_version = COALESCE(token_version,0) + 1 WHERE id = ?").run(req.params.id);
+  }
+  audit(req.user.username, "user_updated", `${req.params.id}${clients !== undefined ? " clients" : ""}${role !== undefined ? " role" : ""}`, req);
   res.json({ ok: true });
 });
 
@@ -340,12 +346,16 @@ app.put("/api/data/:year/:client", auth, (req, res) => {
     ON CONFLICT(year, client) DO UPDATE SET data=excluded.data, version=excluded.version, updated_at=excluded.updated_at, updated_by=excluded.updated_by`);
   upsert.run(year, client, JSON.stringify(payload), newVersion, req.user.username);
   res.json({ ok: true, version: newVersion });
-  // Report-status notifications: only on an actual status transition (best-effort, after the response).
+  // Audit trail (best-effort, after the response) — every client-data mutation + status transition.
   try {
     let oldStatus = "draft"; try { oldStatus = (row && JSON.parse(row.data).status) || "draft"; } catch {}
     const newStatus = (payload && payload.status) || "draft";
-    if (newStatus !== oldStatus && ["submitted", "approved", "rejected"].includes(newStatus)) notifyStatusChange(year, client, newStatus, payload, req);
-  } catch (e) { console.error("status-notify error:", e.message); }
+    audit(req.user.username, "data_save", `${year}/${client} v${newVersion}`, req);
+    if (newStatus !== oldStatus && ["submitted", "approved", "rejected"].includes(newStatus)) {
+      audit(req.user.username, `report_${newStatus}`, `${year}/${client}`, req);
+      notifyStatusChange(year, client, newStatus, payload, req);
+    }
+  } catch (e) { console.error("status-notify/audit error:", e.message); }
 });
 
 app.get("/api/data/:year", auth, (req, res) => {
@@ -381,6 +391,7 @@ app.put("/api/finance/:year", auth, requireRole("finance", "admin"), (req, res) 
     ON CONFLICT(year) DO UPDATE SET data=excluded.data, version=excluded.version, updated_at=excluded.updated_at, updated_by=excluded.updated_by`)
     .run(year, JSON.stringify(payload), newVersion, req.user.username);
   res.json({ ok: true, version: newVersion });
+  try { audit(req.user.username, "finance_save", `${year} v${newVersion}`, req); } catch (e) { console.error("audit error:", e.message); }
 });
 
 // ── File uploads ──
@@ -406,6 +417,7 @@ app.post("/api/files/:year/:client", auth, upload.single("file"), (req, res) => 
     req.file.mimetype, req.file.size, req.file.filename, req.user.username
   );
   res.json({ id, name: req.file.originalname, size: req.file.size, type: req.body.type, contract_ref: req.body.contract_ref });
+  try { audit(req.user.username, "file_upload", `${year}/${client}: ${req.file.originalname}`, req); } catch (e) { console.error("audit error:", e.message); }
 });
 
 app.get("/api/files/:year/:client", auth, (req, res) => {
@@ -427,6 +439,8 @@ app.post("/api/files/:year/:client/:id/link", auth, (req, res) => {
   const sig = signDownload(id, exp);
   const dl = req.body && req.body.dl ? "&dl=1" : "";
   res.json({ url: `/api/files/${encodeURIComponent(year)}/${encodeURIComponent(client)}/${encodeURIComponent(id)}/download?exp=${exp}&sig=${sig}${dl}` });
+  // Log the authorized access request (the /download route itself is signed & unauthenticated).
+  try { audit(req.user.username, req.body && req.body.dl ? "file_download" : "file_preview", `${year}/${client}: ${id}`, req); } catch (e) { console.error("audit error:", e.message); }
 });
 
 app.get("/api/files/:year/:client/:id/download", (req, res) => {
@@ -451,6 +465,9 @@ app.get("/api/files/:year/:client/:id/download", (req, res) => {
   }
   const doc = db.prepare("SELECT * FROM documents WHERE id = ? AND year = ? AND client = ?").get(id, year, client);
   if (!doc) return res.status(404).json({ error: "Not found" });
+  // Harden inline previews: never sniff, never execute script (HTML/SVG uploads can't XSS the app origin).
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Security-Policy", "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox");
   if (req.query.dl) return res.download(join(FILES_DIR, doc.storage_path), doc.name);
   res.sendFile(join(FILES_DIR, doc.storage_path));
 });
@@ -463,6 +480,7 @@ app.delete("/api/files/:year/:client/:id", auth, (req, res) => {
   try { fs.unlinkSync(join(FILES_DIR, doc.storage_path)); } catch (e) {}
   db.prepare("DELETE FROM documents WHERE id = ?").run(id);
   res.json({ ok: true });
+  try { audit(req.user.username, "file_delete", `${year}/${client}: ${doc.name}`, req); } catch (e) { console.error("audit error:", e.message); }
 });
 
 // Update a document's linked contract reference / type (used by api.updateFileRef)
