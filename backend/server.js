@@ -159,7 +159,9 @@ const audit = (user, action, target, req) => auditStmt.run(user, action, target|
 
 // ── Auth middleware ──
 const auth = (req, res, next) => {
-  const token = req.headers.authorization?.replace("Bearer ", "") || req.query.token;
+  // Bearer header only — never accept the JWT from the URL query string (it would leak into
+  // access logs, browser history and Referer headers). Signed download links use ?exp&sig instead.
+  const token = req.headers.authorization?.replace("Bearer ", "");
   if (!token) return res.status(401).json({ error: "No token" });
   try {
     const payload = jwt.verify(token, JWT_SECRET);
