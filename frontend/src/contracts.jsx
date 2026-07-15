@@ -4,9 +4,11 @@ import { useState } from "react";
 import { api } from "./api.js";
 import { P, ML, uid, expiryBadge, fmt } from "./constants.js";
 import { Inp, Sel, Tbl } from "./ui.jsx";
+import { useT, monthLabel } from "./i18n.jsx";
 
 
 export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
+  const { t } = useT();
   const [drag,setDrag] = useState(false);
   const [modalPO,setModalPO] = useState(null);
   const [extracting,setExtracting] = useState(false);
@@ -86,10 +88,10 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
     setExtracting(false);
     sF({type:"MSA",ref:"",client:"",start:"",expiry:"",fee_pct:5.5,status:"Active",po:"",po_value:"",scope:"",notes:""});
     if(created.length) {
-      const summary = created.map((c,i)=>`${i+1}. ${c.type} — ${c.ref||"(no ref)"} ${c.po_value?"€"+fmt(c.po_value):""}`).join("\n");
-      alert(`✓ Uploaded ${newDocs.length} file(s) and extracted ${created.length} contract(s):\n\n${summary}`);
+      const summary = created.map((c,i)=>`${i+1}. ${c.type} — ${c.ref||t("(χωρίς ref)","(no ref)")} ${c.po_value?"€"+fmt(c.po_value):""}`).join("\n");
+      alert(t(`✓ Ανέβηκαν ${newDocs.length} αρχείο(α) και εξήχθησαν ${created.length} συμβόλαιο(α):\n\n${summary}`,`✓ Uploaded ${newDocs.length} file(s) and extracted ${created.length} contract(s):\n\n${summary}`));
     } else {
-      alert(`✓ Uploaded ${newDocs.length} file(s).\n\nAI extraction returned no contract data — please add details manually below.`);
+      alert(t(`✓ Ανέβηκαν ${newDocs.length} αρχείο(α).\n\nΤο AI δεν εξήγαγε στοιχεία συμβολαίου — πρόσθεσε στοιχεία χειροκίνητα παρακάτω.`,`✓ Uploaded ${newDocs.length} file(s).\n\nAI extraction returned no contract data — please add details manually below.`));
     }
   };
 
@@ -109,32 +111,32 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
 
   // Contract summary
   const typeColors = {MSA:"#003F2D",LEA:"#00695C",PO:"#00897B",Amendment:"#4DB6AC",NDA:"#80CBC4",Other:"#B2DFDB"};
-  const summary = TYPES.map(t => {
-    const contracts = data.filter(c=>c.type===t.v);
-    const docCount = (docs||[]).filter(d=>d.type===t.v).length;
+  const summary = TYPES.map(ty => {
+    const contracts = data.filter(c=>c.type===ty.v);
+    const docCount = (docs||[]).filter(d=>d.type===ty.v).length;
     const totalPO = contracts.reduce((s,c)=>s+(Number(c.po_value)||0),0);
     const active = contracts.filter(c=>c.status==="Active").length;
-    return {...t, contracts, docCount, totalPO, active, total:contracts.length};
-  }).filter(t=>t.total>0||t.docCount>0);
+    return {...ty, contracts, docCount, totalPO, active, total:contracts.length};
+  }).filter(ty=>ty.total>0||ty.docCount>0);
 
   return (
     <div>
-      <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 6px"}}>Contracts, POs & Management Fee</h2>
-      <p style={{fontSize:13,color:P.tm,margin:"0 0 16px"}}>Active MSA fee: <strong style={{color:P.em,fontSize:15}}>{activeFee}%</strong> — {data.filter(c=>c.status==="Active").length} active contracts — {docs.length} documents</p>
+      <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 6px"}}>{t("Συμβόλαια, POs & Αμοιβή Διαχείρισης","Contracts, POs & Management Fee")}</h2>
+      <p style={{fontSize:13,color:P.tm,margin:"0 0 16px"}}>{t("Αμοιβή ενεργού MSA","Active MSA fee")}: <strong style={{color:P.em,fontSize:15}}>{activeFee}%</strong> — {data.filter(c=>c.status==="Active").length} {t("ενεργά συμβόλαια","active contracts")} — {docs.length} {t("έγγραφα","documents")}</p>
 
       {/* ── 1. CONTRACT SUMMARY CARDS ── */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12,marginBottom:20}}>
-        {summary.map(t => (
-          <div key={t.v} style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,overflow:"hidden"}}>
-            <div style={{background:typeColors[t.v]||P.em,color:"#fff",padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <span style={{fontWeight:700,fontSize:14}}>{t.l}</span>
+        {summary.map(ty => (
+          <div key={ty.v} style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,overflow:"hidden"}}>
+            <div style={{background:typeColors[ty.v]||P.em,color:"#fff",padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontWeight:700,fontSize:14}}>{ty.l}</span>
               <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                {t.docCount>0&&<span style={{background:"rgba(255,255,255,.25)",padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700}}>📎 {t.docCount} docs</span>}
-                <span style={{fontSize:11,opacity:.8}}>{t.active} active / {t.total} total</span>
+                {ty.docCount>0&&<span style={{background:"rgba(255,255,255,.25)",padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700}}>📎 {ty.docCount} docs</span>}
+                <span style={{fontSize:11,opacity:.8}}>{ty.active} active / {ty.total} total</span>
               </div>
             </div>
             <div style={{padding:12}}>
-              {t.contracts.map(c => (
+              {ty.contracts.map(c => (
                 <div key={c.id} style={{padding:"6px 0",borderBottom:"1px solid "+P.bd,fontSize:12}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <span style={{fontWeight:600,color:P.em}}>{c.ref}</span>
@@ -144,10 +146,10 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
                   </div>
                   <div style={{color:P.tm,marginTop:2}}>{c.scope}</div>
                   <div style={{display:"flex",gap:12,marginTop:4,fontSize:11,color:P.tx}}>
-                    {c.start&&<span>From: {c.start}</span>}
-                    {c.expiry&&<span>To: {c.expiry}</span>}
+                    {c.start&&<span>{t("Από","From")}: {c.start}</span>}
+                    {c.expiry&&<span>{t("Έως","To")}: {c.expiry}</span>}
                     {(()=>{ const b=c.status!=="Terminated"&&c.status!=="Expired"&&expiryBadge(c.expiry); return b?<span style={{padding:"1px 8px",borderRadius:8,fontSize:10,fontWeight:700,background:b.bg,color:b.color}}>{b.label}</span>:null; })()}
-                    <span style={{fontWeight:600}}>Fee: {c.fee_pct}%</span>
+                    <span style={{fontWeight:600}}>{t("Αμοιβή","Fee")}: {c.fee_pct}%</span>
                     {c.po_value>0&&<span>PO: €{fmt(c.po_value)}</span>}
                   </div>
                   {/* Docs linked to this specific contract */}
@@ -156,7 +158,7 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
                       {docs.filter(d=>d.contract_ref===c.ref).map((d,j)=>(
                         <div key={j} style={{display:"flex",alignItems:"center",gap:6,padding:"2px 0",fontSize:11,color:P.tm}}>
                           <span>📄</span><span style={{flex:1}}>{d.name}</span>
-                          {(d._persisted&&d.id)?<a href="#" onClick={async e=>{e.preventDefault();try{window.open(await api.getFileLink(year,client,d.id),"_blank");}catch{alert("Could not open file");}}} style={{background:P.em,color:"#fff",padding:"1px 8px",borderRadius:4,fontSize:10,fontWeight:600,textDecoration:"none"}}>Open</a>:d.url?<a href={d.url} target="_blank" rel="noopener noreferrer" style={{background:P.em,color:"#fff",padding:"1px 8px",borderRadius:4,fontSize:10,fontWeight:600,textDecoration:"none"}}>Open</a>:null}
+                          {(d._persisted&&d.id)?<a href="#" onClick={async e=>{e.preventDefault();try{window.open(await api.getFileLink(year,client,d.id),"_blank");}catch{alert(t("Αδυναμία ανοίγματος αρχείου","Could not open file"));}}} style={{background:P.em,color:"#fff",padding:"1px 8px",borderRadius:4,fontSize:10,fontWeight:600,textDecoration:"none"}}>{t("Άνοιγμα","Open")}</a>:d.url?<a href={d.url} target="_blank" rel="noopener noreferrer" style={{background:P.em,color:"#fff",padding:"1px 8px",borderRadius:4,fontSize:10,fontWeight:600,textDecoration:"none"}}>{t("Άνοιγμα","Open")}</a>:null}
                         </div>
                       ))}
                     </div>
@@ -164,22 +166,22 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
                 </div>
               ))}
               {/* Docs of this type not linked to a specific contract */}
-              {docs.filter(d=>d.type===t.v&&!d.contract_ref).length>0&&(
-                <div style={{marginTop:t.contracts.length?8:0,paddingTop:t.contracts.length?8:0,borderTop:t.contracts.length?"1px dashed "+P.bd:"none"}}>
-                  <div style={{fontSize:10,fontWeight:700,color:P.tm,marginBottom:4}}>UNLINKED DOCUMENTS</div>
-                  {docs.filter(d=>d.type===t.v&&!d.contract_ref).map((d,j)=>(
+              {docs.filter(d=>d.type===ty.v&&!d.contract_ref).length>0&&(
+                <div style={{marginTop:ty.contracts.length?8:0,paddingTop:ty.contracts.length?8:0,borderTop:ty.contracts.length?"1px dashed "+P.bd:"none"}}>
+                  <div style={{fontSize:10,fontWeight:700,color:P.tm,marginBottom:4}}>{t("ΑΣΥΝΔΕΤΑ ΕΓΓΡΑΦΑ","UNLINKED DOCUMENTS")}</div>
+                  {docs.filter(d=>d.type===ty.v&&!d.contract_ref).map((d,j)=>(
                     <div key={j} style={{display:"flex",alignItems:"center",gap:6,padding:"2px 0",fontSize:11,color:P.tm}}>
                       <span>📄</span><span style={{flex:1}}>{d.name}</span>
-                      {(d._persisted&&d.id)?<a href="#" onClick={async e=>{e.preventDefault();try{window.open(await api.getFileLink(year,client,d.id),"_blank");}catch{alert("Could not open file");}}} style={{background:P.em,color:"#fff",padding:"1px 8px",borderRadius:4,fontSize:10,fontWeight:600,textDecoration:"none"}}>Open</a>:d.url?<a href={d.url} target="_blank" rel="noopener noreferrer" style={{background:P.em,color:"#fff",padding:"1px 8px",borderRadius:4,fontSize:10,fontWeight:600,textDecoration:"none"}}>Open</a>:null}
+                      {(d._persisted&&d.id)?<a href="#" onClick={async e=>{e.preventDefault();try{window.open(await api.getFileLink(year,client,d.id),"_blank");}catch{alert(t("Αδυναμία ανοίγματος αρχείου","Could not open file"));}}} style={{background:P.em,color:"#fff",padding:"1px 8px",borderRadius:4,fontSize:10,fontWeight:600,textDecoration:"none"}}>{t("Άνοιγμα","Open")}</a>:d.url?<a href={d.url} target="_blank" rel="noopener noreferrer" style={{background:P.em,color:"#fff",padding:"1px 8px",borderRadius:4,fontSize:10,fontWeight:600,textDecoration:"none"}}>{t("Άνοιγμα","Open")}</a>:null}
                     </div>
                   ))}
                 </div>
               )}
-              {t.contracts.length===0&&t.docCount===0&&(
-                <div style={{fontSize:11,color:P.tm,fontStyle:"italic",padding:"4px 0"}}>No records yet</div>
+              {ty.contracts.length===0&&ty.docCount===0&&(
+                <div style={{fontSize:11,color:P.tm,fontStyle:"italic",padding:"4px 0"}}>{t("Καμία εγγραφή ακόμη","No records yet")}</div>
               )}
             </div>
-            {t.totalPO>0&&<div style={{background:P.ep,padding:"6px 14px",fontSize:12,fontWeight:600,color:P.em,borderTop:"1px solid "+P.bd}}>Total PO Value: €{fmt(t.totalPO)}</div>}
+            {ty.totalPO>0&&<div style={{background:P.ep,padding:"6px 14px",fontSize:12,fontWeight:600,color:P.em,borderTop:"1px solid "+P.bd}}>{t("Συνολική Αξία PO","Total PO Value")}: €{fmt(ty.totalPO)}</div>}
           </div>
         ))}
       </div>
@@ -189,12 +191,12 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
         <div style={{marginBottom:20}}>
           {/* General summary bar */}
           <div style={{background:P.em,borderRadius:8,padding:"14px 20px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",color:"#fff",flexWrap:"wrap",gap:10}}>
-            <span style={{fontWeight:700,fontSize:14}}>PO Spend Overview — Actuals Only</span>
+            <span style={{fontWeight:700,fontSize:14}}>{t("Επισκόπηση Δαπανών PO — Μόνο Πραγματικά","PO Spend Overview — Actuals Only")}</span>
             <div style={{display:"flex",gap:24,fontSize:13}}>
               <span>Budget: <b>€{fmt(poData.reduce((s,p)=>s+p.budget,0))}</b></span>
-              <span>Spent: <b>€{fmt(poData.reduce((s,p)=>s+p.spent,0))}</b></span>
-              <span>Remaining: <b style={{color:poData.reduce((s,p)=>s+p.rem,0)<0?"#EF9A9A":"#A5D6A7"}}>€{fmt(poData.reduce((s,p)=>s+p.rem,0))}</b></span>
-              <span>{poData.reduce((s,p)=>s+p.actuals.length,0)} invoices</span>
+              <span>{t("Δαπάνη","Spent")}: <b>€{fmt(poData.reduce((s,p)=>s+p.spent,0))}</b></span>
+              <span>{t("Υπόλοιπο","Remaining")}: <b style={{color:poData.reduce((s,p)=>s+p.rem,0)<0?"#EF9A9A":"#A5D6A7"}}>€{fmt(poData.reduce((s,p)=>s+p.rem,0))}</b></span>
+              <span>{poData.reduce((s,p)=>s+p.actuals.length,0)} {t("τιμολόγια","invoices")}</span>
             </div>
           </div>
           {/* Individual PO cards */}
@@ -213,10 +215,10 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
                   <div style={{background:"#eee",borderRadius:6,height:10,marginBottom:8,overflow:"hidden"}}><div style={{background:bc,height:"100%",width:pct+"%",borderRadius:6}} /></div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,fontSize:11}}>
                     <div><span style={{color:P.tm}}>Budget</span><div style={{fontWeight:700,color:P.em}}>€{fmt(pd.budget)}</div></div>
-                    <div><span style={{color:P.tm}}>Spent</span><div style={{fontWeight:700,color:bc}}>€{fmt(pd.spent)}</div></div>
-                    <div><span style={{color:P.tm}}>Remaining</span><div style={{fontWeight:700,color:pd.rem<0?P.rd:P.gn}}>€{fmt(pd.rem)}</div></div>
+                    <div><span style={{color:P.tm}}>{t("Δαπάνη","Spent")}</span><div style={{fontWeight:700,color:bc}}>€{fmt(pd.spent)}</div></div>
+                    <div><span style={{color:P.tm}}>{t("Υπόλοιπο","Remaining")}</span><div style={{fontWeight:700,color:pd.rem<0?P.rd:P.gn}}>€{fmt(pd.rem)}</div></div>
                   </div>
-                  <div style={{textAlign:"right",fontSize:10,color:P.tm,marginTop:4}}>Click for details · {pd.actuals.length} inv{pd.expiry?` · Exp: ${pd.expiry}`:""}</div>
+                  <div style={{textAlign:"right",fontSize:10,color:P.tm,marginTop:4}}>{t("Κλικ για λεπτομέρειες","Click for details")} · {pd.actuals.length} inv{pd.expiry?` · ${t("Λήξη","Exp")}: ${pd.expiry}`:""}</div>
                 </div>
               );
             })}
@@ -231,20 +233,20 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
             <div style={{background:P.em,color:"#fff",padding:"16px 24px",borderRadius:"12px 12px 0 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <div>
                 <div style={{fontWeight:700,fontSize:16}}>PO {modalPO.po} — {modalPO.scope}</div>
-                <div style={{fontSize:12,opacity:.7,marginTop:2}}>Budget: €{fmt(modalPO.budget)} · Spent: €{fmt(modalPO.spent)} · Remaining: €{fmt(modalPO.rem)} · {(modalPO.pct*100).toFixed(1)}%</div>
+                <div style={{fontSize:12,opacity:.7,marginTop:2}}>Budget: €{fmt(modalPO.budget)} · {t("Δαπάνη","Spent")}: €{fmt(modalPO.spent)} · {t("Υπόλοιπο","Remaining")}: €{fmt(modalPO.rem)} · {(modalPO.pct*100).toFixed(1)}%</div>
               </div>
               <button onClick={()=>setModalPO(null)} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",padding:"6px 14px",borderRadius:6,cursor:"pointer",fontSize:14,fontWeight:700}}>✕</button>
             </div>
             <div style={{padding:20}}>
               {modalPO.actuals.length>0 ? (
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                  <thead><tr>{["Month","Category","Amount €","VAT €","Total €","Invoice No","Date"].map(h=>(
-                    <th key={h} style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:h.includes("€")?"right":"left"}}>{h}</th>
+                  <thead><tr>{[["Month",t("Μήνας","Month")],["Category",t("Κατηγορία","Category")],["Amount €",t("Ποσό €","Amount €")],["VAT €",t("ΦΠΑ €","VAT €")],["Total €",t("Σύνολο €","Total €")],["Invoice No",t("Αρ. Τιμολ.","Invoice No")],["Date",t("Ημ/νία","Date")]].map(([k,h])=>(
+                    <th key={k} style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:k.includes("€")?"right":"left"}}>{h}</th>
                   ))}</tr></thead>
                   <tbody>
                     {modalPO.actuals.map((iv,i)=>(
                       <tr key={iv.id||i} style={{background:i%2===0?P.wh:P.al}}>
-                        <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd}}>{ML[iv.month]||iv.month}</td>
+                        <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd}}>{monthLabel(iv.month)}</td>
                         <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd}}>{iv.cat}</td>
                         <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right"}}>{fmt(iv.amt)}</td>
                         <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right"}}>{fmt(iv.vat)}</td>
@@ -254,7 +256,7 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
                       </tr>
                     ))}
                     <tr style={{background:P.ep}}>
-                      <td colSpan={2} style={{padding:"8px 10px",fontWeight:700}}>Total Actuals</td>
+                      <td colSpan={2} style={{padding:"8px 10px",fontWeight:700}}>{t("Σύνολο Πραγματικών","Total Actuals")}</td>
                       <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:P.em}}>{fmt(modalPO.spent)}</td>
                       <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:P.em}}>{fmt(modalPO.actuals.reduce((s,i)=>s+(Number(i.vat)||0),0))}</td>
                       <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:P.em}}>{fmt(modalPO.actuals.reduce((s,i)=>s+(Number(i.total||i.amt+(i.vat||0))||0),0))}</td>
@@ -263,7 +265,7 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
                   </tbody>
                 </table>
               ) : (
-                <div style={{textAlign:"center",padding:30,color:P.tm,fontStyle:"italic"}}>No actual invoices assigned to this PO yet</div>
+                <div style={{textAlign:"center",padding:30,color:P.tm,fontStyle:"italic"}}>{t("Κανένα πραγματικό τιμολόγιο σε αυτό το PO ακόμη","No actual invoices assigned to this PO yet")}</div>
               )}
             </div>
           </div>
@@ -272,10 +274,10 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
 
       {/* ── 3. DOCUMENT UPLOAD ── */}
       <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:14,marginBottom:16}}>
-        <div style={{fontSize:13,fontWeight:600,color:P.em,marginBottom:10}}>Upload Contract Document</div>
+        <div style={{fontSize:13,fontWeight:600,color:P.em,marginBottom:10}}>{t("Ανέβασμα Εγγράφου Συμβολαίου","Upload Contract Document")}</div>
         <div style={{display:"flex",gap:8,alignItems:"end",marginBottom:10,flexWrap:"wrap"}}>
-          <Sel l="Document Type" v={docType} set={setDocType} opts={TYPES} w={120} />
-          <Sel l="Link to Contract" v={docContract} set={setDocContract} opts={[{v:"",l:"— None —"},...data.map(c=>({v:c.ref,l:c.ref+" ("+c.type+")"}))] } w={200} />
+          <Sel l={t("Τύπος Εγγράφου","Document Type")} v={docType} set={setDocType} opts={TYPES} w={120} />
+          <Sel l={t("Σύνδεση με Συμβόλαιο","Link to Contract")} v={docContract} set={setDocContract} opts={[{v:"",l:t("— Κανένα —","— None —")},...data.map(c=>({v:c.ref,l:c.ref+" ("+c.type+")"}))] } w={200} />
         </div>
         <label
           onDrop={e=>{e.preventDefault();setDrag(false);addDocs(e.dataTransfer.files);}}
@@ -284,18 +286,18 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
           style={{display:"block",border:"2px dashed "+(drag?P.em:P.bd),borderRadius:8,padding:"24px 16px",textAlign:"center",cursor:"pointer",background:drag?P.ep:P.of,transition:"all .2s"}}>
           <input type="file" multiple accept=".pdf,.docx,image/*" style={{display:"none"}} onChange={e=>{addDocs(e.target.files);e.target.value="";}} />
           <div style={{fontSize:22,marginBottom:6}}>📁</div>
-          <div style={{fontSize:13,color:P.em,fontWeight:600}}>{extracting?"🤖 Uploading + AI extracting...":"Click to browse files"}</div>
-          <div style={{fontSize:11,color:P.tm,marginTop:4}}>{extracting?"Each file becomes a contract entry":"Drop one or many — AI extracts each into a contract"}</div>
+          <div style={{fontSize:13,color:P.em,fontWeight:600}}>{extracting?t("🤖 Ανέβασμα + εξαγωγή AI...","🤖 Uploading + AI extracting..."):t("Κάνε κλικ για επιλογή αρχείων","Click to browse files")}</div>
+          <div style={{fontSize:11,color:P.tm,marginTop:4}}>{extracting?t("Κάθε αρχείο γίνεται εγγραφή συμβολαίου","Each file becomes a contract entry"):t("Ρίξε ένα ή πολλά — το AI εξάγει το καθένα σε συμβόλαιο","Drop one or many — AI extracts each into a contract")}</div>
         </label>
 
         {/* Documents list */}
         {docs.length>0 && (
           <div style={{marginTop:14}}>
-            <div style={{fontSize:12,fontWeight:700,color:P.em,marginBottom:8}}>📂 Uploaded Documents ({docs.length})</div>
+            <div style={{fontSize:12,fontWeight:700,color:P.em,marginBottom:8}}>📂 {t("Ανεβασμένα Έγγραφα","Uploaded Documents")} ({docs.length})</div>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead><tr>
-                {["File","Type","Linked Contract","Date",""].map(h=>(
-                  <th key={h} style={{padding:"6px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:"left"}}>{h}</th>
+                {[["File",t("Αρχείο","File")],["Type",t("Τύπος","Type")],["Linked Contract",t("Συνδεδεμένο Συμβόλαιο","Linked Contract")],["Date",t("Ημ/νία","Date")],["",""]].map(([k,h])=>(
+                  <th key={k} style={{padding:"6px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:"left"}}>{h}</th>
                 ))}
               </tr></thead>
               <tbody>{docs.map((d,i)=>(
@@ -310,8 +312,8 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
                   <td style={{padding:"7px 10px",borderBottom:"1px solid "+P.bd,color:P.tm}}>{d.date}</td>
                   <td style={{padding:"7px 10px",borderBottom:"1px solid "+P.bd}}>
                     <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
-                      {(d._persisted&&d.id)?<a href="#" onClick={async e=>{e.preventDefault();try{window.open(await api.getFileLink(year,client,d.id),"_blank");}catch{alert("Could not open file");}}} style={{background:P.em,color:"#fff",padding:"3px 10px",borderRadius:4,fontSize:11,fontWeight:600,textDecoration:"none"}}>Open</a>:d.url?<a href={d.url} target="_blank" rel="noopener noreferrer" style={{background:P.em,color:"#fff",padding:"3px 10px",borderRadius:4,fontSize:11,fontWeight:600,textDecoration:"none"}}>Open</a>:null}
-                      <button onClick={async()=>{const doc=docs[i];if(doc._persisted&&doc.id){try{await api.deleteFile(year,client,doc.id);}catch(e){console.warn("Delete failed:",e);}}setDocs(p=>p.filter((_,j)=>j!==i));}} style={{background:"#FFEBEE",color:P.rd,border:"none",padding:"3px 10px",borderRadius:4,fontSize:11,fontWeight:600,cursor:"pointer"}}>Remove</button>
+                      {(d._persisted&&d.id)?<a href="#" onClick={async e=>{e.preventDefault();try{window.open(await api.getFileLink(year,client,d.id),"_blank");}catch{alert(t("Αδυναμία ανοίγματος αρχείου","Could not open file"));}}} style={{background:P.em,color:"#fff",padding:"3px 10px",borderRadius:4,fontSize:11,fontWeight:600,textDecoration:"none"}}>{t("Άνοιγμα","Open")}</a>:d.url?<a href={d.url} target="_blank" rel="noopener noreferrer" style={{background:P.em,color:"#fff",padding:"3px 10px",borderRadius:4,fontSize:11,fontWeight:600,textDecoration:"none"}}>{t("Άνοιγμα","Open")}</a>:null}
+                      <button onClick={async()=>{const doc=docs[i];if(doc._persisted&&doc.id){try{await api.deleteFile(year,client,doc.id);}catch(e){console.warn("Delete failed:",e);}}setDocs(p=>p.filter((_,j)=>j!==i));}} style={{background:"#FFEBEE",color:P.rd,border:"none",padding:"3px 10px",borderRadius:4,fontSize:11,fontWeight:600,cursor:"pointer"}}>{t("Αφαίρεση","Remove")}</button>
                     </div>
                   </td>
                 </tr>
@@ -324,38 +326,38 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
       {/* ── 4. ADD CONTRACT FORM ── */}
       <div style={{background:P.wh,borderRadius:8,border:"2px solid "+(extracting?"#F57F17":P.bd),padding:14,marginBottom:16,transition:"border-color .3s"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-          <div style={{fontSize:13,fontWeight:600,color:P.em}}>Add Contract / PO Manually {extracting&&<span style={{color:"#F57F17",fontSize:11,marginLeft:8}}>🤖 AI extracting from uploaded files...</span>}</div>
-          {f.ref&&<button onClick={()=>sF({type:"MSA",ref:"",client:"",start:"",expiry:"",fee_pct:5.5,status:"Active",po:"",po_value:"",scope:"",notes:""})} style={{background:"#FFEBEE",border:"none",color:P.rd,padding:"3px 10px",borderRadius:4,cursor:"pointer",fontSize:11}}>Clear</button>}
+          <div style={{fontSize:13,fontWeight:600,color:P.em}}>{t("Προσθήκη Συμβολαίου / PO Χειροκίνητα","Add Contract / PO Manually")} {extracting&&<span style={{color:"#F57F17",fontSize:11,marginLeft:8}}>{t("🤖 Εξαγωγή AI από τα ανεβασμένα αρχεία...","🤖 AI extracting from uploaded files...")}</span>}</div>
+          {f.ref&&<button onClick={()=>sF({type:"MSA",ref:"",client:"",start:"",expiry:"",fee_pct:5.5,status:"Active",po:"",po_value:"",scope:"",notes:""})} style={{background:"#FFEBEE",border:"none",color:P.rd,padding:"3px 10px",borderRadius:4,cursor:"pointer",fontSize:11}}>{t("Καθαρισμός","Clear")}</button>}
         </div>
         <div style={{display:"flex",flexWrap:"wrap",gap:8,alignItems:"end"}}>
-          <Sel l="Type" v={f.type} set={v=>sF(x=>({...x,type:v}))} opts={TYPES} w={100} />
+          <Sel l={t("Τύπος","Type")} v={f.type} set={v=>sF(x=>({...x,type:v}))} opts={TYPES} w={100} />
           <Inp l="Reference" v={f.ref} set={v=>sF(x=>({...x,ref:v}))} w={130} />
-          <Inp l="Client" v={f.client} set={v=>sF(x=>({...x,client:v}))} w={140} />
-          <Inp l="Start Date" v={f.start} set={v=>sF(x=>({...x,start:v}))} w={95} />
-          <Inp l="Expiry Date" v={f.expiry} set={v=>sF(x=>({...x,expiry:v}))} w={95} />
-          <Inp l="Fee %" v={f.fee_pct} set={v=>sF(x=>({...x,fee_pct:v}))} w={60} t="number" />
+          <Inp l={t("Πελάτης","Client")} v={f.client} set={v=>sF(x=>({...x,client:v}))} w={140} />
+          <Inp l={t("Ημ/νία Έναρξης","Start Date")} v={f.start} set={v=>sF(x=>({...x,start:v}))} w={95} />
+          <Inp l={t("Ημ/νία Λήξης","Expiry Date")} v={f.expiry} set={v=>sF(x=>({...x,expiry:v}))} w={95} />
+          <Inp l={t("Αμοιβή %","Fee %")} v={f.fee_pct} set={v=>sF(x=>({...x,fee_pct:v}))} w={60} t="number" />
           <Sel l="Status" v={f.status} set={v=>sF(x=>({...x,status:v}))} opts={STAT} w={90} />
           <Inp l="PO No" v={f.po} set={v=>sF(x=>({...x,po:v}))} w={100} />
-          <Inp l="PO Value €" v={f.po_value} set={v=>sF(x=>({...x,po_value:v}))} w={95} t="number" />
-          <Inp l="Scope" v={f.scope} set={v=>sF(x=>({...x,scope:v}))} w={140} />
-          <Inp l="Notes" v={f.notes} set={v=>sF(x=>({...x,notes:v}))} w={120} />
-          <button onClick={add} style={{background:P.em,color:"#fff",border:"none",padding:"7px 18px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>+ Add</button>
+          <Inp l={t("Αξία PO €","PO Value €")} v={f.po_value} set={v=>sF(x=>({...x,po_value:v}))} w={95} t="number" />
+          <Inp l={t("Αντικείμενο","Scope")} v={f.scope} set={v=>sF(x=>({...x,scope:v}))} w={140} />
+          <Inp l={t("Σημειώσεις","Notes")} v={f.notes} set={v=>sF(x=>({...x,notes:v}))} w={120} />
+          <button onClick={add} style={{background:P.em,color:"#fff",border:"none",padding:"7px 18px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>+ {t("Προσθήκη","Add")}</button>
         </div>
       </div>
 
       {/* ── 5. FULL TABLE ── */}
       <Tbl cols={[
-        {k:"type",l:"Type",opts:TYPES,mw:80},
+        {k:"type",l:t("Τύπος","Type"),opts:TYPES,mw:80},
         {k:"ref",l:"Reference",edit:true,mw:120},
-        {k:"client",l:"Client",edit:true,mw:130},
-        {k:"start",l:"Start",edit:true,mw:90},
-        {k:"expiry",l:"Expiry",edit:true,mw:90},
-        {k:"fee_pct",l:"Fee %",a:"right",edit:true,t:"number",mw:60},
+        {k:"client",l:t("Πελάτης","Client"),edit:true,mw:130},
+        {k:"start",l:t("Έναρξη","Start"),edit:true,mw:90},
+        {k:"expiry",l:t("Λήξη","Expiry"),edit:true,mw:90},
+        {k:"fee_pct",l:t("Αμοιβή %","Fee %"),a:"right",edit:true,t:"number",mw:60},
         {k:"status",l:"Status",opts:STAT,mw:85},
         {k:"po",l:"PO No",edit:true,mw:100},
-        {k:"po_value",l:"PO Value €",a:"right",edit:true,t:"number",mw:90},
-        {k:"scope",l:"Scope",edit:true,mw:140},
-        {k:"notes",l:"Notes",edit:true,mw:130},
+        {k:"po_value",l:t("Αξία PO €","PO Value €"),a:"right",edit:true,t:"number",mw:90},
+        {k:"scope",l:t("Αντικείμενο","Scope"),edit:true,mw:140},
+        {k:"notes",l:t("Σημειώσεις","Notes"),edit:true,mw:130},
       ]} data={data} del={id=>set(p=>p.filter(x=>x.id!==id))} onEdit={edit} />
     </div>
   );
