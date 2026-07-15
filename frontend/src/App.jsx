@@ -13,7 +13,7 @@ import {
   uid, CLIENTS, REPORT_STATUS, MONTHS, ML, setFiscalYear, normalizeClientData,
   REV_CATS, COST_CATS, LAB_ROWS, mkLab, mkAlloc, P, YEARS,
 } from "./constants.js";
-import { LogoImg } from "./ui.jsx";
+import { LogoImg, LangToggle } from "./ui.jsx";
 import { Login, ForcePw, ResetPassword } from "./auth.jsx";
 import { PnL, InvTab, SubTab, AccTab, LabTab, POTracker } from "./reportTabs.jsx";
 import { Insights } from "./insights.jsx";
@@ -24,8 +24,10 @@ import { AdminPanel } from "./admin.jsx";
 import { Scan } from "./scan.jsx";
 import { ClientPicker } from "./clientPicker.jsx";
 import { ContractTab } from "./contracts.jsx";
+import { useT, statusLabel, monthLabel } from "./i18n.jsx";
 
 export default function App() {
+  const { t } = useT();
   const [user, setUser] = useState(null);
   const [authChecking, setAuthChecking] = useState(true);
 
@@ -60,6 +62,17 @@ export default function App() {
     {id:"acc",lb:"Accruals"},
     {id:"lab",lb:"Labour Cost"},
   ]);
+  // Tab labels are derived live (not from the stored `lb`) so they follow the language.
+  const tabLabel = (id) => ({
+    contracts: t("📋 Συμβόλαια & POs","📋 Contracts & POs"),
+    scan: t("📄 Σαρωτής Τιμολογίων","📄 Invoice Scanner"),
+    pnl: t("Αναφορά P&L","P&L Report"),
+    insights: t("📈 Insights","📈 Insights"),
+    inv: t("Τιμολόγια CBRE","CBRE Invoices"),
+    sub: t("Τιμολόγια Υπεργολάβων","Sub Invoices"),
+    acc: t("Δουλευμένα (Accruals)","Accruals"),
+    lab: t("Κόστος Εργασίας","Labour Cost"),
+  }[id] || id);
   const [dragTab,setDragTab] = useState(null);
   const [overTab,setOverTab] = useState(null);
   const [menuOpen,setMenuOpen] = useState(false);
@@ -609,9 +622,9 @@ export default function App() {
       let mode = "replace";
       if(hasExisting) {
         const ans = prompt(
-          `Βρέθηκαν προς εισαγωγή στο ${client} ${year}:\n`+
-          `  • CBRE Invoices: ${newInv.length}\n  • Sub Invoices: ${newSub.length}\n  • Labour rows: ${labRowsImported}\n  • Contracts/POs: ${newContracts.length}\n\n`+
-          `Υπάρχουν ήδη δεδομένα. Γράψε:\n  M = Merge (πρόσθεσε στα υπάρχοντα)\n  R = Replace (αντικατέστησε όλα)\n\n(Άκυρο για ακύρωση)`,
+          t(`Βρέθηκαν προς εισαγωγή στο ${client} ${year}:\n`,`Found to import into ${client} ${year}:\n`)+
+          `  • CBRE Invoices: ${newInv.length}\n  • Sub Invoices: ${newSub.length}\n  • ${t("Γραμμές εργασίας","Labour rows")}: ${labRowsImported}\n  • Contracts/POs: ${newContracts.length}\n\n`+
+          t(`Υπάρχουν ήδη δεδομένα. Γράψε:\n  M = Merge (πρόσθεσε στα υπάρχοντα)\n  R = Replace (αντικατέστησε όλα)\n\n(Άκυρο για ακύρωση)`,`Data already exists. Type:\n  M = Merge (add to existing)\n  R = Replace (overwrite all)\n\n(Cancel to abort)`),
           "M");
         if(ans===null) { setImporting(false); setMenuOpen(false); return; }
         mode = /^\s*r/i.test(ans) ? "replace" : "merge";
@@ -649,7 +662,7 @@ export default function App() {
       alert(diag.join("\n"));
     } catch(e) {
       console.error(e);
-      alert("Import failed: "+e.message);
+      alert(t("Η εισαγωγή απέτυχε: ","Import failed: ")+e.message);
     } finally {
       setImporting(false);
       setMenuOpen(false);
@@ -661,24 +674,24 @@ export default function App() {
       <div style={{background:P.em,color:P.wh,padding:"12px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
         <div style={{display:"flex",alignItems:"center",gap:16}}>
           <span style={{fontWeight:800,fontSize:18,letterSpacing:1}}>CBRE</span>
-          <button onClick={()=>{flushSave();setClient(null);}} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",padding:"4px 12px",borderRadius:4,cursor:"pointer",fontSize:12}}>◀ Clients</button>
+          <button onClick={()=>{flushSave();setClient(null);}} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",padding:"4px 12px",borderRadius:4,cursor:"pointer",fontSize:12}}>◀ {t("Πελάτες","Clients")}</button>
           <LogoImg name={client} size={28} radius={4} />
           <span style={{fontSize:14,fontWeight:600,borderLeft:"1px solid rgba(255,255,255,.3)",paddingLeft:12}}>{client} — {year}</span>
-          {(()=>{const rs=REPORT_STATUS.find(x=>x.v===(cd.status||"draft"))||REPORT_STATUS[0]; return <span style={{padding:"3px 12px",borderRadius:12,fontSize:10,fontWeight:700,background:rs.bg,color:rs.color,marginLeft:8}}>{rs.l}</span>;})()}
+          {(()=>{const rs=REPORT_STATUS.find(x=>x.v===(cd.status||"draft"))||REPORT_STATUS[0]; return <span style={{padding:"3px 12px",borderRadius:12,fontSize:10,fontWeight:700,background:rs.bg,color:rs.color,marginLeft:8}}>{statusLabel(rs.v,rs.l)}</span>;})()}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8,fontSize:13,position:"relative"}}>
           {/* Quick approve/reject for finance */}
           {(user.role==="finance"||user.role==="admin")&&cd.status==="submitted"&&(
             <>
-              <button onClick={()=>{upClient("status","approved");upClient("rejectNote","");}} style={{background:P.gn,border:"none",color:"#fff",padding:"6px 14px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600}}>✓ Approve</button>
-              <button onClick={()=>{const why=prompt("Λόγος απόρριψης (θα τον δει ο χρήστης που υπέβαλε):","");if(why===null)return;upClient("status","rejected");upClient("rejectNote",why||"");}} style={{background:P.rd,border:"none",color:"#fff",padding:"6px 14px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600}}>✗ Reject</button>
+              <button onClick={()=>{upClient("status","approved");upClient("rejectNote","");}} style={{background:P.gn,border:"none",color:"#fff",padding:"6px 14px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600}}>✓ {t("Έγκριση","Approve")}</button>
+              <button onClick={()=>{const why=prompt(t("Λόγος απόρριψης (θα τον δει ο χρήστης που υπέβαλε):","Rejection reason (visible to the user who submitted):"),"");if(why===null)return;upClient("status","rejected");upClient("rejectNote",why||"");}} style={{background:P.rd,border:"none",color:"#fff",padding:"6px 14px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600}}>✗ {t("Απόρριψη","Reject")}</button>
             </>
           )}
 
           {/* Actions dropdown */}
           <div style={{position:"relative"}}>
             <button onClick={()=>setMenuOpen(!menuOpen)} style={{background:"#00897B",border:"none",color:"#fff",padding:"7px 16px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
-              ⚙️ Actions <span style={{fontSize:9}}>{menuOpen?"▲":"▼"}</span>
+              ⚙️ {t("Ενέργειες","Actions")} <span style={{fontSize:9}}>{menuOpen?"▲":"▼"}</span>
             </button>
             {menuOpen && (
               <>
@@ -687,32 +700,32 @@ export default function App() {
                   {/* Submit */}
                   {(user.role==="ops"||user.role==="admin")&&(cd.status||"draft")==="draft"&&(
                     <button onClick={()=>{upClient("status","submitted");upClient("submittedBy",user.name);upClient("submittedAt",new Date().toLocaleDateString());setMenuOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",border:"none",background:"none",cursor:"pointer",fontSize:13,color:"#F57F17",fontWeight:600,textAlign:"left",borderBottom:"1px solid "+P.bd}}>
-                      <span style={{fontSize:16}}>📤</span><div><div>Submit Report</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>Send to finance for approval</div></div>
+                      <span style={{fontSize:16}}>📤</span><div><div>{t("Υποβολή Αναφοράς","Submit Report")}</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>{t("Αποστολή στο Finance για έγκριση","Send to finance for approval")}</div></div>
                     </button>
                   )}
                   {(user.role==="ops"||user.role==="admin")&&cd.status==="rejected"&&(
                     <button onClick={()=>{upClient("status","submitted");upClient("submittedBy",user.name);upClient("submittedAt",new Date().toLocaleDateString());upClient("rejectNote","");setMenuOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",border:"none",background:"none",cursor:"pointer",fontSize:13,color:"#F57F17",fontWeight:600,textAlign:"left",borderBottom:"1px solid "+P.bd}}>
-                      <span style={{fontSize:16}}>📤</span><div><div>Re-Submit Report</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>After making corrections</div></div>
+                      <span style={{fontSize:16}}>📤</span><div><div>{t("Επανυποβολή Αναφοράς","Re-Submit Report")}</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>{t("Μετά τις διορθώσεις","After making corrections")}</div></div>
                     </button>
                   )}
                   {cd.status==="approved"&&user.role==="admin"&&(
                     <button onClick={()=>{upClient("status","draft");setMenuOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",border:"none",background:"none",cursor:"pointer",fontSize:13,color:P.tx,fontWeight:600,textAlign:"left",borderBottom:"1px solid "+P.bd}}>
-                      <span style={{fontSize:16}}>↺</span><div><div>Reopen Report</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>Move back to draft</div></div>
+                      <span style={{fontSize:16}}>↺</span><div><div>{t("Επαναφορά Αναφοράς","Reopen Report")}</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>{t("Επιστροφή σε πρόχειρο","Move back to draft")}</div></div>
                     </button>
                   )}
                   {/* Export Excel */}
                   <button onClick={()=>{exportXL();setMenuOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",border:"none",background:"none",cursor:"pointer",fontSize:13,color:P.em,fontWeight:600,textAlign:"left",borderBottom:"1px solid "+P.bd}}>
-                    <span style={{fontSize:16}}>📥</span><div><div>Download Excel</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>Export full report</div></div>
+                    <span style={{fontSize:16}}>📥</span><div><div>{t("Λήψη Excel","Download Excel")}</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>{t("Εξαγωγή πλήρους αναφοράς","Export full report")}</div></div>
                   </button>
                   {/* Import Excel */}
                   <label style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",cursor:importing?"wait":"pointer",fontSize:13,color:P.em,fontWeight:600,textAlign:"left",borderBottom:"1px solid "+P.bd}}>
                     <input type="file" accept=".xlsx,.xls,.xlsm" style={{display:"none"}} onChange={e=>{importExcel(e.target.files[0]);e.target.value="";}} disabled={importing} />
                     <span style={{fontSize:16}}>📤</span>
-                    <div><div>{importing?"Importing...":"Import Historical Excel"}</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>Bulk-load invoices, labour, POs</div></div>
+                    <div><div>{importing?t("Εισαγωγή...","Importing..."):t("Εισαγωγή Ιστορικού Excel","Import Historical Excel")}</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>{t("Μαζική φόρτωση τιμολογίων, εργασίας, POs","Bulk-load invoices, labour, POs")}</div></div>
                   </label>
                   {/* Clear All */}
                   <button onClick={async ()=>{
-                    if(!confirm("⚠ Permanently delete ALL data for "+client+" "+year+"?\n(invoices, sub, labour, contracts, documents, status)\n\nThis cannot be undone.")) return;
+                    if(!confirm(t("⚠ Οριστική διαγραφή ΟΛΩΝ των δεδομένων για "+client+" "+year+";\n(τιμολόγια, υπεργολάβοι, εργασία, συμβόλαια, έγγραφα, κατάσταση)\n\nΔεν αναιρείται.","⚠ Permanently delete ALL data for "+client+" "+year+"?\n(invoices, sub, labour, contracts, documents, status)\n\nThis cannot be undone."))) return;
                     setMenuOpen(false);
                     // Delete all uploaded files from server
                     try {
@@ -726,40 +739,41 @@ export default function App() {
                     upClient("labAlloc",mkAlloc());
                     upClient("status","draft"); upClient("submittedBy",""); upClient("submittedAt","");
                   }} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",border:"none",background:"none",cursor:"pointer",fontSize:13,color:P.rd,fontWeight:600,textAlign:"left"}}>
-                    <span style={{fontSize:16}}>🗑️</span><div><div>Clear All Data</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>Wipe this client/year completely</div></div>
+                    <span style={{fontSize:16}}>🗑️</span><div><div>{t("Διαγραφή Όλων","Clear All Data")}</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>{t("Πλήρης εκκαθάριση πελάτη/έτους","Wipe this client/year completely")}</div></div>
                   </button>
                 </div>
               </>
             )}
           </div>
 
-          <span onClick={()=>saveState==="error"&&flushSave()} style={{fontSize:11,opacity:.9,minWidth:78,textAlign:"right",cursor:saveState==="error"?"pointer":"default"}}>{saveState==="saving"?"💾 Saving…":saveState==="saved"?"✓ Saved":saveState==="error"?"⚠ Save failed — retry":""}</span>
+          <span onClick={()=>saveState==="error"&&flushSave()} style={{fontSize:11,opacity:.9,minWidth:78,textAlign:"right",cursor:saveState==="error"?"pointer":"default"}}>{saveState==="saving"?t("💾 Αποθήκευση…","💾 Saving…"):saveState==="saved"?t("✓ Αποθηκεύτηκε","✓ Saved"):saveState==="error"?t("⚠ Αποτυχία — δοκίμασε ξανά","⚠ Save failed — retry"):""}</span>
+          <LangToggle dark />
           <span style={{opacity:.7}}>{user.name}</span>
-          <button onClick={logout} style={{background:"rgba(255,255,255,.15)",border:"none",color:P.wh,padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>Logout</button>
+          <button onClick={logout} style={{background:"rgba(255,255,255,.15)",border:"none",color:P.wh,padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>{t("Αποσύνδεση","Logout")}</button>
         </div>
       </div>
       {cd.status==="rejected" && cd.rejectNote && (
         <div style={{background:"#FFEBEE",borderBottom:"1px solid #F5C6CB",color:P.rd,padding:"8px 24px",fontSize:13,display:"flex",alignItems:"center",gap:8}}>
-          <span style={{fontWeight:700}}>✗ Απορρίφθηκε από Finance:</span>
+          <span style={{fontWeight:700}}>✗ {t("Απορρίφθηκε από Finance:","Rejected by Finance:")}</span>
           <span style={{color:P.tx}}>{cd.rejectNote}</span>
         </div>
       )}
       <div style={{background:P.wh,borderBottom:"1px solid "+P.bd,display:"flex",padding:"0 16px",overflowX:"auto"}}>
-        {tabOrder.map((t,i) => (
-          <button key={t.id}
+        {tabOrder.map((tb,i) => (
+          <button key={tb.id}
             draggable="true"
             onDragStart={e=>{setDragTab(i);e.dataTransfer.effectAllowed="move";}}
             onDragOver={e=>{e.preventDefault();setOverTab(i);}}
             onDrop={e=>{e.preventDefault();if(dragTab!==null&&dragTab!==i){setTabOrder(prev=>{const a=[...prev];const item=a.splice(dragTab,1)[0];a.splice(i,0,item);return a;});}setDragTab(null);setOverTab(null);}}
             onDragEnd={()=>{setDragTab(null);setOverTab(null);}}
-            onClick={() => setTab(t.id)}
+            onClick={() => setTab(tb.id)}
             style={{
               padding:"12px 18px",fontSize:13,background:"none",whiteSpace:"nowrap",
-              border:"none",borderBottom:tab===t.id?"3px solid "+P.em:"3px solid transparent",
-              fontWeight:tab===t.id?700:400,color:tab===t.id?P.em:P.tm,
+              border:"none",borderBottom:tab===tb.id?"3px solid "+P.em:"3px solid transparent",
+              fontWeight:tab===tb.id?700:400,color:tab===tb.id?P.em:P.tm,
               opacity:dragTab===i?0.4:1,cursor:"grab",
               outline:overTab===i&&dragTab!==null?"2px solid #00897B":"none",
-            }}>{t.lb}</button>
+            }}>{tabLabel(tb.id)}</button>
         ))}
       </div>
       <div style={{padding:20,maxWidth:1400,margin:"0 auto"}}>
