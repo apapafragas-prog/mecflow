@@ -289,8 +289,8 @@ export function Scan({onAdd,onAddAR,goTo,year,client}) {
         // Service category guess
         let svcCat = "Other";
         if(desc.includes("clean")||desc.includes("καθαρ")) svcCat = "Cleaning";
-        else if(desc.includes("security")||desc.includes("ασφαλ")) svcCat = "Security";
-        else if(desc.includes("maintenance")||desc.includes("technical")||desc.includes("hvac")) svcCat = "Building Systems operations & maintenance";
+        else if(desc.includes("security")||desc.includes("ασφαλ")) svcCat = "Security services";
+        else if(desc.includes("maintenance")||desc.includes("technical")||desc.includes("hvac")) svcCat = "Building Systems & maintenance";
         else if(desc.includes("landscap")||desc.includes("plant")||desc.includes("κήπο")) svcCat = "Landscaping";
         else if(desc.includes("kitchen")||desc.includes("coffee")||desc.includes("καφέ")) svcCat = "Kitchen supplies";
 
