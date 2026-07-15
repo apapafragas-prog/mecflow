@@ -442,7 +442,10 @@ export function OpexCapex({year,setYear,user,onBack,onLogout}) {
   const delCapex = (id)=> mutate(n=>{ n.capex=n.capex.filter(x=>x.id!==id); });
 
   const capexItems = fin?.capex || [];
-  const deprRows = capexItems.map(it=>({it, d:depreciation(it,MONTHS)}));
+  // Only capitalised assets depreciate & carry NBV — Planned/Approved aren't on the books yet.
+  const onBooks = it => it && it.status !== "Planned" && it.status !== "Approved";
+  const zeroDepr = { monthly: 0, perMonth: Object.fromEntries(MONTHS.map(m=>[m,0])), accumulated: 0, nbv: 0 };
+  const deprRows = capexItems.map(it=>({it, d: onBooks(it) ? depreciation(it,MONTHS) : zeroDepr}));
   const totCapex = capexItems.reduce((s,i)=>s+(Number(i.amount)||0),0);
   const totDeprFY = deprRows.reduce((s,x)=>s+MONTHS.reduce((s2,m)=>s2+x.d.perMonth[m],0),0);
   const totNBV = deprRows.reduce((s,x)=>s+x.d.nbv,0);
@@ -587,7 +590,7 @@ export function OpexCapex({year,setYear,user,onBack,onLogout}) {
                 </tbody>
               </table>
             </div>
-            <div style={{fontSize:11,color:P.tm,marginTop:8}}>{t("Απόσβεση: σταθερή (straight-line) = Αξία ÷ ωφέλιμη ζωή. «Σωρευ. απόσβ.» & «NBV» υπολογίζονται μέχρι το τέλος του ","Depreciation: straight-line = Value ÷ useful life. 'Accum. depr.' & 'NBV' are computed to the end of ")}{year}.</div>
+            <div style={{fontSize:11,color:P.tm,marginTop:8}}>{t("Απόσβεση: σταθερή (straight-line) = Αξία ÷ ωφέλιμη ζωή. «Σωρευ. απόσβ.» & «NBV» υπολογίζονται μέχρι το τέλος του ","Depreciation: straight-line = Value ÷ useful life. 'Accum. depr.' & 'NBV' are computed to the end of ")}{year}. {t("Μόνο πάγια σε κατάσταση εκτός «Planned»/«Approved» αποσβένονται (τα υπόλοιπα δεν είναι ακόμη στα βιβλία).","Only assets not in 'Planned'/'Approved' status depreciate (the rest aren't on the books yet).")}</div>
           </div>
         )}
 

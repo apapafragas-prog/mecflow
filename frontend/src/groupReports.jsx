@@ -7,7 +7,7 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "./api.js";
 import { P, MONTHS, ML, YEARS, uid, fmt, fPct } from "./constants.js";
-import { groupPnLSeries, nbvAtMonth } from "./calc.js";
+import { groupPnLSeries, nbvAtMonth, monthIdx } from "./calc.js";
 import { LangToggle } from "./ui.jsx";
 import { useT, monthLabel } from "./i18n.jsx";
 
@@ -87,23 +87,38 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   const setPnl = (kind, m, v) => mutate(n => { if (!n.pnl[kind]) n.pnl[kind] = {}; n.pnl[kind][m] = parseFloat(v) || 0; });
 
   // ── Balance-sheet derived lines (read-only) ──
-  const nbvByMonth = {}, arByMonth = {}, apByMonth = {}, cumNet = {};
+  const nbvByMonth = {}, arByMonth = {}, apByMonth = {}, cumNet = {}, vatNetByMonth = {};
   let run = 0;
-  const idx = m => MONTHS.indexOf(m);
+  // Only capitalised assets carry NBV/depreciation — Planned/Approved aren't on the books yet.
+  const onBooks = it => it && it.status !== "Planned" && it.status !== "Approved";
+  const isActual = i => (i.act_acc || "").toUpperCase() !== "ACCRUAL"; // accruals aren't trade AR/AP
+  const vatOf = i => Number(i.vat) || (grossAmt(i) - (Number(i.amt) || 0)) || 0;
+  // Open at the END of month `m`: issued on/before m, and not settled on/before m (uses paid_date).
+  const openAt = (i, m) => {
+    const mi = monthIdx(m), ii = monthIdx(i.month);
+    if (ii == null || mi == null || ii > mi) return false;
+    if (!isPaid(i)) return true;
+    const pm = i.paid_date ? monthIdx(String(i.paid_date).slice(0, 7)) : null;
+    return pm != null ? pm > mi : false; // paid but no date → treat as settled
+  };
   MONTHS.forEach(m => {
-    let nbv = 0; (fin?.capex || []).forEach(it => { nbv += nbvAtMonth(it, m); }); nbvByMonth[m] = nbv;
-    let ar = 0, ap = 0;
+    let nbv = 0; (fin?.capex || []).forEach(it => { if (onBooks(it)) nbv += nbvAtMonth(it, m); }); nbvByMonth[m] = nbv;
+    let ar = 0, ap = 0, vatAr = 0, vatAp = 0;
     Object.values(allData || {}).forEach(cd => {
-      (cd?.inv || []).forEach(i => { const im = idx(i.month); if (!isPaid(i) && im >= 0 && im <= idx(m)) ar += grossAmt(i); });
-      (cd?.sub || []).forEach(i => { const im = idx(i.month); if (!isPaid(i) && im >= 0 && im <= idx(m)) ap += grossAmt(i); });
+      (cd?.inv || []).forEach(i => { if (isActual(i) && openAt(i, m)) { ar += grossAmt(i); vatAr += vatOf(i); } });
+      (cd?.sub || []).forEach(i => { if (isActual(i) && openAt(i, m)) { ap += grossAmt(i); vatAp += vatOf(i); } });
     });
     arByMonth[m] = ar; apByMonth[m] = ap;
+    // Net VAT embedded in open AR/AP (output − input). Booking AR/AP gross while P&L is net leaves
+    // this VAT delta; surfacing it as a liability keeps the accounting identity from being ~24% off.
+    vatNetByMonth[m] = vatAr - vatAp;
     run += byMonth[m]?.net || 0; cumNet[m] = run;
   });
   const DERIVED = [
     { section: "asset", label: t("Πάγια — Αναπόσβεστη αξία (NBV)", "Fixed assets — Net book value (NBV)"), fn: m => nbvByMonth[m] },
     { section: "asset", label: t("Απαιτήσεις πελατών (AR, ανοιχτά)", "Trade receivables (AR, open)"), fn: m => arByMonth[m] },
     { section: "liability", label: t("Υποχρεώσεις προμηθευτών (AP, ανοιχτά)", "Trade payables (AP, open)"), fn: m => apByMonth[m] },
+    { section: "liability", label: t("Καθαρό ΦΠΑ σε ανοιχτά AR/AP", "Net VAT in open AR/AP"), fn: m => vatNetByMonth[m] },
     { section: "equity", label: t("Αποτέλεσμα περιόδου (σωρευτικά)", "Result for the period (cumulative)"), fn: m => cumNet[m] },
   ];
 
