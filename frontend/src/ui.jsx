@@ -1,6 +1,24 @@
 // Reusable leaf UI components, extracted from App.jsx. Shared by every screen.
 import { useState } from "react";
 import { P, fmt, logoUrl, logoUrl2 } from "./constants.js";
+import { useT } from "./i18n.jsx";
+
+// EL/EN language switch. `dark` variant for the emerald headers, light for the login card.
+export function LangToggle({ dark }) {
+  const { lang, setLang } = useT();
+  const on = dark ? "rgba(255,255,255,.9)" : P.em, onTx = dark ? P.em : "#fff";
+  const off = dark ? "rgba(255,255,255,.15)" : "transparent", offTx = dark ? "#fff" : P.tm;
+  const bd = dark ? "rgba(255,255,255,.3)" : P.bd;
+  return (
+    <div style={{ display: "inline-flex", border: "1px solid " + bd, borderRadius: 6, overflow: "hidden" }}>
+      {[["el", "ΕΛ"], ["en", "EN"]].map(([v, l]) => (
+        <button key={v} onClick={() => setLang(v)} title={v === "el" ? "Ελληνικά" : "English"}
+          style={{ background: lang === v ? on : off, color: lang === v ? onTx : offTx, border: "none",
+            padding: "4px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer", lineHeight: 1.4 }}>{l}</button>
+      ))}
+    </div>
+  );
+}
 
 // Real company logo (Clearbit → Google favicon → colored-initials avatar on error).
 export function LogoImg({name,size,radius}) {
