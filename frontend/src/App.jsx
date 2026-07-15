@@ -304,22 +304,22 @@ export default function App() {
     const am = MONTHS.filter(m => inv.some(i=>i.month===m) || sub.some(i=>i.month===m) || (lab[m] && Object.values(lab[m]).some(v=>Number(v)>0)));
     if(!am.length) am.push(...MONTHS.slice(0,4));
     const pRows = [];
-    pRows.push(["","",`GREECE ${year}- Profit & Loss - EURO`]);
+    pRows.push(["","",t(`ΕΛΛΑΔΑ ${year} - Κατάσταση Αποτελεσμάτων - EURO`,`GREECE ${year}- Profit & Loss - EURO`)]);
     pRows.push([]);
     pRows.push(["ISCALA","","MONTHS >>",...am.map(m=>ML[m])]);
     const pnlLines = [
-      ["CLIENT REVENUE - FM Core","rev_core"],["CLIENT REVENUE - FM Extra Works","rev_ew"],["CLIENT REVENUE - PJMs","rev_pjm"],
-      ["Total Sales / Revenue","rev_total"],[],
-      ["Labour Cost - FM Core","lab_core"],["Labour Cost - FM Extra Works","lab_ew"],["Labour Cost - FM PJMs","lab_pjm"],["Total Labour Cost","lab_total"],
-      ["CLIENT Subcontractors cost - FM CORE","sub_core"],["CLIENT Subcontractors cost - FM Extra Works","sub_ew"],["CLIENT Subcontractors cost - PJMs","sub_pjm"],
-      ["Total Subcontractor","sub_total"],[],
-      ["GM - Total","gm"],[],
-      ["GM - FM Core","gm_core"],["GM - FM Core %","gm_core_pct"],["GM - FM Extra Works","gm_ew"],["GM - FM Extra Works %","gm_ew_pct"],["GM - FM PJM","gm_pjm"],
+      [t("ΕΣΟΔΑ ΠΕΛΑΤΗ - FM Core","CLIENT REVENUE - FM Core"),"rev_core"],[t("ΕΣΟΔΑ ΠΕΛΑΤΗ - Πρόσθετες Εργασίες","CLIENT REVENUE - FM Extra Works"),"rev_ew"],[t("ΕΣΟΔΑ ΠΕΛΑΤΗ - Έργα (PJMs)","CLIENT REVENUE - PJMs"),"rev_pjm"],
+      [t("Σύνολο Πωλήσεων / Εσόδων","Total Sales / Revenue"),"rev_total"],[],
+      [t("Κόστος Εργασίας - FM Core","Labour Cost - FM Core"),"lab_core"],[t("Κόστος Εργασίας - Πρόσθετες Εργασίες","Labour Cost - FM Extra Works"),"lab_ew"],[t("Κόστος Εργασίας - Έργα (PJMs)","Labour Cost - FM PJMs"),"lab_pjm"],[t("Σύνολο Κόστους Εργασίας","Total Labour Cost"),"lab_total"],
+      [t("Κόστος Υπεργολάβων - FM Core","CLIENT Subcontractors cost - FM CORE"),"sub_core"],[t("Κόστος Υπεργολάβων - Πρόσθετες Εργασίες","CLIENT Subcontractors cost - FM Extra Works"),"sub_ew"],[t("Κόστος Υπεργολάβων - Έργα (PJMs)","CLIENT Subcontractors cost - PJMs"),"sub_pjm"],
+      [t("Σύνολο Υπεργολάβων","Total Subcontractor"),"sub_total"],[],
+      [t("GM - Σύνολο","GM - Total"),"gm"],[],
+      ["GM - FM Core","gm_core"],["GM - FM Core %","gm_core_pct"],[t("GM - Πρόσθετες Εργασίες","GM - FM Extra Works"),"gm_ew"],[t("GM - Πρόσθετες Εργασίες %","GM - FM Extra Works %"),"gm_ew_pct"],[t("GM - Έργα (PJM)","GM - FM PJM"),"gm_pjm"],
     ];
     pnlLines.forEach(pl => { if(!pl.length){pRows.push([]);return;} pRows.push([pl[0],"","",...am.map(()=>null)]); });
     const pWS = XLSX.utils.aoa_to_sheet(pRows);
     // Title
-    sc(pWS,0,2,`GREECE ${year}- Profit & Loss - EURO`,{font:{name:"Arial",sz:10,bold:true}});
+    sc(pWS,0,2,t(`ΕΛΛΑΔΑ ${year} - Κατάσταση Αποτελεσμάτων - EURO`,`GREECE ${year}- Profit & Loss - EURO`),{font:{name:"Arial",sz:10,bold:true}});
     // Header row (row index 2)
     sc(pWS,2,0,"ISCALA",pbs);
     sc(pWS,2,2,"MONTHS >>",phs);
