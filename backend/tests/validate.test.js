@@ -58,4 +58,26 @@ describe("validateAmounts", () => {
     expect(Number.isNaN(r.net)).toBe(false);
     expect(Number.isNaN(r.total)).toBe(false);
   });
+
+  it("zero-rated invoice (0% VAT) is preserved, not fabricated to 24%", () => {
+    // Reverse-charge / intra-community: net = total, VAT genuinely 0.
+    const r = validateAmounts({ net_amount: 1000, vat_amount: 0, total_amount: 1000, vat_rate: 0 });
+    expect(r.net).toBe(1000);
+    expect(r.vat).toBe(0);
+    expect(r.total).toBe(1000);
+    expect(r.warnings).toHaveLength(0);
+  });
+
+  it("zero-rated with only total present derives net=total, vat=0 (no invented tax)", () => {
+    const r = validateAmounts({ net_amount: 0, vat_amount: 0, total_amount: 500, vat_rate: 0 });
+    expect(r.net).toBe(500);
+    expect(r.vat).toBe(0);
+    expect(r.total).toBe(500);
+  });
+
+  it("missing vat_rate still defaults to 24% for derivation", () => {
+    const r = validateAmounts({ net_amount: 0, vat_amount: 0, total_amount: 124 });
+    expect(r.net).toBe(100);
+    expect(r.vat).toBe(24);
+  });
 });

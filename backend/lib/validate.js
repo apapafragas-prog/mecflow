@@ -5,7 +5,10 @@ export const validateAmounts = (data) => {
   let net = Number(data.net_amount) || 0;
   let vat = Number(data.vat_amount) || 0;
   let total = Number(data.total_amount) || 0;
-  const rate = Number(data.vat_rate) || 24;
+  // Respect an EXPLICIT 0% rate (intra-community, reverse-charge art. 39a, exempt) — only default
+  // to 24% when the rate is genuinely absent/unparseable. `|| 24` would turn a real 0 into 24.
+  const rr = data.vat_rate;
+  const rate = (rr === null || rr === undefined || rr === "" || Number.isNaN(Number(rr))) ? 24 : Number(rr);
   const isCredit = !!data.is_credit_note;
 
   // Rule 1: net must be > vat (Greek VAT max 24%)

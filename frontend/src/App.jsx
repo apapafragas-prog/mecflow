@@ -97,6 +97,8 @@ export default function App() {
   const [saveState,setSaveState] = useState("idle"); // idle | saving | saved | error
   const versionsRef = useRef({}); // ckey -> server version (optimistic locking)
   const dirtyRef = useRef(false);
+  const savingRef = useRef(false);   // a save is in flight — serialize to avoid self-409
+  const pendingRef = useRef(null);   // newest data queued while a save is in flight
   const ctxRef = useRef(null);
   ctxRef.current = (client && cd) ? {year, client, cd} : null;
 
@@ -138,26 +140,38 @@ export default function App() {
   // Persist with visible status + one retry. On 409 (someone else saved first)
   // we NEVER overwrite — reload the latest server copy instead.
   const doSave = async (yr, cl, data) => {
+    // Serialize saves: a rapid second change while one is in flight would otherwise reuse the same
+    // baseVersion and self-inflict a false 409. Queue the newest data and flush it after this save.
+    if(savingRef.current) { pendingRef.current = {yr, cl, data}; return true; }
+    savingRef.current = true;
     setSaveState("saving");
     const ckey = `${yr}:${cl}`;
-    for(let attempt=0; attempt<2; attempt++) {
-      try {
-        const resp = await api.saveClientData(yr, cl, data, versionsRef.current[ckey] ?? 0);
-        versionsRef.current[ckey] = (resp && resp.version) || ((versionsRef.current[ckey] ?? 0) + 1);
-        dirtyRef.current = false;
-        setSaveState("saved");
-        return true;
-      } catch(e) {
-        if(e && e.status === 409) {
+    try {
+      for(let attempt=0; attempt<2; attempt++) {
+        try {
+          const resp = await api.saveClientData(yr, cl, data, versionsRef.current[ckey] ?? 0);
+          versionsRef.current[ckey] = (resp && resp.version) || ((versionsRef.current[ckey] ?? 0) + 1);
           dirtyRef.current = false;
-          setSaveState("error");
-          alert("⚠️ Αυτός ο πελάτης ενημερώθηκε από άλλον χρήστη.\n\nΗ οθόνη θα φορτώσει τώρα την τελευταία αποθηκευμένη έκδοση. Οι πολύ πρόσφατες αλλαγές σου ΔΕΝ αποθηκεύτηκαν — ξαναπέρασέ τες.");
-          setHydratedKeys(p=>{ const n={...p}; delete n[ckey]; return n; }); // triggers re-hydration
-          return false;
+          setSaveState("saved");
+          return true;
+        } catch(e) {
+          if(e && e.status === 409) {
+            dirtyRef.current = false;
+            pendingRef.current = null; // a real cross-user conflict — drop the queue, reload instead
+            setSaveState("error");
+            alert("⚠️ Αυτός ο πελάτης ενημερώθηκε από άλλον χρήστη.\n\nΗ οθόνη θα φορτώσει τώρα την τελευταία αποθηκευμένη έκδοση. Οι πολύ πρόσφατες αλλαγές σου ΔΕΝ αποθηκεύτηκαν — ξαναπέρασέ τες.");
+            setHydratedKeys(p=>{ const n={...p}; delete n[ckey]; return n; }); // triggers re-hydration
+            return false;
+          }
+          if(attempt===1) { console.warn("Save failed:",e); setSaveState("error"); return false; }
+          await new Promise(r=>setTimeout(r,700));
         }
-        if(attempt===1) { console.warn("Save failed:",e); setSaveState("error"); return false; }
-        await new Promise(r=>setTimeout(r,700));
       }
+    } finally {
+      savingRef.current = false;
+      // Flush the newest queued data (now with the freshly-incremented version).
+      const q = pendingRef.current; pendingRef.current = null;
+      if(q) doSave(q.yr, q.cl, q.data);
     }
   };
   // Flush a pending change immediately (on leave / tab close)
@@ -473,15 +487,19 @@ export default function App() {
         return "";
       };
 
+      // When the parsed month isn't in the selected FY (e.g. importing an FY25 workbook while FY26
+      // is active), map it onto the active FY by its MONTH INDEX (MM) instead of collapsing every
+      // out-of-FY row into January. Mirrors remapMonth/normalizeClientData so the month is preserved.
+      const toFY = (mm) => { const i = (parseInt(mm,10)||1)-1; return MONTHS[Math.max(0,Math.min(11,i))]; };
       const parseMonth = (v) => {
         if(!v) return MONTHS[0];
         if(MONTHS.includes(v)) return v;
-        if(v instanceof Date && !isNaN(v)) return v.getFullYear()+"-"+String(v.getMonth()+1).padStart(2,"0");
+        if(v instanceof Date && !isNaN(v)) { const m = v.getFullYear()+"-"+String(v.getMonth()+1).padStart(2,"0"); return MONTHS.includes(m)?m:toFY(v.getMonth()+1); }
         const s = String(v).trim();
         const ymMatch = s.match(/(\d{4})[-\/](\d{1,2})/);
-        if(ymMatch) {const m = ymMatch[1]+"-"+ymMatch[2].padStart(2,"0"); return MONTHS.includes(m)?m:MONTHS[0];}
+        if(ymMatch) {const mm=ymMatch[2].padStart(2,"0"); const m = ymMatch[1]+"-"+mm; return MONTHS.includes(m)?m:toFY(mm);}
         const dmyMatch = s.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
-        if(dmyMatch) {const y=dmyMatch[3].length===2?"20"+dmyMatch[3]:dmyMatch[3]; const m=y+"-"+dmyMatch[2].padStart(2,"0"); return MONTHS.includes(m)?m:MONTHS[0];}
+        if(dmyMatch) {const y=dmyMatch[3].length===2?"20"+dmyMatch[3]:dmyMatch[3]; const mm=dmyMatch[2].padStart(2,"0"); const m=y+"-"+mm; return MONTHS.includes(m)?m:toFY(mm);}
         const monMap = {jan:"01",feb:"02",mar:"03",apr:"04",may:"05",jun:"06",jul:"07",aug:"08",sep:"09",oct:"10",nov:"11",dec:"12",ian:"01",fev:"02",mar:"03",apr:"04",mai:"05",iun:"06",iul:"07",aug:"08",sep:"09",oct:"10",noi:"11",dec:"12"};
         const lc = s.toLowerCase();
         for(const [n,num] of Object.entries(monMap)) {
@@ -489,7 +507,7 @@ export default function App() {
             const yMatch = s.match(/(\d{2,4})/);
             const y = yMatch ? (yMatch[1].length===2?"20"+yMatch[1]:yMatch[1]) : "2026";
             const m = y+"-"+num;
-            return MONTHS.includes(m)?m:MONTHS[0];
+            return MONTHS.includes(m)?m:toFY(num);
           }
         }
         return MONTHS[0];

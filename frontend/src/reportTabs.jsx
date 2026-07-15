@@ -201,7 +201,8 @@ export function InvTab({data,set,contracts,year,client}) {
   const poList = (contracts||[]).filter(c=>c.type==="PO"&&c.po).map(c=>c.po);
   const poOpts = [{v:"",l:t("— Κανένα —","— None —")},...poList.map(p=>({v:p,l:p}))];
   const [f,sF] = useState({client:"",site:SITES[0],month:MONTHS[0],cat:REV_CATS[0],amt:"",vat:"",inv_no:"",date:"",comments:"",act_acc:"ACTUAL",po_no:""});
-  const add = () => { if(!f.amt) return; const a=parseFloat(f.amt); const v=parseFloat(f.vat)||a*.24; set(p=>[...p,{...f,id:uid(),amt:a,vat:v,total:a+v}]); sF(x=>({...x,amt:"",vat:"",inv_no:"",date:"",comments:"",po_no:""})); };
+  // Blank VAT → default 24%; an explicitly typed 0 stays 0 (zero-rated / reverse-charge invoices).
+  const add = () => { if(!f.amt) return; const a=parseFloat(f.amt); const pv=parseFloat(f.vat); const v=Number.isNaN(pv)?a*.24:pv; set(p=>[...p,{...f,id:uid(),amt:a,vat:v,total:a+v}]); sF(x=>({...x,amt:"",vat:"",inv_no:"",date:"",comments:"",po_no:""})); };
   return (
     <div>
       <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 16px"}}>{t("Τιμολόγια CBRE — Έσοδα","CBRE Invoices — Revenue")}</h2>
@@ -241,7 +242,8 @@ export function SubTab({data,set,contracts,year,client}) {
   const { t } = useT();
   const activeFee = (contracts||[]).find(c=>c.status==="Active"&&c.type==="MSA")?.fee_pct || 5.5;
   const [f,sF] = useState({site:SITES[0],month:MONTHS[0],cat:COST_CATS[0],gl:"",supplier:"",svc_cat:SVC_CATS[0],svc_desc:"",inv_no:"",date:"",amt:"",vat:"",act_acc:"ACTUAL",comments:"",fee_pct:activeFee});
-  const add = () => { if(!f.amt) return; const a=parseFloat(f.amt); const v2=parseFloat(f.vat)||a*.24; const fp=parseFloat(f.fee_pct)||activeFee; const fee=a*fp/100; set(p=>[...p,{...f,id:uid(),amt:a,vat:v2,total:a+v2,fee_pct:fp,cbre_fee:Math.round(fee*100)/100,cbre_bill:Math.round((a+fee)*100)/100}]); sF(x=>({...x,gl:"",supplier:"",svc_desc:"",inv_no:"",date:"",amt:"",vat:"",comments:""})); };
+  // Blank VAT → default 24%; an explicitly typed 0 stays 0 (zero-rated / reverse-charge invoices).
+  const add = () => { if(!f.amt) return; const a=parseFloat(f.amt); const pv=parseFloat(f.vat); const v2=Number.isNaN(pv)?a*.24:pv; const fp=parseFloat(f.fee_pct)||activeFee; const fee=a*fp/100; set(p=>[...p,{...f,id:uid(),amt:a,vat:v2,total:a+v2,fee_pct:fp,cbre_fee:Math.round(fee*100)/100,cbre_bill:Math.round((a+fee)*100)/100}]); sF(x=>({...x,gl:"",supplier:"",svc_desc:"",inv_no:"",date:"",amt:"",vat:"",comments:""})); };
   const edit = (id,k,v) => set(p=>p.map(r=>{
     if(r.id!==id) return r;
     const u={...r,[k]:v}; const amt=k==="amt"?(parseFloat(v)||0):r.amt; const vat=k==="vat"?(parseFloat(v)||0):r.vat;
