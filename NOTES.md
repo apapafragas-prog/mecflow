@@ -7,7 +7,15 @@ Internal CBRE Hellas reporting app: invoice scanning (AP = supplier costs, AR = 
 P&L per client, Excel export. React (Vite) frontend + Node backend + SQLite, runs in Docker on a Synology NAS.
 
 ## Structure
-- `frontend/src/App.jsx` — the whole React app (monolith). The invoice scanner is the `Scan()` component.
+- `frontend/src/App.jsx` — App shell: auth gate, session/save orchestration, tab routing, header/nav (~770 lines).
+  The old monolith was split (L-05) into focused modules under `frontend/src/`:
+  - `constants.js` (domain data, palette, MONTHS/ML, small helpers), `calc.js` (pure calc helpers, unit-tested)
+  - `ui.jsx` (leaf components: LogoImg, PwField, MdText, Inp, Sel, Tbl), `api.js` (API client)
+  - `auth.jsx` (Login/ForcePw/ResetPassword), `clientPicker.jsx` (landing), `contracts.jsx` (ContractTab)
+  - `scan.jsx` (invoice/doc scanner + AI extraction), `reportTabs.jsx` (PnL/InvTab/SubTab/AccTab/LabTab/POTracker)
+  - `insights.jsx` (AiCard + Insights), `chat.jsx` (ChatWidget + snapshot builders)
+  - `finance.jsx` (Dashboard/ApArLedger/OpexCapex), `admin.jsx` (AdminPanel)
+  - Safety net: ESLint `no-undef` (CI) catches any missing import when moving code between modules.
 - `backend/server.js` — API + Claude Vision invoice extraction (`POST /api/extract/invoice`). Prompt + validation live here.
 - `backend/init-db.js`, `backend/excel_report.py` — DB init, Excel report helper.
 - Root `Dockerfile`, `docker-compose.yml` (port 3300:3000, volume `./data:/data`).
@@ -94,8 +102,8 @@ Company-wide (not per-client) OPEX/CAPEX section for finance+admin.
   (12 tests) + CI step. Run: `cd frontend && npm test`.
 
 ### Deliberately NOT done (large / low value — flagged for the user):
-- L-04 global mutable MONTHS → React state (large architectural change; works today).
-- L-05 split the App.jsx monolith into components (large; no functional value; regression risk).
+- L-04 global mutable MONTHS → React state (large architectural change; works today). Deferred — low value, risky.
+- L-05 split the App.jsx monolith into components — ✅ DONE (2026-07). App.jsx ~770 lines; feature code in modules above.
 - Self-hosted logos: left as-is (already degrades gracefully to colored initials on error).
 
 ## AI Analytics & Forecasting (2026-07) — DONE
