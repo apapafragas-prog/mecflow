@@ -127,11 +127,14 @@ export const extractOne = async (f, mode, autoMode, onProg) => {
     if (!total && net) total = net + (vat || net * 0.24);
     if (!vat && net && total) vat = total - net;
     if (!net && total) { net = total / 1.24; vat = total - net; }
-    let month = ex.month || "";
-    if (!MONTHS.includes(month) && ex.invoice_date) {
+    // Prefer the invoice DATE's month (ground truth for a single scanned invoice) over the AI's
+    // separate "month" guess — otherwise the same invoice can land in a different month than its date.
+    let month = "";
+    if (ex.invoice_date) {
       const dm = String(ex.invoice_date).match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
       if (dm) { const y = dm[3].length === 2 ? "20" + dm[3] : dm[3]; month = y + "-" + dm[2].padStart(2, "0"); }
     }
+    if (!MONTHS.includes(month)) month = ex.month || "";   // fall back to the AI-provided month
     if (!MONTHS.includes(month)) month = MONTHS[0];
     const desc = (ex.description || "").toLowerCase();
     const pick = (list) => desc.includes("pjm") || desc.includes("project") ? (list.find(c => c.toLowerCase().includes("pjm")) || list[0])

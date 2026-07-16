@@ -66,6 +66,28 @@ describe("reconcileLabour", () => {
   });
 });
 
+describe("buildReconciliation — invoice-number identity prevents duplicates", () => {
+  it("same invoice number in a different month → CHANGED, not a new duplicate", () => {
+    // System has the scanned row (wrong month May); the P&L file books the SAME invoice to June.
+    const sys = [{ id: "s1", month: MONTHS[4], cat: "CLIENT REVENUE - FM Core", inv_no: "2026-742", amt: 22132.24, vat: 5311.74 }];
+    const parsed = {
+      inv: [{ month: MONTHS[5], cat: "CLIENT REVENUE - FM Core", inv_no: "2026-742", amt: 22132.24, vat: 5311.74 }],
+      sub: [], lab: {},
+    };
+    const rec = buildReconciliation(parsed, { inv: sys, sub: [], lab: {} });
+    expect(rec.inv.newRows.length).toBe(0);       // NOT re-added
+    expect(rec.inv.changed.length).toBe(1);       // recognized as the same invoice, updated
+    expect(rec.inv.changed[0].sysId).toBe("s1");
+  });
+  it("identical invoice (same month/amount) → MATCH, no action", () => {
+    const row = { month: MONTHS[5], cat: "CLIENT REVENUE - FM Core", inv_no: "2026-742", amt: 22132.24, vat: 5311.74 };
+    const rec = buildReconciliation({ inv: [row], sub: [], lab: {} }, { inv: [{ ...row, id: "s1" }], sub: [], lab: {} });
+    expect(rec.inv.match.length).toBe(1);
+    expect(rec.inv.newRows.length).toBe(0);
+    expect(rec.inv.changed.length).toBe(0);
+  });
+});
+
 describe("buildReconciliation", () => {
   it("wires inv/sub/lab sections together", () => {
     const parsed = {

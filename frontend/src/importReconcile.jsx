@@ -239,10 +239,16 @@ export function reconcileRows(fileRows, sysRows, idOf, fullOf) {
   return out;
 }
 
-const invId = (r) => `${r.month}|${r.cat}|${str(r.inv_no).toLowerCase()}`;
-const invFull = (r) => `${invId(r)}|${round2(r.amt)}|${round2(r.vat)}`;
-const subId = (r) => `${r.month}|${r.cat}|${str(r.supplier).toLowerCase()}|${str(r.inv_no).toLowerCase()}`;
-const subFull = (r) => `${subId(r)}|${round2(r.amt)}`;
+// IDENTITY = the invoice number alone (unique per client), so the SAME invoice is matched even if
+// it landed in a different month/category (e.g. scanned into May, but the P&L file books it to June).
+// That makes such a case a CHANGED (updated in place) instead of a NEW row — no duplicates.
+// FULL adds month/category/amounts so a genuine difference still registers as CHANGED vs MATCH.
+// No invoice number (accruals) → fall back to a content key.
+const norm = (s) => String(s || "").toLowerCase().replace(/\s+/g, "").trim();
+const invId = (r) => { const no = norm(r.inv_no); return no ? `no:${no}` : `x:${r.month}|${r.cat}|${round2(r.amt)}|${norm(r.comments)}`; };
+const invFull = (r) => `${invId(r)}|${r.month}|${r.cat}|${round2(r.amt)}|${round2(r.vat)}`;
+const subId = (r) => { const no = norm(r.inv_no); return no ? `no:${no}` : `x:${r.month}|${r.cat}|${norm(r.supplier)}|${round2(r.amt)}`; };
+const subFull = (r) => `${subId(r)}|${r.month}|${r.cat}|${norm(r.supplier)}|${round2(r.amt)}`;
 
 // Per-cell labour diff (month × labour line). Skips 0/0 cells.
 export function reconcileLabour(fileLab, sysLab) {
