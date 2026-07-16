@@ -83,7 +83,7 @@ export default function App() {
     const d = {};
     YEARS.forEach(y => {
       d[y] = {};
-      CLIENTS.forEach(c => { d[y][c] = {inv:[],sub:[],lab:mkLab(),labAlloc:mkAlloc(),contracts:[],docs:[],status:"draft",submittedBy:"",submittedAt:""}; });
+      CLIENTS.forEach(c => { d[y][c] = {inv:[],sub:[],lab:mkLab(),labAlloc:mkAlloc(),manualAccruals:[],contracts:[],docs:[],status:"draft",submittedBy:"",submittedAt:""}; });
     });
     return d;
   });
@@ -220,7 +220,7 @@ export default function App() {
     const t = setTimeout(() => { doSave(year, client, rest); }, 500);
     return () => clearTimeout(t);
   // eslint-disable-next-line
-  }, [cd&&cd.inv,cd&&cd.sub,cd&&cd.lab,cd&&cd.labAlloc,cd&&cd.contracts,cd&&cd.status,cd&&cd.submittedBy,cd&&cd.submittedAt,cd&&cd.rejectNote, client, year]);
+  }, [cd&&cd.inv,cd&&cd.sub,cd&&cd.lab,cd&&cd.labAlloc,cd&&cd.manualAccruals,cd&&cd.contracts,cd&&cd.status,cd&&cd.submittedBy,cd&&cd.submittedAt,cd&&cd.rejectNote, client, year]);
   // Flush on tab hide / close so nothing is lost
   useEffect(() => {
     const onVis = () => { if(document.visibilityState==="hidden") flushSave(true); };
@@ -266,9 +266,11 @@ export default function App() {
   if (!client) return withChat(<ClientPicker user={user} year={year} setYear={setYear} onSelect={c=>{setClient(c);setTab("contracts");}} onLogout={logout} allData={yd} loading={!yearLoaded[year]} onOpenFinance={()=>setFinanceOpen(true)} onOpenDash={()=>setDashOpen(true)} onOpenLedger={()=>setLedgerOpen(true)} onOpenGroup={()=>setGroupOpen(true)} />);
 
   const inv=cd.inv; const sub=cd.sub; const lab=cd.lab; const contracts=cd.contracts; const docs=cd.docs||[];
+  const manualAccruals=cd.manualAccruals||[];
   const setInv=v=>upClient("inv",v);
   const setSub=v=>upClient("sub",v);
   const setLab=v=>upClient("lab",v);
+  const setManualAccruals=v=>upClient("manualAccruals",v);
   const setContracts=v=>upClient("contracts",v);
   const setDocs=v=>upClient("docs",v);
 
@@ -861,7 +863,7 @@ export default function App() {
         {tab==="insights" && <Insights inv={inv} sub={sub} lab={lab} contracts={contracts} client={client} year={year} />}
         {tab==="inv" && <InvTab data={inv} set={setInv} contracts={contracts} year={year} client={client} />}
         {tab==="sub" && <SubTab data={sub} set={setSub} contracts={contracts} year={year} client={client} />}
-        {tab==="acc" && <AccTab inv={inv} sub={sub} />}
+        {tab==="acc" && <AccTab inv={inv} sub={sub} data={manualAccruals} set={setManualAccruals} />}
         {tab==="lab" && <LabTab data={lab} set={setLab} />}
       </div>
       {reconcile && (
