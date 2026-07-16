@@ -11,12 +11,18 @@ export const setToken = (t) => {
 
 export const getToken = () => token;
 
+// On these endpoints a 401 means "bad credentials" (wrong password) and must surface as an error
+// for the screen to show — NOT trigger the global session-expired logout+reload (which on the
+// change-password screen looks like an infinite loop: wrong current password → reload → same screen).
+const AUTH_ERROR_PATHS = ["/auth/login", "/auth/change-password", "/auth/forgot", "/auth/reset"];
+
 const req = async (path, opts = {}) => {
   const headers = { ...(opts.headers || {}) };
   if (token) headers["Authorization"] = `Bearer ${token}`;
   if (opts.body && !(opts.body instanceof FormData)) headers["Content-Type"] = "application/json";
   const r = await fetch(API_BASE + path, { ...opts, headers });
-  if (r.status === 401) {
+  if (r.status === 401 && !AUTH_ERROR_PATHS.some(p => path.startsWith(p))) {
+    // Genuine session expiry on an authenticated request → clear + reload to the login screen.
     setToken(null);
     window.location.reload();
     return;
