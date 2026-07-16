@@ -41,7 +41,10 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
   const totCost = rows.reduce((s,r)=>s+r.cost,0);
   const totLab = rows.reduce((s,r)=>s+r.labour,0);
   const totGM = totRev-totCost-totLab;
-  const topGM = [...active].sort((a,b)=>b.gm-a.gm).slice(0,8);
+  // All active clients, highest → lowest GM. Loss-makers (negative GM) are the ones finance most
+  // needs to see, so we show the full list (scrollable) rather than truncating them off the bottom.
+  const byGM = [...active].sort((a,b)=>b.gm-a.gm);
+  const lossMakers = byGM.filter(r=>r.gm<0).length;
 
   // Monthly aggregates across all clients
   const monthly = MONTHS.map(m=>{
@@ -181,13 +184,17 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
             );
           })()}
 
-          {/* Top clients by GM */}
+          {/* Clients by GM — all active, highest → lowest (loss-makers surfaced, not truncated) */}
           <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16,marginTop:16}}>
-            <div style={{fontSize:13,fontWeight:700,color:P.em,marginBottom:10}}>{t("Top πελάτες κατά GM","Top clients by GM")}</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+              <div style={{fontSize:13,fontWeight:700,color:P.em}}>{t("Πελάτες κατά GM (φθίνουσα)","Clients by GM (highest → lowest)")}</div>
+              {lossMakers>0 && <div style={{fontSize:11,fontWeight:700,color:P.rd}}>⚠️ {lossMakers} {t("με αρνητικό GM","with negative GM")}</div>}
+            </div>
+            <div style={{maxHeight:360,overflowY:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-              <thead><tr>{["#",t("Πελάτης","Client"),t("Έσοδα €","Revenue €"),t("Κόστος €","Cost €"),t("Εργασία €","Labour €"),"GM €","GM%"].map((h,i)=>(<th key={i} style={{padding:"6px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:i>=2&&i<=6?"right":"left"}}>{h}</th>))}</tr></thead>
-              <tbody>{topGM.map((r,i)=>{ return (
-                <tr key={r.name} onClick={()=>onSelectClient&&onSelectClient(r.name)} style={{background:i%2===0?P.wh:P.al,cursor:"pointer"}}>
+              <thead><tr>{["#",t("Πελάτης","Client"),t("Έσοδα €","Revenue €"),t("Κόστος €","Cost €"),t("Εργασία €","Labour €"),"GM €","GM%"].map((h,i)=>(<th key={i} style={{padding:"6px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:i>=2&&i<=6?"right":"left",position:"sticky",top:0,zIndex:1}}>{h}</th>))}</tr></thead>
+              <tbody>{byGM.map((r,i)=>{ const loss=r.gm<0; return (
+                <tr key={r.name} onClick={()=>onSelectClient&&onSelectClient(r.name)} style={{background:loss?"#FDECEA":i%2===0?P.wh:P.al,cursor:"pointer"}}>
                   <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,color:P.tm}}>{i+1}</td>
                   <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,fontWeight:600,color:P.em}}>{r.name}</td>
                   <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",color:P.gn}}>{fmt(r.rev)}</td>
@@ -198,6 +205,7 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
                 </tr>
               ); })}</tbody>
             </table>
+            </div>
           </div>
         </>
         )}
