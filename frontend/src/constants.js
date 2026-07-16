@@ -118,7 +118,14 @@ export const expiryBadge = (expiry) => {
   return null;
 };
 
-export const YEARS = ["FY24","FY25","FY26","FY27"];
+// Fiscal years shown in the picker. History is NEVER dropped: the list starts at FY24 and
+// auto-extends to one year past the current calendar year, so a new FY appears on its own each
+// year while every past year stays visible. Data is stored per-year in the DB and never deleted —
+// removing a year from this list would only hide it, not erase it.
+const FY_FIRST = 24;
+export const currentFyLabel = () => `FY${new Date().getFullYear() % 100}`;
+const FY_LAST = Math.max(27, (new Date().getFullYear() % 100) + 1);
+export const YEARS = Array.from({ length: FY_LAST - FY_FIRST + 1 }, (_, i) => `FY${FY_FIRST + i}`);
 
 // ── Company-wide OPEX / CAPEX (finance/admin) ──
 export const DEFAULT_OPEX_CATS = ["Payroll & overhead","Rent","Utilities","IT & Software","Telecom","Travel","Professional fees","Insurance","Office supplies","Marketing","Training","Other"];

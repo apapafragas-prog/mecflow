@@ -9,7 +9,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 if (typeof window !== "undefined") { window.JSZip = JSZip; window.pdfjsLib = pdfjsLib; }
 
 import {
-  uid, CLIENTS, REPORT_STATUS, MONTHS, ML, setFiscalYear, normalizeClientData,
+  uid, CLIENTS, REPORT_STATUS, MONTHS, ML, setFiscalYear, normalizeClientData, currentFyLabel,
   REV_CATS, COST_CATS, LAB_ROWS, LAB_ALL_ROWS, LAB_EW_KEY, LAB_PJM_KEY, mkLab, mkAlloc, P, YEARS,
 } from "./constants.js";
 import { LogoImg, LangToggle } from "./ui.jsx";
@@ -49,7 +49,7 @@ export default function App() {
   const [dashOpen, setDashOpen] = useState(false);
   const [ledgerOpen, setLedgerOpen] = useState(false);
   const [groupOpen, setGroupOpen] = useState(false);
-  const [year, setYear] = useState("FY26");
+  const [year, setYear] = useState(() => YEARS.includes(currentFyLabel()) ? currentFyLabel() : YEARS[YEARS.length - 1]);
   setFiscalYear(year); // render-safe (idempotent): keeps MONTHS/ML aligned with the selected FY
   const [tab, setTab] = useState("contracts");
   const [tabOrder, setTabOrder] = useState([
