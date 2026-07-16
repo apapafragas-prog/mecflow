@@ -139,6 +139,30 @@ export default function App() {
   // eslint-disable-next-line
   }, [client,year,hydratedKeys]);
 
+  // Landing-screen aggregates: pull EVERY client's data for the year in one request so the
+  // client list shows revenue/GM/counts immediately — not only after a client has been opened.
+  const [yearLoaded,setYearLoaded] = useState({});
+  useEffect(() => {
+    if(!user || client) return;                 // only while on the client-picker landing screen
+    if(yearLoaded[year]) return;
+    let cancelled = false;
+    (async () => {
+      const all = await api.getYearData(year).catch(()=>null);
+      if(cancelled || !all) return;
+      setAllData(p => {
+        const yr = {...(p[year]||{})};
+        Object.entries(all).forEach(([c,data]) => {
+          if(hydratedKeys[`${year}:${c}`]) return;   // don't clobber a client already fully hydrated
+          yr[c] = normalizeClientData({...(yr[c]||{}), ...data});
+        });
+        return {...p,[year]:yr};
+      });
+      if(!cancelled) setYearLoaded(prev=>({...prev,[year]:true}));
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line
+  }, [user,client,year,yearLoaded]);
+
   // Persist with visible status + one retry. On 409 (someone else saved first)
   // we NEVER overwrite — reload the latest server copy instead.
   const doSave = async (yr, cl, data) => {
@@ -239,7 +263,7 @@ export default function App() {
     return withChat(<OpexCapex year={year} setYear={setYear} user={user} onBack={()=>setFinanceOpen(false)} onLogout={logout} />);
   if (!client && groupOpen && (user.role==="finance"||user.role==="admin"))
     return withChat(<GroupReports year={year} setYear={setYear} user={user} onBack={()=>setGroupOpen(false)} onLogout={logout} />);
-  if (!client) return withChat(<ClientPicker user={user} year={year} setYear={setYear} onSelect={c=>{setClient(c);setTab("contracts");}} onLogout={logout} allData={yd} onOpenFinance={()=>setFinanceOpen(true)} onOpenDash={()=>setDashOpen(true)} onOpenLedger={()=>setLedgerOpen(true)} onOpenGroup={()=>setGroupOpen(true)} />);
+  if (!client) return withChat(<ClientPicker user={user} year={year} setYear={setYear} onSelect={c=>{setClient(c);setTab("contracts");}} onLogout={logout} allData={yd} loading={!yearLoaded[year]} onOpenFinance={()=>setFinanceOpen(true)} onOpenDash={()=>setDashOpen(true)} onOpenLedger={()=>setLedgerOpen(true)} onOpenGroup={()=>setGroupOpen(true)} />);
 
   const inv=cd.inv; const sub=cd.sub; const lab=cd.lab; const contracts=cd.contracts; const docs=cd.docs||[];
   const setInv=v=>upClient("inv",v);

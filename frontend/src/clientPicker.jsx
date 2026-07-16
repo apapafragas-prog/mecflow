@@ -6,7 +6,7 @@ import { AdminPanel } from "./admin.jsx";
 import { useT, statusLabel } from "./i18n.jsx";
 
 
-export function ClientPicker({user,year,setYear,onSelect,onLogout,allData,onOpenFinance,onOpenDash,onOpenLedger,onOpenGroup}) {
+export function ClientPicker({user,year,setYear,onSelect,onLogout,allData,loading,onOpenFinance,onOpenDash,onOpenLedger,onOpenGroup}) {
   const { t } = useT();
   const [search,setSearch] = useState("");
   const [sort,setSort] = useState("name");
@@ -71,7 +71,8 @@ export function ClientPicker({user,year,setYear,onSelect,onLogout,allData,onOpen
               <button key={y} onClick={()=>setYear(y)} style={{padding:"8px 20px",border:year===y?"2px solid "+P.em:"1px solid "+P.bd,borderRadius:6,cursor:"pointer",fontSize:14,fontWeight:year===y?700:400,background:year===y?P.em:P.wh,color:year===y?"#fff":P.tx}}>{y}</button>
             ))}
           </div>
-          <div style={{display:"flex",gap:16,fontSize:13}}>
+          <div style={{display:"flex",gap:16,fontSize:13,alignItems:"center"}}>
+            {loading && <span style={{color:P.tm,fontStyle:"italic"}}>⏳ {t("Φόρτωση…","Loading…")}</span>}
             <span style={{color:P.gn,fontWeight:600}}>{t("Έσοδα","Rev")}: €{fmt(totRev)}</span>
             <span style={{color:totGM>=0?P.gn:P.rd,fontWeight:600}}>GM: €{fmt(totGM)}</span>
             <span style={{color:P.tx}}>{activeN} {t("ενεργοί","active")}</span>
