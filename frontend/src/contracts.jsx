@@ -97,6 +97,9 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
 
   const edit = (id,k,v) => set(p=>p.map(r=>r.id===id?{...r,[k]:k==="po_value"||k==="fee_pct"?parseFloat(v)||0:v}:r));
   const activeFee = data.find(c=>c.status==="Active"&&c.type==="MSA")?.fee_pct || 5.5;
+  // Only CONTRACT documents belong here. Invoice PDFs (AP/AR Invoice) attached by the scanner
+  // live on the invoice grids (their File column), so exclude them from this list.
+  const contractDocs = (docs||[]).filter(d=>d.type!=="AP Invoice"&&d.type!=="AR Invoice");
 
   // PO Spend data
   const poContracts = data.filter(c=>c.type==="PO"&&c.po);
@@ -122,7 +125,7 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
   return (
     <div>
       <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 6px"}}>{t("Συμβόλαια, POs & Αμοιβή Διαχείρισης","Contracts, POs & Management Fee")}</h2>
-      <p style={{fontSize:13,color:P.tm,margin:"0 0 16px"}}>{t("Αμοιβή ενεργού MSA","Active MSA fee")}: <strong style={{color:P.em,fontSize:15}}>{activeFee}%</strong> — {data.filter(c=>c.status==="Active").length} {t("ενεργά συμβόλαια","active contracts")} — {docs.length} {t("έγγραφα","documents")}</p>
+      <p style={{fontSize:13,color:P.tm,margin:"0 0 16px"}}>{t("Αμοιβή ενεργού MSA","Active MSA fee")}: <strong style={{color:P.em,fontSize:15}}>{activeFee}%</strong> — {data.filter(c=>c.status==="Active").length} {t("ενεργά συμβόλαια","active contracts")} — {contractDocs.length} {t("έγγραφα","documents")}</p>
 
       {/* ── 1. CONTRACT SUMMARY CARDS ── */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12,marginBottom:20}}>
@@ -291,17 +294,17 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
         </label>
 
         {/* Documents list */}
-        {docs.length>0 && (
+        {contractDocs.length>0 && (
           <div style={{marginTop:14}}>
-            <div style={{fontSize:12,fontWeight:700,color:P.em,marginBottom:8}}>📂 {t("Ανεβασμένα Έγγραφα","Uploaded Documents")} ({docs.length})</div>
+            <div style={{fontSize:12,fontWeight:700,color:P.em,marginBottom:8}}>📂 {t("Ανεβασμένα Έγγραφα","Uploaded Documents")} ({contractDocs.length})</div>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead><tr>
                 {[["File",t("Αρχείο","File")],["Type",t("Τύπος","Type")],["Linked Contract",t("Συνδεδεμένο Συμβόλαιο","Linked Contract")],["Date",t("Ημ/νία","Date")],["",""]].map(([k,h])=>(
                   <th key={k} style={{padding:"6px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:"left"}}>{h}</th>
                 ))}
               </tr></thead>
-              <tbody>{docs.map((d,i)=>(
-                <tr key={i} style={{background:i%2===0?P.wh:P.al}}>
+              <tbody>{contractDocs.map((d,i)=>(
+                <tr key={d.id||i} style={{background:i%2===0?P.wh:P.al}}>
                   <td style={{padding:"7px 10px",borderBottom:"1px solid "+P.bd}}>
                     <span style={{marginRight:6}}>📄</span>{d.name}
                   </td>
@@ -313,7 +316,7 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
                   <td style={{padding:"7px 10px",borderBottom:"1px solid "+P.bd}}>
                     <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
                       {(d._persisted&&d.id)?<a href="#" onClick={async e=>{e.preventDefault();try{window.open(await api.getFileLink(year,client,d.id),"_blank");}catch{alert(t("Αδυναμία ανοίγματος αρχείου","Could not open file"));}}} style={{background:P.em,color:"#fff",padding:"3px 10px",borderRadius:4,fontSize:11,fontWeight:600,textDecoration:"none"}}>{t("Άνοιγμα","Open")}</a>:d.url?<a href={d.url} target="_blank" rel="noopener noreferrer" style={{background:P.em,color:"#fff",padding:"3px 10px",borderRadius:4,fontSize:11,fontWeight:600,textDecoration:"none"}}>{t("Άνοιγμα","Open")}</a>:null}
-                      <button onClick={async()=>{const doc=docs[i];if(doc._persisted&&doc.id){try{await api.deleteFile(year,client,doc.id);}catch(e){console.warn("Delete failed:",e);}}setDocs(p=>p.filter((_,j)=>j!==i));}} style={{background:"#FFEBEE",color:P.rd,border:"none",padding:"3px 10px",borderRadius:4,fontSize:11,fontWeight:600,cursor:"pointer"}}>{t("Αφαίρεση","Remove")}</button>
+                      <button onClick={async()=>{if(d._persisted&&d.id){try{await api.deleteFile(year,client,d.id);}catch(e){console.warn("Delete failed:",e);}}setDocs(p=>p.filter(x=> d.id ? x.id!==d.id : x!==d));}} style={{background:"#FFEBEE",color:P.rd,border:"none",padding:"3px 10px",borderRadius:4,fontSize:11,fontWeight:600,cursor:"pointer"}}>{t("Αφαίρεση","Remove")}</button>
                     </div>
                   </td>
                 </tr>
