@@ -234,7 +234,14 @@ export function InvTab({data,set,contracts,year,client}) {
         {k:"po_no",l:"PO No",opts:poOpts,mw:100},
         {k:"paid",l:t("Πληρωμή","Payment"),opts:[{v:"",l:t("Απλήρωτο","Unpaid")},{v:"paid",l:t("Πληρωμένο","Paid")}],mw:80},
         {k:"docId",l:t("Αρχείο","File"),mw:80,r:(v,row)=>row&&row.docId?(<span style={{whiteSpace:"nowrap"}}><a href="#" onClick={async e=>{e.preventDefault();try{window.open(await api.getFileLink(year,client,row.docId),"_blank");}catch{alert(t("Αδυναμία ανοίγματος αρχείου","Could not open file"));}}} title={t("Προεπισκόπηση","Preview")} style={{textDecoration:"none",marginRight:8,fontSize:15}}>👁</a><a href="#" onClick={async e=>{e.preventDefault();try{window.location.assign(await api.getFileLink(year,client,row.docId,true));}catch{alert(t("Αδυναμία λήψης αρχείου","Could not download file"));}}} title={t("Λήψη","Download")} style={{textDecoration:"none",fontSize:15}}>⬇</a></span>):<span style={{color:P.tm}}>—</span>}
-      ]} data={data} del={id=>{const row=(data||[]).find(x=>x.id===id); if(row&&row.docId) api.deleteFile(year,client,row.docId).catch(()=>{}); set(p=>p.filter(x=>x.id!==id));}} onEdit={(id,k,v)=>set(p=>p.map(r=>r.id===id?{...r,[k]:v,total:k==="amt"||k==="vat"?(k==="amt"?parseFloat(v)||0:r.amt)+(k==="vat"?parseFloat(v)||0:r.vat):r.total}:r))} />
+      ]} data={data} del={id=>{const row=(data||[]).find(x=>x.id===id); if(row&&row.docId) api.deleteFile(year,client,row.docId).catch(()=>{}); set(p=>p.filter(x=>x.id!==id));}} onEdit={(id,k,v)=>set(p=>p.map(r=>{
+        if(r.id!==id) return r;
+        const u={...r,[k]:v};
+        if(k==="amt"||k==="vat") u.total=(k==="amt"?parseFloat(v)||0:r.amt)+(k==="vat"?parseFloat(v)||0:r.vat);
+        // Stamp/clear the payment date so open-AR aging & the balance sheet know WHEN it settled.
+        if(k==="paid") u.paid_date = v==="paid" ? (r.paid_date || new Date().toISOString().slice(0,10)) : "";
+        return u;
+      }))} />
     </div>
   );
 }
@@ -250,6 +257,8 @@ export function SubTab({data,set,contracts,year,client}) {
     const u={...r,[k]:v}; const amt=k==="amt"?(parseFloat(v)||0):r.amt; const vat=k==="vat"?(parseFloat(v)||0):r.vat;
     const fp=k==="fee_pct"?(parseFloat(v)||0):(r.fee_pct||activeFee);
     u.total=amt+vat; u.fee_pct=fp; u.cbre_fee=Math.round(amt*fp/100*100)/100; u.cbre_bill=Math.round((amt+u.cbre_fee)*100)/100;
+    // Stamp/clear the payment date so open-AP aging & the balance sheet know WHEN it settled.
+    if(k==="paid") u.paid_date = v==="paid" ? (r.paid_date || new Date().toISOString().slice(0,10)) : "";
     return u;
   }));
   return (

@@ -4,8 +4,12 @@
 //   OpexCapex  — company OPEX budget-vs-actual + CAPEX register with depreciation.
 import { useState, useEffect, useRef } from "react";
 import { api } from "./api.js";
-import { P, MONTHS, ML, YEARS, uid, fmt, fPct, REPORT_STATUS, DEFAULT_OPEX_CATS, CAPEX_CATS, CAPEX_STATUS } from "./constants.js";
+import { P, MONTHS, ML, YEARS, uid, fmt, fPct, REPORT_STATUS, DEFAULT_OPEX_CATS, CAPEX_CATS, CAPEX_STATUS, normalizeClientData } from "./constants.js";
 import { agingBucket, AGING_BUCKETS, depreciation, daysUntil, parseDate, runRateFY, clientRisks } from "./calc.js";
+
+// getYearData returns RAW stored blobs; heal each client's months/keys onto the active FY (same as
+// the per-client screens) so the finance aggregates match the client P&L and are self-consistent.
+const normYear = (d) => Object.fromEntries(Object.entries(d || {}).map(([c, cd]) => [c, normalizeClientData(cd)]));
 import { Inp, Sel, LangToggle } from "./ui.jsx";
 import { AiCard } from "./insights.jsx";
 import { useT, monthLabel, statusLabel } from "./i18n.jsx";
@@ -20,7 +24,7 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
 
   useEffect(()=>{
     let cancelled=false; setLoading(true);
-    api.getYearData(year).then(d=>{ if(!cancelled){ setData(d||{}); setLoading(false); } }).catch(()=>{ if(!cancelled){ setData({}); setLoading(false); } });
+    api.getYearData(year).then(d=>{ if(!cancelled){ setData(normYear(d)); setLoading(false); } }).catch(()=>{ if(!cancelled){ setData({}); setLoading(false); } });
     return ()=>{cancelled=true;};
   },[year]);
 
@@ -245,7 +249,7 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
   const [showPaid,setShowPaid] = useState(false);
   const [busy,setBusy] = useState("");
 
-  const load = () => { setLoading(true); api.getYearData(year).then(d=>{ setData(d||{}); setLoading(false); }).catch(()=>{ setData({}); setLoading(false); }); };
+  const load = () => { setLoading(true); api.getYearData(year).then(d=>{ setData(normYear(d)); setLoading(false); }).catch(()=>{ setData({}); setLoading(false); }); };
   useEffect(()=>{ load(); /* eslint-disable-next-line */ },[year]);
 
   const amt = r => Number(r.total) || (Number(r.amt)||0)+(Number(r.vat)||0) || Number(r.amt) || 0;
