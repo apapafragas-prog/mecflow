@@ -6,6 +6,10 @@ import { useState, useEffect, useRef } from "react";
 import { api } from "./api.js";
 import { P, MONTHS, ML, YEARS, uid, fmt, fPct, DEFAULT_OPEX_CATS, CAPEX_CATS, CAPEX_STATUS, normalizeClientData } from "./constants.js";
 import { agingBucket, AGING_BUCKETS, depreciation, daysUntil, parseDate, runRateFY, clientRisks } from "./calc.js";
+import { exportWorkbook } from "./exportXlsx.js";
+
+// Previous fiscal-year label ("FY26" → "FY25"), or null if it falls before the first tracked year.
+const prevFy = (y) => { const n = parseInt(String(y).replace(/\D/g, ""), 10); const p = `FY${n - 1}`; return YEARS.includes(p) ? p : null; };
 
 // getYearData returns RAW stored blobs; heal each client's months/keys onto the active FY (same as
 // the per-client screens) so the finance aggregates match the client P&L and are self-consistent.
@@ -20,11 +24,14 @@ import { useT, monthLabel } from "./i18n.jsx";
 export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
   const { t } = useT();
   const [data,setData] = useState(null);
+  const [prevData,setPrevData] = useState(null);   // previous FY, for YoY deltas on the KPIs
   const [loading,setLoading] = useState(true);
 
   useEffect(()=>{
-    let cancelled=false; setLoading(true);
+    let cancelled=false; setLoading(true); setPrevData(null);
     api.getYearData(year).then(d=>{ if(!cancelled){ setData(normYear(d)); setLoading(false); } }).catch(()=>{ if(!cancelled){ setData({}); setLoading(false); } });
+    const py = prevFy(year);
+    if(py) api.getYearData(py).then(d=>{ if(!cancelled) setPrevData(d||{}); }).catch(()=>{ if(!cancelled) setPrevData({}); });
     return ()=>{cancelled=true;};
   },[year]);
 
@@ -46,6 +53,26 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
   const byGM = [...active].sort((a,b)=>b.gm-a.gm);
   const lossMakers = byGM.filter(r=>r.gm<0).length;
 
+  // Previous-FY totals (amounts are month-independent, so no normalization needed) for YoY deltas.
+  const prevTot = prevData ? Object.values(prevData).reduce((acc,cd)=>{
+    (cd?.inv||[]).forEach(i=>acc.rev+=Number(i.amt)||0);
+    (cd?.sub||[]).forEach(i=>acc.cost+=Number(i.amt)||0);
+    Object.values(cd?.lab||{}).forEach(mo=>Object.values(mo||{}).forEach(v=>acc.lab+=Number(v)||0));
+    return acc;
+  },{rev:0,cost:0,lab:0}) : null;
+  const prevGM = prevTot ? prevTot.rev-prevTot.cost-prevTot.lab : null;
+  // % change vs prior year; null when there's no comparable base (no prev data or prev was 0).
+  const yoy = (cur,prev)=> (prev==null||!isFinite(prev)||prev===0) ? null : (cur-prev)/Math.abs(prev);
+
+  const exportDashboard = () => {
+    const clientsAoa = [["#","Client","Revenue","Cost","Labour","GM","GM %","Invoices","Subs","Status"],
+      ...byGM.map((r,i)=>[i+1,r.name,r.rev,r.cost,r.labour,r.gm,r.rev?+(r.gm/r.rev*100).toFixed(1):"",r.inv,r.sub,r.status])];
+    const monthlyAoa = [["Month","Revenue","Cost","Labour","GM"],
+      ...monthly.map(x=>[ML[x.m]||x.m,x.rev,x.cost,x.labour,x.gm]),
+      ["TOTAL",totRev,totCost,totLab,totGM]];
+    exportWorkbook(`CBRE_Dashboard_${year}.xlsx`, [{name:"Clients",aoa:clientsAoa},{name:"Monthly",aoa:monthlyAoa}]);
+  };
+
   // Monthly aggregates across all clients
   const monthly = MONTHS.map(m=>{
     let rev=0,cost=0,labour=0;
@@ -58,10 +85,16 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
   });
   const maxRev = Math.max(1,...monthly.map(x=>x.rev));
 
-  const kpi = (l,v,c,pct)=>(
+  // Small YoY badge — green ▲ when the metric improved vs prior FY, red ▼ when it worsened.
+  const yoyBadge = (d)=> d==null ? null : (
+    <span style={{fontSize:11,fontWeight:700,color:d>=0?P.gn:P.rd,marginLeft:6}} title={t("έναντι προηγ. έτους","vs prior year")}>
+      {d>=0?"▲":"▼"} {Math.abs(d*100).toFixed(0)}%
+    </span>
+  );
+  const kpi = (l,v,c,pct,delta)=>(
     <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:10,padding:"14px 16px",boxShadow:"0 1px 2px rgba(0,0,0,.04)"}}>
       <div style={{fontSize:12,color:P.tm}}>{l}</div>
-      <div style={{fontSize:22,fontWeight:800,color:c,marginTop:5}}>{pct?fPct(v):"€"+fmt(v)}</div>
+      <div style={{fontSize:22,fontWeight:800,color:c,marginTop:5}}>{pct?fPct(v):"€"+fmt(v)}{delta!==undefined&&yoyBadge(delta)}</div>
     </div>
   );
 
@@ -81,18 +114,21 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
       </div>
 
       <div style={{maxWidth:1300,margin:"0 auto",padding:"18px 24px"}}>
-        <div style={{display:"flex",gap:8,marginBottom:16}}>
-          {YEARS.map(y=>(<button key={y} onClick={()=>setYear(y)} style={{padding:"6px 16px",border:year===y?"2px solid "+P.em:"1px solid "+P.bd,borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:year===y?700:400,background:year===y?P.em:P.wh,color:year===y?"#fff":P.tx}}>{y}</button>))}
+        <div style={{display:"flex",gap:8,marginBottom:16,justifyContent:"space-between",alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{display:"flex",gap:8}}>
+            {YEARS.map(y=>(<button key={y} onClick={()=>setYear(y)} style={{padding:"6px 16px",border:year===y?"2px solid "+P.em:"1px solid "+P.bd,borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:year===y?700:400,background:year===y?P.em:P.wh,color:year===y?"#fff":P.tx}}>{y}</button>))}
+          </div>
+          {!loading && <button onClick={exportDashboard} style={{padding:"6px 14px",border:"1px solid "+P.em,borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,background:P.wh,color:P.em}}>⬇ {t("Εξαγωγή Excel","Export Excel")}</button>}
         </div>
 
         {loading ? <div style={{padding:40,textAlign:"center",color:P.tm}}>{t("Φόρτωση…","Loading…")}</div> : (
         <>
           {/* KPIs */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:12,marginBottom:20}}>
-            {kpi(t("Συνολικά Έσοδα","Total Revenue"),totRev,P.gn)}
-            {kpi(t("Συνολικό Κόστος (υπεργ.)","Total Cost (sub)"),totCost,P.tx)}
-            {kpi(t("Εργασία","Labour"),totLab,P.tx)}
-            {kpi(t("Μικτό Περιθώριο","Gross Margin"),totGM,totGM>=0?P.gn:P.rd)}
+            {kpi(t("Συνολικά Έσοδα","Total Revenue"),totRev,P.gn,false,prevTot?yoy(totRev,prevTot.rev):undefined)}
+            {kpi(t("Συνολικό Κόστος (υπεργ.)","Total Cost (sub)"),totCost,P.tx,false,prevTot?(()=>{const d=yoy(totCost,prevTot.cost);return d==null?null:-d;})():undefined)}
+            {kpi(t("Εργασία","Labour"),totLab,P.tx,false,prevTot?(()=>{const d=yoy(totLab,prevTot.lab);return d==null?null:-d;})():undefined)}
+            {kpi(t("Μικτό Περιθώριο","Gross Margin"),totGM,totGM>=0?P.gn:P.rd,false,prevTot?yoy(totGM,prevGM):undefined)}
             {kpi("GM %",totRev?totGM/totRev:null,P.em,true)}
             <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:10,padding:"14px 16px"}}>
               <div style={{fontSize:12,color:P.tm}}>{t("Ενεργοί πελάτες","Active clients")}</div>
@@ -108,9 +144,10 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
                 {monthly.map(x=>(
                   <div key={x.m} style={{display:"flex",alignItems:"center",gap:8,fontSize:11}}>
                     <span style={{width:44,color:P.tm,flexShrink:0}}>{monthLabel(x.m)}</span>
-                    <div style={{flex:1,background:"#eef2ef",borderRadius:4,height:16,position:"relative",overflow:"hidden"}}>
+                    <div style={{flex:1,background:"#eef2ef",borderRadius:4,height:16,position:"relative",overflow:"hidden"}} title={x.gm<0?t("Ζημιά αυτόν τον μήνα","Loss this month"):""}>
                       <div style={{position:"absolute",left:0,top:0,bottom:0,width:(x.rev/maxRev*100)+"%",background:P.ep}} />
-                      <div style={{position:"absolute",left:0,top:0,bottom:0,width:(Math.max(0,x.gm)/maxRev*100)+"%",background:P.em,opacity:.85}} />
+                      {/* GM overlay: dark-green when profitable, red when the month made a loss (was invisible before) */}
+                      <div style={{position:"absolute",left:0,top:0,bottom:0,width:(Math.min(1,Math.abs(x.gm)/maxRev)*100)+"%",background:x.gm>=0?P.em:P.rd,opacity:.85}} />
                     </div>
                     <span style={{width:78,textAlign:"right",color:P.gn,flexShrink:0}}>{fmt(x.rev)}</span>
                     <span style={{width:78,textAlign:"right",color:x.gm>=0?P.em:P.rd,fontWeight:600,flexShrink:0}}>{fmt(x.gm)}</span>

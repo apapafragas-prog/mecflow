@@ -8,6 +8,7 @@ import { useState, useEffect, useRef } from "react";
 import { api } from "./api.js";
 import { P, MONTHS, ML, YEARS, uid, fmt, fPct, normalizeClientData } from "./constants.js";
 import { groupPnLSeries, nbvAtMonth, monthIdx } from "./calc.js";
+import { exportWorkbook } from "./exportXlsx.js";
 
 const normYear = (d) => Object.fromEntries(Object.entries(d || {}).map(([c, cd]) => [c, normalizeClientData(cd)]));
 import { LangToggle } from "./ui.jsx";
@@ -43,6 +44,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   const [tab, setTab] = useState("pnl");       // pnl | bs
   const [saveState, setSaveState] = useState("idle");
   const [na, setNa] = useState({ label: "", section: "asset" });
+  const [drill, setDrill] = useState(null);    // { k, m } → per-client breakdown modal for a P&L cell
   const verRef = useRef(0);
   const dirtyRef = useRef(false);
 
@@ -186,6 +188,41 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   const ytdNum = (r) => { if (r.pct) { const d = ytd(r.den); return d ? ytd(r.num) / d : null; } return ytd(r.k); };
   const showCell = (r, v) => r.pct ? fPct(v) : fmt(v);
 
+  // Which P&L lines can be broken down per client (the rest are company-level: opex/D&A/interest/tax).
+  const DRILLABLE = { rev: 1, sub: 1, labour: 1, gm: 1 };
+  // Per-client contribution to a drillable line for one month, sorted by size.
+  const drillRows = (k, m) => {
+    const out = [];
+    Object.entries(allData || {}).forEach(([name, cd]) => {
+      let rev = 0, sub = 0, labour = 0;
+      (cd?.inv || []).forEach(i => { if (i.month === m) rev += Number(i.amt) || 0; });
+      (cd?.sub || []).forEach(i => { if (i.month === m) sub += Number(i.amt) || 0; });
+      if (cd?.lab?.[m]) labour += Object.values(cd.lab[m]).reduce((s, v) => s + (Number(v) || 0), 0);
+      const val = k === "rev" ? rev : k === "sub" ? sub : k === "labour" ? labour : rev - sub - labour;
+      if (Math.abs(val) > 0.005) out.push({ name, val });
+    });
+    return out.sort((a, b) => b.val - a.val);
+  };
+
+  const exportGroup = () => {
+    const pnlCell = (r, m) => { const v = cellNum(r, m); return v == null ? "" : (r.pct ? +(v * 100).toFixed(1) : v); };
+    const pnlYtd = (r) => { const v = ytdNum(r); return v == null ? "" : (r.pct ? +(v * 100).toFixed(1) : v); };
+    const pnlAoa = [["Line", ...MONTHS.map(m => ML[m] || m), "YTD"],
+      ...R.map(r => [r.pct ? r.l + " (%)" : r.l, ...MONTHS.map(m => pnlCell(r, m)), pnlYtd(r)])];
+    const last = MONTHS[MONTHS.length - 1];
+    const bsAoa = [["Account", ...MONTHS.map(m => ML[m] || m), "Year-end"]];
+    SECTIONS.forEach(sec => {
+      bsAoa.push([t(sec.el, sec.en)]);
+      derivedIn(sec.k).forEach(d => bsAoa.push([d.label + " (auto)", ...MONTHS.map(m => d.fn(m)), d.fn(last)]));
+      manualIn(sec.k).forEach(a => bsAoa.push([a.label, ...MONTHS.map(m => Number(fin?.bs?.values?.[a.id]?.[m]) || 0), acctTotal(a.id)]));
+      bsAoa.push([t("Σύνολο " + sec.short_el, "Total " + sec.short_en), ...MONTHS.map(m => sectionTotal(sec.k, m)), sectionTotal(sec.k, last)]);
+    });
+    bsAoa.push([t("Σ Ενεργητικό", "Σ Assets"), ...MONTHS.map(m => totalAssets(m)), totalAssets(last)]);
+    bsAoa.push([t("Σ Υποχρ. + Ίδια Κεφ.", "Σ Liab. + Equity"), ...MONTHS.map(m => totalLE(m)), totalLE(last)]);
+    bsAoa.push([t("Έλεγχος", "Check"), ...MONTHS.map(m => check(m)), ""]);
+    exportWorkbook(`CBRE_Group_${year}.xlsx`, [{ name: "P&L", aoa: pnlAoa }, { name: "Balance Sheet", aoa: bsAoa }]);
+  };
+
   const kpi = (l, v, c, pct) => (
     <div style={{ background: P.wh, border: "1px solid " + P.bd, borderRadius: 10, padding: "12px 14px" }}>
       <div style={{ fontSize: 11, color: P.tm }}>{l}</div>
@@ -214,10 +251,13 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
           <div style={{ display: "flex", gap: 8 }}>
             {YEARS.map(y => (<button key={y} onClick={() => setYear(y)} style={{ padding: "6px 16px", border: year === y ? "2px solid " + P.em : "1px solid " + P.bd, borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: year === y ? 700 : 400, background: year === y ? P.em : P.wh, color: year === y ? "#fff" : P.tx }}>{y}</button>))}
           </div>
-          <div style={{ display: "flex", gap: 0, background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, padding: 4 }}>
-            {[{ v: "pnl", l: t("📈 P&L (Όμιλος)", "📈 P&L (Group)") }, { v: "bs", l: t("⚖️ Ισολογισμός", "⚖️ Balance Sheet") }].map(o => (
-              <button key={o.v} onClick={() => setTab(o.v)} style={{ background: tab === o.v ? P.em : "transparent", color: tab === o.v ? "#fff" : P.tx, border: "none", padding: "7px 20px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>{o.l}</button>
-            ))}
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            {loaded && <button onClick={exportGroup} style={{ padding: "6px 14px", border: "1px solid " + P.em, borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600, background: P.wh, color: P.em }}>⬇ {t("Εξαγωγή Excel", "Export Excel")}</button>}
+            <div style={{ display: "flex", gap: 0, background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, padding: 4 }}>
+              {[{ v: "pnl", l: t("📈 P&L (Όμιλος)", "📈 P&L (Group)") }, { v: "bs", l: t("⚖️ Ισολογισμός", "⚖️ Balance Sheet") }].map(o => (
+                <button key={o.v} onClick={() => setTab(o.v)} style={{ background: tab === o.v ? P.em : "transparent", color: tab === o.v ? "#fff" : P.tx, border: "none", padding: "7px 20px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>{o.l}</button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -255,7 +295,8 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
                           );
                           const v = cellNum(r, m);
                           const neg = typeof v === "number" && v < 0;
-                          return <td key={m} style={{ padding: "6px 6px", textAlign: "right", fontSize: 11, fontWeight: r.b ? 700 : 400, color: r.muted ? P.tm : neg ? P.rd : r.b ? P.em : r.cost ? "#8a5a00" : P.tx, borderBottom: "1px solid " + P.bd }}>{v == null ? "-" : showCell(r, v)}</td>;
+                          const canDrill = DRILLABLE[r.k] && typeof v === "number" && Math.abs(v) > 0.005;
+                          return <td key={m} onClick={canDrill ? () => setDrill({ k: r.k, m }) : undefined} title={canDrill ? t("Κλικ: ανάλυση ανά πελάτη", "Click: breakdown by client") : ""} style={{ padding: "6px 6px", textAlign: "right", fontSize: 11, fontWeight: r.b ? 700 : 400, color: r.muted ? P.tm : neg ? P.rd : r.b ? P.em : r.cost ? "#8a5a00" : P.tx, borderBottom: "1px solid " + P.bd, cursor: canDrill ? "pointer" : "default", textDecoration: canDrill ? "underline dotted rgba(0,0,0,.25)" : "none" }}>{v == null ? "-" : showCell(r, v)}</td>;
                         })}
                         <td style={{ padding: "6px 8px", textAlign: "right", fontSize: 12, fontWeight: 700, color: (typeof yv === "number" && yv < 0) ? P.rd : P.em, background: r.hl ? "#C8E6C9" : "#f5f5f5", borderLeft: "2px solid " + P.bd, borderBottom: "1px solid " + P.bd }}>{yv == null ? "-" : showCell(r, yv)}</td>
                       </tr>
@@ -324,6 +365,52 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
           </div>
         )}
       </div>
+
+      {/* Drill-down: per-client breakdown of a P&L cell (revenue / sub cost / labour / GM for one month) */}
+      {drill && (() => {
+        const rows = drillRows(drill.k, drill.m);
+        const total = rows.reduce((s, r) => s + r.val, 0);
+        const maxAbs = Math.max(1, ...rows.map(r => Math.abs(r.val)));
+        const label = (R.find(r => r.k === drill.k) || {}).l || drill.k;
+        return (
+          <div onClick={() => setDrill(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 1400, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: P.wh, borderRadius: 10, width: "min(560px,96vw)", maxHeight: "82vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,.35)" }}>
+              <div style={{ background: P.em, color: "#fff", padding: "12px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>{label} — {monthLabel(drill.m)}</div>
+                <button onClick={() => setDrill(null)} style={{ background: "rgba(255,255,255,.2)", border: "none", color: "#fff", width: 26, height: 26, borderRadius: 6, cursor: "pointer", fontSize: 15 }}>×</button>
+              </div>
+              <div style={{ padding: "8px 18px 16px", overflowY: "auto" }}>
+                {rows.length === 0 ? <div style={{ padding: 24, textAlign: "center", color: P.tm, fontSize: 13 }}>{t("Καμία κίνηση αυτόν τον μήνα", "No activity this month")}</div> : (
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                    <tbody>
+                      {rows.map(r => { const neg = r.val < 0; return (
+                        <tr key={r.name} style={{ borderBottom: "1px solid " + P.bd }}>
+                          <td style={{ padding: "7px 6px", fontWeight: 600, color: P.em, whiteSpace: "nowrap" }}>{r.name}</td>
+                          <td style={{ padding: "7px 6px", width: "45%" }}>
+                            <div style={{ background: "#eef2ef", borderRadius: 3, height: 8, overflow: "hidden" }}>
+                              <div style={{ width: (Math.abs(r.val) / maxAbs * 100) + "%", height: "100%", background: neg ? P.rd : P.em }} />
+                            </div>
+                          </td>
+                          <td style={{ padding: "7px 6px", textAlign: "right", fontWeight: 600, color: neg ? P.rd : P.tx, whiteSpace: "nowrap" }}>{fmt(r.val)}</td>
+                          <td style={{ padding: "7px 6px", textAlign: "right", color: P.tm, width: 52, whiteSpace: "nowrap" }}>{total ? Math.round(r.val / total * 100) + "%" : "-"}</td>
+                        </tr>
+                      ); })}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: P.ep }}>
+                        <td style={{ padding: "8px 6px", fontWeight: 700, color: P.em }}>{t("Σύνολο", "Total")}</td>
+                        <td></td>
+                        <td style={{ padding: "8px 6px", textAlign: "right", fontWeight: 700, color: total < 0 ? P.rd : P.em, whiteSpace: "nowrap" }}>{fmt(total)}</td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
