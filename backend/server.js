@@ -570,11 +570,21 @@ How to identify the CUSTOMER (recipient — NOT the supplier):
   - "Πελάτης" / "Customer"
 • If "CBRE HELLAS" appears under any of these → CBRE is the CUSTOMER, not the supplier.
 
+═══════════════════════════════════════════════════════════
+WHO IS "CBRE" (issuer = CBRE → AR / revenue)
+═══════════════════════════════════════════════════════════
+"CBRE" is our own company and it appears under EITHER of these legal names — treat BOTH as CBRE:
+1. CURRENT: "CBRE Hellas Single Member SA" / "CBRE ΕΛΛΑΣ ΜΟΝΟΠΡΟΣΩΠΗ ΑΕ" / "CBRE Hellas Μονοπροσωπή ΑΕ"
+2. FORMER (older name, same company): "CBRE Corporate Outsourcing SA" / "CBRE Corporate Outsourcing" / "CBRE ΕΛΛΑΣ CORPORATE OUTSOURCING"
+Any invoice ISSUED (top header / logo) by name #1 OR name #2 is CBRE → direction = AR (revenue).
+Everyone else (ATRIA, vendors, subcontractors, suppliers) is NOT CBRE → direction = AP (cost),
+even if the word "CBRE" appears only in the CUSTOMER/"ΣΤΟΙΧΕΙΑ ΠΕΛΑΤΗ" block.
+
 For ${mode === "AUTO" ? "AUTO mode (mixed folder — you MUST detect the direction of EACH invoice)" : mode === "AR" ? "AR mode (CBRE-issued client invoices)" : "AP mode (supplier invoices billed TO CBRE)"}:
 ${mode === "AUTO"
-  ? "→ DIRECTION DETECTION (critical): supplier_name = the ISSUER at the top header (always). Set direction=\"AR\" ONLY IF that ISSUER is CBRE Hellas itself (e.g. \"CBRE Hellas Μονοπροσωπή ΑΕ\" or \"CBRE Hellas Single Member SA\") — that is the ONLY AR case (CBRE billing a client = revenue). For EVERY other issuer — including ATRIA / Atria and any vendor or subcontractor — set direction=\"AP\" (cost to CBRE). ATRIA is NOT CBRE; an ATRIA-issued invoice is ALWAYS AP."
+  ? "→ DIRECTION DETECTION (critical): supplier_name = the ISSUER at the top header (always). Set direction=\"AR\" ONLY IF that ISSUER is CBRE itself under EITHER legal name — current \"CBRE Hellas Single Member SA\" / \"CBRE ΕΛΛΑΣ ΜΟΝΟΠΡΟΣΩΠΗ ΑΕ\" OR former \"CBRE Corporate Outsourcing SA\" (same company, older name) — that is the ONLY AR case (CBRE billing a client = revenue). For EVERY other issuer — including ATRIA / Atria and any vendor or subcontractor — set direction=\"AP\" (cost to CBRE). ATRIA is NOT CBRE; an ATRIA-issued invoice is ALWAYS AP."
   : mode === "AR"
-  ? "→ supplier_name = CBRE Hellas (the issuer at the top header, e.g. \"CBRE Hellas Μονοπροσωπή ΑΕ\" / \"CBRE Hellas Single Member SA\"). Set direction=\"AR\"."
+  ? "→ supplier_name = CBRE (the issuer at the top header) under EITHER legal name — current \"CBRE Hellas Single Member SA\" / \"CBRE ΕΛΛΑΣ ΜΟΝΟΠΡΟΣΩΠΗ ΑΕ\" OR former \"CBRE Corporate Outsourcing SA\". Set direction=\"AR\"."
   : "→ supplier_name = the VENDOR who billed CBRE (the company at the TOP HEADER). It is NEVER 'CBRE Hellas'. Set direction=\"AP\"."}
 
 ═══════════════════════════════════════════════════════════
@@ -655,7 +665,7 @@ OUTPUT FORMAT (JSON only, no markdown)
 
 {
   "supplier_name": "name of ISSUER (top header). Greek or English. Max 60 chars.",
-  "direction": "AP or AR — AR ONLY if the ISSUER is CBRE Hellas itself (Μονοπροσωπή ΑΕ / Single Member SA). ATRIA and every other issuer = AP. Always include this field.",
+  "direction": "AP or AR — AR ONLY if the ISSUER is CBRE itself, under EITHER legal name: current 'CBRE Hellas Single Member SA / ΜΟΝΟΠΡΟΣΩΠΗ ΑΕ' OR former 'CBRE Corporate Outsourcing SA'. ATRIA and every other issuer = AP. Always include this field.",
   "afm": "issuer's 9-digit ΑΦΜ (no EL prefix, no spaces)",
   "invoice_number": "full invoice number with prefix as printed (e.g. ΤΠΥ-08408, Α-ΤΙΜ0129366)",
   "invoice_date": "DD/MM/YYYY",
