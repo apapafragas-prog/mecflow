@@ -17,6 +17,7 @@ import { Login, ForcePw, ResetPassword } from "./auth.jsx";
 import { PnL, InvTab, SubTab, AccTab, LabTab, POTracker } from "./reportTabs.jsx";
 import { parseWorkbookFile, ReconcileModal } from "./importReconcile.jsx";
 import { expandFiles, extractOne } from "./scanEngine.js";
+import { DuplicateModal } from "./dupCheck.jsx";
 import { Insights } from "./insights.jsx";
 import { ChatWidget } from "./chat.jsx";
 import { Dashboard, ApArLedger, OpexCapex } from "./finance.jsx";
@@ -84,6 +85,7 @@ export default function App() {
   const [importing,setImporting] = useState(false);
   const [reconcile,setReconcile] = useState(null);   // { parsed } — open Import & Reconcile modal
   const [reconciling,setReconciling] = useState(false);
+  const [dupOpen,setDupOpen] = useState(false);      // duplicate-check modal
 
   // ── Background invoice scanning (per-client sessions; the loop lives here so it keeps running
   // while you switch tabs or clients, and you see the progress when you come back) ──
@@ -868,6 +870,10 @@ export default function App() {
                     <span style={{fontSize:16}}>📊</span>
                     <div><div>{reconciling?t("Ανάγνωση...","Reading..."):t("Import & Reconcile P&L","Import & Reconcile P&L")}</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>{t("Σύγκριση με τα υπάρχοντα + προσθήκη/ενημέρωση","Compare with existing + add / update")}</div></div>
                   </label>
+                  {/* Duplicate check */}
+                  <button onClick={()=>{setDupOpen(true);setMenuOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",border:"none",background:"none",cursor:"pointer",fontSize:13,color:P.em,fontWeight:600,textAlign:"left",borderBottom:"1px solid "+P.bd}}>
+                    <span style={{fontSize:16}}>🔍</span><div><div>{t("Έλεγχος διπλών","Duplicate check")}</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>{t("Βρες τιμολόγια με ίδιο αριθμό","Find invoices with the same number")}</div></div>
+                  </button>
                   {/* Clear All */}
                   <button onClick={async ()=>{
                     if(!confirm(t("⚠ Οριστική διαγραφή ΟΛΩΝ των δεδομένων για "+client+" "+year+";\n(τιμολόγια, υπεργολάβοι, εργασία, συμβόλαια, έγγραφα, κατάσταση)\n\nΔεν αναιρείται.","⚠ Permanently delete ALL data for "+client+" "+year+"?\n(invoices, sub, labour, contracts, documents, status)\n\nThis cannot be undone."))) return;
@@ -938,6 +944,9 @@ export default function App() {
           onClose={()=>setReconcile(null)}
           onApply={applyReconcile}
         />
+      )}
+      {dupOpen && (
+        <DuplicateModal inv={inv} sub={sub} setInv={setInv} setSub={setSub} year={year} client={client} onClose={()=>setDupOpen(false)} />
       )}
     </div>
   );
