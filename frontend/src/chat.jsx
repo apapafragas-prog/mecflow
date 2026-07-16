@@ -8,6 +8,23 @@ import { clientSeries, runRateFY, clientRisks, daysUntil } from "./calc.js";
 import { MdText } from "./ui.jsx";
 import { useT } from "./i18n.jsx";
 
+// Friendly robot mascot for the AI assistant — inline SVG so it stays crisp at any
+// size and needs no binary asset. Blue rounded head + antenna + side ears + dark
+// screen face with two eyes and a smile.
+export const AiFace = ({ size = 32 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style={{display:"block"}} aria-hidden="true">
+    <circle cx="32" cy="6.5" r="4" fill="#35ADEF"/>
+    <rect x="30.5" y="9.5" width="3" height="7.5" rx="1.5" fill="#35ADEF"/>
+    <rect x="4.5" y="25.5" width="8" height="14.5" rx="4" fill="#2E9BE0"/>
+    <rect x="51.5" y="25.5" width="8" height="14.5" rx="4" fill="#2E9BE0"/>
+    <rect x="10.5" y="15" width="43" height="35.5" rx="12" fill="#3BB0F2"/>
+    <rect x="16.5" y="21" width="31" height="23" rx="7.5" fill="#1E2A3A"/>
+    <circle cx="26" cy="31.5" r="3.1" fill="#fff"/>
+    <circle cx="38" cy="31.5" r="3.1" fill="#fff"/>
+    <path d="M25.5 36.4 Q32 41.6 38.5 36.4" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" fill="none"/>
+  </svg>
+);
+
 const grossAmt = r => Number(r.total) || (Number(r.amt)||0)+(Number(r.vat)||0) || Number(r.amt) || 0;
 const isPaid = r => r.paid==="paid" || r.paid===true;
 function buildClientSnapshot(cd, client, year) {
@@ -82,12 +99,12 @@ export function ChatWidget({user,year,ctx,nav}) {
   };
   const doAction = (a) => { if(a&&typeof a.view==="string") nav(a.view); setOpen(false); };
   if(!open) return (
-    <button onClick={()=>setOpen(true)} title={t("AI βοηθός","AI assistant")} style={{position:"fixed",bottom:22,right:22,width:56,height:56,borderRadius:"50%",background:P.em,color:"#fff",border:"none",boxShadow:"0 6px 20px rgba(0,0,0,.25)",cursor:"pointer",fontSize:24,zIndex:1200,display:"flex",alignItems:"center",justifyContent:"center"}}>🤖</button>
+    <button onClick={()=>setOpen(true)} title={t("AI βοηθός","AI assistant")} style={{position:"fixed",bottom:22,right:22,width:56,height:56,borderRadius:"50%",background:"#fff",border:"none",boxShadow:"0 6px 20px rgba(0,0,0,.25)",cursor:"pointer",zIndex:1200,display:"flex",alignItems:"center",justifyContent:"center"}}><AiFace size={40}/></button>
   );
   return (
     <div style={{position:"fixed",bottom:22,right:22,width:"min(420px, calc(100vw - 32px))",height:"min(600px, calc(100vh - 44px))",background:P.wh,borderRadius:14,boxShadow:"0 12px 48px rgba(0,0,0,.3)",zIndex:1200,display:"flex",flexDirection:"column",overflow:"hidden",border:"1px solid "+P.bd,fontFamily:"Segoe UI,Tahoma,sans-serif"}}>
       <div style={{background:P.em,color:"#fff",padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div style={{fontWeight:700,fontSize:14}}>🤖 {t("AI Βοηθός","AI Assistant")} <span style={{fontSize:11,opacity:.7,fontWeight:400}}>· {scope==="client"?ctx.client:t("Χαρτοφυλάκιο","Portfolio")} · {year}</span></div>
+        <div style={{fontWeight:700,fontSize:14}}><span style={{display:"inline-flex",verticalAlign:"middle",marginRight:6}}><AiFace size={20}/></span>{t("AI Βοηθός","AI Assistant")} <span style={{fontSize:11,opacity:.7,fontWeight:400}}>· {scope==="client"?ctx.client:t("Χαρτοφυλάκιο","Portfolio")} · {year}</span></div>
         <div style={{display:"flex",gap:6}}>
           {msgs.length>0&&<button onClick={()=>setMsgs([])} title={t("Καθαρισμός","Clear")} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"4px 8px",borderRadius:5,cursor:"pointer",fontSize:11}}>🗑</button>}
           <button onClick={()=>setOpen(false)} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",padding:"4px 10px",borderRadius:5,cursor:"pointer",fontSize:14,fontWeight:700}}>✕</button>
