@@ -285,6 +285,19 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
   open.forEach(e=>{ const k=e.counterparty; if(!byCp[k]) byCp[k]={cp:k,total:0,client:e.client}; byCp[k][e.bucket]=(byCp[k][e.bucket]||0)+e.amount; byCp[k].total+=e.amount; });
   const cpRows = Object.values(byCp).sort((a,b)=>b.total-a.total);
 
+  const exportLedger = () => {
+    const cpLabel = view==="AR" ? "Client" : "Supplier";
+    const agingAoa = [[cpLabel,"Current","1-30","31-60","61-90","90+","Total"],
+      ...cpRows.map(r=>[r.cp, ...AGING_BUCKETS.map(b=>r[b]||0), r.total]),
+      ["TOTAL", ...AGING_BUCKETS.map(b=>bucketTotal(b)), totalOpen]];
+    // The item sheet always includes every document (paid + open) regardless of the on-screen filter,
+    // so an exported ledger is a complete record; a Paid/Status column carries the state.
+    const itemsAoa = [["Date",cpLabel,"Client","Invoice No","Amount","Aging","Status"],
+      ...entries.slice().sort((a,b)=>(parseDate(b.date)?.getTime()||0)-(parseDate(a.date)?.getTime()||0))
+        .map(e=>[e.date||"", e.counterparty, e.client, e.invNo, e.amount, e.bucket, e.paid?"Paid":"Open"])];
+    exportWorkbook(`CBRE_${view}_Ledger_${year}.xlsx`, [{name:`Aging ${view}`,aoa:agingAoa},{name:"Items",aoa:itemsAoa}]);
+  };
+
   const markPaid = async (e) => {
     const list = view==="AR" ? "inv" : "sub";
     setBusy(e.client+e.id);
@@ -335,6 +348,7 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
             <button key={o.v} onClick={()=>setTerms(o.v)} style={{padding:"5px 12px",border:"1px solid "+P.bd,borderRadius:6,cursor:"pointer",fontSize:12,background:terms===o.v?P.ep:P.wh,color:P.tx,fontWeight:terms===o.v?700:400}}>{o.l}</button>
           ))}
           <label style={{fontSize:12,color:P.tm,display:"flex",alignItems:"center",gap:6,marginLeft:8,cursor:"pointer"}}><input type="checkbox" checked={showPaid} onChange={e=>setShowPaid(e.target.checked)} /> {t("Εμφάνιση εξοφλημένων","Show paid")}</label>
+          {!loading && <button onClick={exportLedger} style={{marginLeft:"auto",padding:"6px 14px",border:"1px solid "+P.em,borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,background:P.wh,color:P.em}}>⬇ {t("Εξαγωγή Excel","Export Excel")}</button>}
         </div>
 
         {loading ? <div style={{padding:40,textAlign:"center",color:P.tm}}>{t("Φόρτωση…","Loading…")}</div> : (
