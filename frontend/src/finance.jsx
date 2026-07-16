@@ -4,7 +4,7 @@
 //   OpexCapex  — company OPEX budget-vs-actual + CAPEX register with depreciation.
 import { useState, useEffect, useRef } from "react";
 import { api } from "./api.js";
-import { P, MONTHS, ML, YEARS, uid, fmt, fPct, REPORT_STATUS, DEFAULT_OPEX_CATS, CAPEX_CATS, CAPEX_STATUS, normalizeClientData } from "./constants.js";
+import { P, MONTHS, ML, YEARS, uid, fmt, fPct, DEFAULT_OPEX_CATS, CAPEX_CATS, CAPEX_STATUS, normalizeClientData } from "./constants.js";
 import { agingBucket, AGING_BUCKETS, depreciation, daysUntil, parseDate, runRateFY, clientRisks } from "./calc.js";
 
 // getYearData returns RAW stored blobs; heal each client's months/keys onto the active FY (same as
@@ -12,7 +12,7 @@ import { agingBucket, AGING_BUCKETS, depreciation, daysUntil, parseDate, runRate
 const normYear = (d) => Object.fromEntries(Object.entries(d || {}).map(([c, cd]) => [c, normalizeClientData(cd)]));
 import { Inp, Sel, LangToggle } from "./ui.jsx";
 import { AiCard } from "./insights.jsx";
-import { useT, monthLabel, statusLabel } from "./i18n.jsx";
+import { useT, monthLabel } from "./i18n.jsx";
 
 // Consolidated portfolio dashboard (finance/admin + ops for their own clients).
 // Loads ALL clients' data for the year at once via getYearData — so totals are real,
@@ -41,8 +41,6 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
   const totCost = rows.reduce((s,r)=>s+r.cost,0);
   const totLab = rows.reduce((s,r)=>s+r.labour,0);
   const totGM = totRev-totCost-totLab;
-  const byStatus = (st)=>rows.filter(r=>r.status===st).length;
-  const pending = rows.filter(r=>r.status==="submitted").sort((a,b)=>b.rev-a.rev);
   const topGM = [...active].sort((a,b)=>b.gm-a.gm).slice(0,8);
 
   // Monthly aggregates across all clients
@@ -63,7 +61,6 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
       <div style={{fontSize:22,fontWeight:800,color:c,marginTop:5}}>{pct?fPct(v):"€"+fmt(v)}</div>
     </div>
   );
-  const st = s => REPORT_STATUS.find(x=>x.v===s)||REPORT_STATUS[0];
 
   return (
     <div style={{minHeight:"100vh",background:P.of,fontFamily:"Segoe UI,Tahoma,sans-serif"}}>
@@ -100,7 +97,7 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
             </div>
           </div>
 
-          <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:16,alignItems:"start"}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr",gap:16,alignItems:"start"}}>
             {/* Monthly trend */}
             <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16}}>
               <div style={{fontSize:13,fontWeight:700,color:P.em,marginBottom:12}}>{t("Μηνιαία τάση — Έσοδα / GM","Monthly trend — Revenue / GM")}</div>
@@ -120,33 +117,6 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
               <div style={{display:"flex",gap:16,marginTop:10,fontSize:10,color:P.tm}}>
                 <span><span style={{display:"inline-block",width:10,height:10,background:P.ep,borderRadius:2,verticalAlign:"middle",marginRight:4}} />{t("Έσοδα","Revenue")}</span>
                 <span><span style={{display:"inline-block",width:10,height:10,background:P.em,borderRadius:2,verticalAlign:"middle",marginRight:4}} />GM</span>
-              </div>
-            </div>
-
-            {/* Completeness + pending */}
-            <div style={{display:"flex",flexDirection:"column",gap:16}}>
-              <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16}}>
-                <div style={{fontSize:13,fontWeight:700,color:P.em,marginBottom:10}}>{t("Πληρότητα αναφορών","Report completeness")}</div>
-                {(()=>{ const ap=byStatus("approved"),su=byStatus("submitted"),rj=byStatus("rejected"),n=rows.length||1;
-                  return (<>
-                    <div style={{display:"flex",height:14,borderRadius:7,overflow:"hidden",marginBottom:10,background:"#ECEFF1"}}>
-                      <div style={{width:(ap/n*100)+"%",background:"#2E7D32"}} title={`Approved ${ap}`} />
-                      <div style={{width:(su/n*100)+"%",background:"#F57F17"}} title={`Submitted ${su}`} />
-                      <div style={{width:(rj/n*100)+"%",background:"#C62828"}} title={`Rejected ${rj}`} />
-                    </div>
-                    {[[t("Εγκρίθηκε","Approved"),ap,"#2E7D32"],[t("Υποβλήθηκε (εκκρεμεί)","Submitted (pending)"),su,"#F57F17"],[t("Απορρίφθηκε","Rejected"),rj,"#C62828"],[t("Πρόχειρο","Draft"),byStatus("draft"),"#78909C"]].map(([l,v,c])=>(
-                      <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"3px 0"}}><span style={{color:c,fontWeight:600}}>● {l}</span><span style={{fontWeight:700}}>{v}</span></div>
-                    ))}
-                  </>);
-                })()}
-              </div>
-              <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16}}>
-                <div style={{fontSize:13,fontWeight:700,color:"#F57F17",marginBottom:10}}>⏳ {t("Εκκρεμούν έγκριση","Pending approval")} ({pending.length})</div>
-                {pending.length? pending.slice(0,8).map(p=>(
-                  <div key={p.name} onClick={()=>onSelectClient&&onSelectClient(p.name)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid "+P.bd,cursor:"pointer",fontSize:12}}>
-                    <span style={{fontWeight:600,color:P.em}}>{p.name}</span><span style={{color:P.gn}}>€{fmt(p.rev)}</span>
-                  </div>
-                )) : <div style={{fontSize:12,color:P.tm,fontStyle:"italic"}}>{t("Καμία εκκρεμότητα 🎉","Nothing pending 🎉")}</div>}
               </div>
             </div>
           </div>
@@ -185,7 +155,6 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
               actualFY: { rev:Math.round(totRev), cost:Math.round(totCost), labour:Math.round(totLab), gm:Math.round(totGM) },
               projectedFY: { rev:Math.round(rr.projected.rev), cost:Math.round(rr.projected.cost), gm:Math.round(rr.projected.gm) },
               gmPctActual: totRev?+((totGM/totRev)*100).toFixed(1):null,
-              pendingApprovals: pending.length,
               monthly: monthly.filter(x=>x.rev||x.cost).map(x=>({month:ML[x.m]||x.m, rev:Math.round(x.rev), cost:Math.round(x.cost), gm:Math.round(x.gm)})),
               clientsAtRisk: riskyClients.slice(0,10).map(c=>({client:c.name, risks:c.labels})),
             });
@@ -216,8 +185,8 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
           <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16,marginTop:16}}>
             <div style={{fontSize:13,fontWeight:700,color:P.em,marginBottom:10}}>{t("Top πελάτες κατά GM","Top clients by GM")}</div>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-              <thead><tr>{["#",t("Πελάτης","Client"),t("Έσοδα €","Revenue €"),t("Κόστος €","Cost €"),t("Εργασία €","Labour €"),"GM €","GM%",t("Κατάσταση","Status")].map((h,i)=>(<th key={i} style={{padding:"6px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:i>=2&&i<=6?"right":"left"}}>{h}</th>))}</tr></thead>
-              <tbody>{topGM.map((r,i)=>{ const s=st(r.status); return (
+              <thead><tr>{["#",t("Πελάτης","Client"),t("Έσοδα €","Revenue €"),t("Κόστος €","Cost €"),t("Εργασία €","Labour €"),"GM €","GM%"].map((h,i)=>(<th key={i} style={{padding:"6px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:i>=2&&i<=6?"right":"left"}}>{h}</th>))}</tr></thead>
+              <tbody>{topGM.map((r,i)=>{ return (
                 <tr key={r.name} onClick={()=>onSelectClient&&onSelectClient(r.name)} style={{background:i%2===0?P.wh:P.al,cursor:"pointer"}}>
                   <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,color:P.tm}}>{i+1}</td>
                   <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,fontWeight:600,color:P.em}}>{r.name}</td>
@@ -226,7 +195,6 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
                   <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right"}}>{fmt(r.labour)}</td>
                   <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",fontWeight:600,color:r.gm>=0?P.em:P.rd}}>{fmt(r.gm)}</td>
                   <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",color:P.tm}}>{r.rev?fPct(r.gm/r.rev):"-"}</td>
-                  <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd}}><span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:s.bg,color:s.color}}>{statusLabel(s.v,s.l)}</span></td>
                 </tr>
               ); })}</tbody>
             </table>

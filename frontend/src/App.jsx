@@ -9,7 +9,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 if (typeof window !== "undefined") { window.JSZip = JSZip; window.pdfjsLib = pdfjsLib; }
 
 import {
-  uid, CLIENTS, REPORT_STATUS, MONTHS, ML, setFiscalYear, normalizeClientData, currentFyLabel,
+  uid, CLIENTS, MONTHS, ML, setFiscalYear, normalizeClientData, currentFyLabel,
   REV_CATS, COST_CATS, LAB_ROWS, LAB_ALL_ROWS, LAB_EW_KEY, LAB_PJM_KEY, mkLab, mkAlloc, P, YEARS,
 } from "./constants.js";
 import { LogoImg, LangToggle } from "./ui.jsx";
@@ -26,7 +26,7 @@ import { AdminPanel } from "./admin.jsx";
 import { Scan } from "./scan.jsx";
 import { ClientPicker } from "./clientPicker.jsx";
 import { ContractTab } from "./contracts.jsx";
-import { useT, statusLabel, monthLabel } from "./i18n.jsx";
+import { useT, monthLabel } from "./i18n.jsx";
 
 // A scan session is per-client so scanning survives tab/client navigation (it lives in App,
 // which never unmounts). Fresh object each call to avoid shared-reference mutation.
@@ -538,17 +538,8 @@ export default function App() {
           <button onClick={()=>{flushSave();setClient(null);}} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",padding:"4px 12px",borderRadius:4,cursor:"pointer",fontSize:12}}>◀ {t("Πελάτες","Clients")}</button>
           <LogoImg name={client} size={28} radius={4} />
           <span style={{fontSize:14,fontWeight:600,borderLeft:"1px solid rgba(255,255,255,.3)",paddingLeft:12}}>{client} — {year}</span>
-          {(()=>{const rs=REPORT_STATUS.find(x=>x.v===(cd.status||"draft"))||REPORT_STATUS[0]; return <span style={{padding:"3px 12px",borderRadius:12,fontSize:10,fontWeight:700,background:rs.bg,color:rs.color,marginLeft:8}}>{statusLabel(rs.v,rs.l)}</span>;})()}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8,fontSize:13,position:"relative"}}>
-          {/* Quick approve/reject for finance */}
-          {(user.role==="finance"||user.role==="admin")&&cd.status==="submitted"&&(
-            <>
-              <button onClick={()=>{upClient("status","approved");upClient("rejectNote","");}} style={{background:P.gn,border:"none",color:"#fff",padding:"6px 14px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600}}>✓ {t("Έγκριση","Approve")}</button>
-              <button onClick={()=>{const why=prompt(t("Λόγος απόρριψης (θα τον δει ο χρήστης που υπέβαλε):","Rejection reason (visible to the user who submitted):"),"");if(why===null)return;upClient("status","rejected");upClient("rejectNote",why||"");}} style={{background:P.rd,border:"none",color:"#fff",padding:"6px 14px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600}}>✗ {t("Απόρριψη","Reject")}</button>
-            </>
-          )}
-
           {/* Actions dropdown */}
           <div style={{position:"relative"}}>
             <button onClick={()=>setMenuOpen(!menuOpen)} style={{background:"#00897B",border:"none",color:"#fff",padding:"7px 16px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
@@ -558,22 +549,6 @@ export default function App() {
               <>
                 <div onClick={()=>setMenuOpen(false)} style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:99}} />
                 <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,background:"#fff",borderRadius:8,boxShadow:"0 8px 24px rgba(0,0,0,.18)",minWidth:240,zIndex:100,overflow:"hidden",border:"1px solid "+P.bd}}>
-                  {/* Submit */}
-                  {(user.role==="ops"||user.role==="admin")&&(cd.status||"draft")==="draft"&&(
-                    <button onClick={()=>{upClient("status","submitted");upClient("submittedBy",user.name);upClient("submittedAt",new Date().toLocaleDateString());setMenuOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",border:"none",background:"none",cursor:"pointer",fontSize:13,color:"#F57F17",fontWeight:600,textAlign:"left",borderBottom:"1px solid "+P.bd}}>
-                      <span style={{fontSize:16}}>📤</span><div><div>{t("Υποβολή Αναφοράς","Submit Report")}</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>{t("Αποστολή στο Finance για έγκριση","Send to finance for approval")}</div></div>
-                    </button>
-                  )}
-                  {(user.role==="ops"||user.role==="admin")&&cd.status==="rejected"&&(
-                    <button onClick={()=>{upClient("status","submitted");upClient("submittedBy",user.name);upClient("submittedAt",new Date().toLocaleDateString());upClient("rejectNote","");setMenuOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",border:"none",background:"none",cursor:"pointer",fontSize:13,color:"#F57F17",fontWeight:600,textAlign:"left",borderBottom:"1px solid "+P.bd}}>
-                      <span style={{fontSize:16}}>📤</span><div><div>{t("Επανυποβολή Αναφοράς","Re-Submit Report")}</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>{t("Μετά τις διορθώσεις","After making corrections")}</div></div>
-                    </button>
-                  )}
-                  {cd.status==="approved"&&user.role==="admin"&&(
-                    <button onClick={()=>{upClient("status","draft");setMenuOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",border:"none",background:"none",cursor:"pointer",fontSize:13,color:P.tx,fontWeight:600,textAlign:"left",borderBottom:"1px solid "+P.bd}}>
-                      <span style={{fontSize:16}}>↺</span><div><div>{t("Επαναφορά Αναφοράς","Reopen Report")}</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>{t("Επιστροφή σε πρόχειρο","Move back to draft")}</div></div>
-                    </button>
-                  )}
                   {/* Export Excel */}
                   <button onClick={()=>{exportXL();setMenuOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",border:"none",background:"none",cursor:"pointer",fontSize:13,color:P.em,fontWeight:600,textAlign:"left",borderBottom:"1px solid "+P.bd}}>
                     <span style={{fontSize:16}}>📥</span><div><div>{t("Λήψη Excel","Download Excel")}</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>{t("Εξαγωγή πλήρους αναφοράς","Export full report")}</div></div>
@@ -591,10 +566,6 @@ export default function App() {
                     <span style={{fontSize:16}}>📊</span>
                     <div><div>{reconciling?t("Ανάγνωση...","Reading..."):t("Import & Reconcile P&L","Import & Reconcile P&L")}</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>{t("Σύγκριση με τα υπάρχοντα + προσθήκη/ενημέρωση","Compare with existing + add / update")}</div></div>
                   </label>
-                  {/* Duplicate check */}
-                  <button onClick={()=>{setDupOpen(true);setMenuOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",border:"none",background:"none",cursor:"pointer",fontSize:13,color:P.em,fontWeight:600,textAlign:"left",borderBottom:"1px solid "+P.bd}}>
-                    <span style={{fontSize:16}}>🔍</span><div><div>{t("Έλεγχος διπλών","Duplicate check")}</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>{t("Βρες τιμολόγια με ίδιο αριθμό","Find invoices with the same number")}</div></div>
-                  </button>
                   {/* Clear All */}
                   <button onClick={async ()=>{
                     // Type-to-confirm: must type the exact client name, so a stray click can't wipe data.
@@ -627,12 +598,6 @@ export default function App() {
           <button onClick={logout} style={{background:"rgba(255,255,255,.15)",border:"none",color:P.wh,padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>{t("Αποσύνδεση","Logout")}</button>
         </div>
       </div>
-      {cd.status==="rejected" && cd.rejectNote && (
-        <div style={{background:"#FFEBEE",borderBottom:"1px solid #F5C6CB",color:P.rd,padding:"8px 24px",fontSize:13,display:"flex",alignItems:"center",gap:8}}>
-          <span style={{fontWeight:700}}>✗ {t("Απορρίφθηκε από Finance:","Rejected by Finance:")}</span>
-          <span style={{color:P.tx}}>{cd.rejectNote}</span>
-        </div>
-      )}
       <div style={{background:P.wh,borderBottom:"1px solid "+P.bd,display:"flex",padding:"0 16px",overflowX:"auto"}}>
         {tabOrder.map((tb,i) => (
           <button key={tb.id}
@@ -656,8 +621,8 @@ export default function App() {
         {tab==="scan" && <Scan session={scanSession} scanApi={scanApi} goTo={setTab} year={year} client={client} onAdd={items => setSub(p => [...p,...items.map(x => ({...x,id:uid()}))])} onAddAR={items => setInv(p => [...p,...items.map(x => ({...x,id:uid()}))])} />}
         {tab==="pnl" && <PnL inv={inv} sub={sub} lab={lab} />}
         {tab==="insights" && <Insights inv={inv} sub={sub} lab={lab} contracts={contracts} client={client} year={year} />}
-        {tab==="inv" && <InvTab data={inv} set={setInv} contracts={contracts} year={year} client={client} />}
-        {tab==="sub" && <SubTab data={sub} set={setSub} contracts={contracts} year={year} client={client} />}
+        {tab==="inv" && <InvTab data={inv} set={setInv} contracts={contracts} year={year} client={client} onDupCheck={()=>setDupOpen(true)} />}
+        {tab==="sub" && <SubTab data={sub} set={setSub} contracts={contracts} year={year} client={client} onDupCheck={()=>setDupOpen(true)} />}
         {tab==="acc" && <AccTab inv={inv} sub={sub} data={manualAccruals} set={setManualAccruals} />}
         {tab==="lab" && <LabTab data={lab} set={setLab} />}
       </div>

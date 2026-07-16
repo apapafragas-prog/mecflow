@@ -79,6 +79,17 @@ describe("buildReconciliation — invoice-number identity prevents duplicates", 
     expect(rec.inv.changed.length).toBe(1);       // recognized as the same invoice, updated
     expect(rec.inv.changed[0].sysId).toBe("s1");
   });
+  it("line items of one invoice (same number, different amounts) stay distinct — not merged", () => {
+    // Invoice 2026-478 has 3 separate line items; none should collapse into another.
+    const parsed = { inv: [
+      { month: MONTHS[3], cat: "CLIENT REVENUE - FM Core", inv_no: "2026-478", amt: 5461, vat: 1310.64 },
+      { month: MONTHS[3], cat: "CLIENT REVENUE - FM Core", inv_no: "2026-478", amt: 117, vat: 28.08 },
+      { month: MONTHS[3], cat: "CLIENT REVENUE - FM Core", inv_no: "2026-478", amt: 975, vat: 234 },
+    ], sub: [], lab: {} };
+    const rec = buildReconciliation(parsed, { inv: [], sub: [], lab: {} });
+    expect(rec.inv.newRows.length).toBe(3);   // all three kept as distinct new rows
+    expect(rec.inv.changed.length).toBe(0);
+  });
   it("identical invoice (same month/amount) → MATCH, no action", () => {
     const row = { month: MONTHS[5], cat: "CLIENT REVENUE - FM Core", inv_no: "2026-742", amt: 22132.24, vat: 5311.74 };
     const rec = buildReconciliation({ inv: [row], sub: [], lab: {} }, { inv: [{ ...row, id: "s1" }], sub: [], lab: {} });

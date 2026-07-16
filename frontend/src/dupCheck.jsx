@@ -26,8 +26,10 @@ function findGroups(rows, noKey) {
 
 export function DuplicateModal({ inv, sub, setInv, setSub, year, client, onClose }) {
   const { t } = useT();
-  const invGroups = useMemo(() => findGroups(inv || [], (r) => norm(r.inv_no)), [inv]);
-  const subGroups = useMemo(() => findGroups(sub || [], (r) => norm(r.supplier) + "|" + norm(r.inv_no)), [sub]);
+  // A duplicate = same invoice number AND same amount. Number alone would wrongly flag the separate
+  // LINE ITEMS of one invoice (same number, different amounts) as duplicates.
+  const invGroups = useMemo(() => findGroups(inv || [], (r) => norm(r.inv_no) + "|" + round2(r.amt)), [inv]);
+  const subGroups = useMemo(() => findGroups(sub || [], (r) => norm(r.supplier) + "|" + norm(r.inv_no) + "|" + round2(r.amt)), [sub]);
   const total = invGroups.length + subGroups.length;
   const dupCount = [...invGroups, ...subGroups].reduce((s, g) => s + (g.rows.length - 1), 0);
 

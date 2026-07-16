@@ -197,7 +197,7 @@ export function PnL({inv,sub,lab}) {
   );
 }
 
-export function InvTab({data,set,contracts,year,client}) {
+export function InvTab({data,set,contracts,year,client,onDupCheck}) {
   const { t } = useT();
   const poList = (contracts||[]).filter(c=>c.type==="PO"&&c.po).map(c=>c.po);
   const poOpts = [{v:"",l:t("— Κανένα —","— None —")},...poList.map(p=>({v:p,l:p}))];
@@ -220,6 +220,7 @@ export function InvTab({data,set,contracts,year,client}) {
         <Inp l={t("Σχόλια","Comments")} v={f.comments} set={v=>sF(x=>({...x,comments:v}))} w={120} />
         <button onClick={add} style={{background:P.em,color:"#fff",border:"none",padding:"7px 18px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>+ {t("Προσθήκη","Add")}</button>
       </div>
+      {onDupCheck && <div style={{marginBottom:12}}><button onClick={onDupCheck} style={{background:P.ep,color:P.em,border:"1px solid "+P.bd,padding:"6px 14px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>🔍 {t("Έλεγχος διπλών","Duplicate check")}</button></div>}
       <Tbl cols={[
         {k:"month",l:t("Μήνας","Month"),opts:MONTHS.map(m=>({v:m,l:monthLabel(m)})),mw:90},
         {k:"site",l:"Site",opts:SITES.map(s=>({v:s,l:s})),mw:70},
@@ -246,7 +247,7 @@ export function InvTab({data,set,contracts,year,client}) {
   );
 }
 
-export function SubTab({data,set,contracts,year,client}) {
+export function SubTab({data,set,contracts,year,client,onDupCheck}) {
   const { t } = useT();
   const activeFee = (contracts||[]).find(c=>c.status==="Active"&&c.type==="MSA")?.fee_pct || 5.5;
   const [f,sF] = useState({site:SITES[0],month:MONTHS[0],cat:COST_CATS[0],gl:"",supplier:"",svc_cat:SVC_CATS[0],svc_desc:"",inv_no:"",date:"",amt:"",vat:"",act_acc:"ACTUAL",comments:"",fee_pct:activeFee});
@@ -279,6 +280,7 @@ export function SubTab({data,set,contracts,year,client}) {
         <Inp l={t("Σχόλια","Comments")} v={f.comments||""} set={v=>sF(x=>({...x,comments:v}))} w={110} />
         <button onClick={add} style={{background:P.em,color:"#fff",border:"none",padding:"7px 18px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>+ {t("Προσθήκη","Add")}</button>
       </div>
+      {onDupCheck && <div style={{marginBottom:12}}><button onClick={onDupCheck} style={{background:P.ep,color:P.em,border:"1px solid "+P.bd,padding:"6px 14px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>🔍 {t("Έλεγχος διπλών","Duplicate check")}</button></div>}
       <Tbl cols={[
         {k:"month",l:t("Μήνας","Month"),opts:MONTHS.map(m=>({v:m,l:monthLabel(m)})),mw:90},
         {k:"cat",l:t("Κατ. Υπεργ.","Sub Category"),opts:COST_CATS.map(c=>({v:c,l:catLabel(c)})),mw:140},

@@ -239,16 +239,17 @@ export function reconcileRows(fileRows, sysRows, idOf, fullOf) {
   return out;
 }
 
-// IDENTITY = the invoice number alone (unique per client), so the SAME invoice is matched even if
-// it landed in a different month/category (e.g. scanned into May, but the P&L file books it to June).
-// That makes such a case a CHANGED (updated in place) instead of a NEW row — no duplicates.
-// FULL adds month/category/amounts so a genuine difference still registers as CHANGED vs MATCH.
+// IDENTITY = invoice number + amount. Number alone is NOT enough: one invoice can have several
+// LINE ITEMS that share the number but differ in amount — those must stay distinct, not collapse
+// into one. Number+amount still matches the SAME line even if it landed in a different month
+// (e.g. scanned into May but the P&L books it to June) → CHANGED (updated in place), not a
+// duplicate. FULL adds month/category so a real difference registers as CHANGED vs MATCH.
 // No invoice number (accruals) → fall back to a content key.
 const norm = (s) => String(s || "").toLowerCase().replace(/\s+/g, "").trim();
-const invId = (r) => { const no = norm(r.inv_no); return no ? `no:${no}` : `x:${r.month}|${r.cat}|${round2(r.amt)}|${norm(r.comments)}`; };
-const invFull = (r) => `${invId(r)}|${r.month}|${r.cat}|${round2(r.amt)}|${round2(r.vat)}`;
-const subId = (r) => { const no = norm(r.inv_no); return no ? `no:${no}` : `x:${r.month}|${r.cat}|${norm(r.supplier)}|${round2(r.amt)}`; };
-const subFull = (r) => `${subId(r)}|${r.month}|${r.cat}|${norm(r.supplier)}|${round2(r.amt)}`;
+const invId = (r) => { const no = norm(r.inv_no); return no ? `no:${no}|${round2(r.amt)}` : `x:${r.month}|${r.cat}|${round2(r.amt)}|${norm(r.comments)}`; };
+const invFull = (r) => `${invId(r)}|${r.month}|${r.cat}|${round2(r.vat)}`;
+const subId = (r) => { const no = norm(r.inv_no); return no ? `no:${no}|${round2(r.amt)}` : `x:${r.month}|${r.cat}|${norm(r.supplier)}|${round2(r.amt)}`; };
+const subFull = (r) => `${subId(r)}|${r.month}|${r.cat}|${norm(r.supplier)}`;
 
 // Per-cell labour diff (month × labour line). Skips 0/0 cells.
 export function reconcileLabour(fileLab, sysLab) {

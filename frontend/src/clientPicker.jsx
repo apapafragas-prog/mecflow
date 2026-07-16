@@ -1,9 +1,9 @@
 // Client selection landing screen (per-user client list with status + logo). Extracted from App.jsx.
 import { useState } from "react";
-import { P, CLIENTS, YEARS, REPORT_STATUS, fmt, fPct } from "./constants.js";
+import { P, CLIENTS, YEARS, fmt, fPct } from "./constants.js";
 import { LogoImg, LangToggle } from "./ui.jsx";
 import { AdminPanel } from "./admin.jsx";
-import { useT, statusLabel } from "./i18n.jsx";
+import { useT } from "./i18n.jsx";
 
 
 export function ClientPicker({user,year,setYear,onSelect,onLogout,allData,loading,onOpenFinance,onOpenDash,onOpenLedger,onOpenGroup}) {
@@ -26,20 +26,15 @@ export function ClientPicker({user,year,setYear,onSelect,onLogout,allData,loadin
   const totRev = allStats.reduce((s,x)=>s+x.rev,0);
   const totGM = allStats.reduce((s,x)=>s+x.gm,0);
   const activeN = allStats.filter(x=>x.inv>0).length;
-  const submitted = allStats.filter(x=>x.status==="submitted").length;
-  const approved = allStats.filter(x=>x.status==="approved").length;
 
   const filtered = allStats.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
   const sorted = filtered.sort((a,b) => {
     if(sort==="rev") return b.rev-a.rev;
     if(sort==="gm") return b.gm-a.gm;
-    if(sort==="status") return a.status.localeCompare(b.status);
     const ha=a.inv+a.sub, hb=b.inv+b.sub;
     if(ha>0&&hb===0) return -1; if(hb>0&&ha===0) return 1;
     return a.name.localeCompare(b.name);
   });
-
-  const rs = s => REPORT_STATUS.find(x=>x.v===s)||REPORT_STATUS[0];
 
   return (
     <div style={{minHeight:"100vh",background:P.of,fontFamily:"Segoe UI,Tahoma,sans-serif"}}>
@@ -76,8 +71,6 @@ export function ClientPicker({user,year,setYear,onSelect,onLogout,allData,loadin
             <span style={{color:P.gn,fontWeight:600}}>{t("Έσοδα","Rev")}: €{fmt(totRev)}</span>
             <span style={{color:totGM>=0?P.gn:P.rd,fontWeight:600}}>GM: €{fmt(totGM)}</span>
             <span style={{color:P.tx}}>{activeN} {t("ενεργοί","active")}</span>
-            {submitted>0&&<span style={{color:"#F57F17",fontWeight:600}}>{submitted} {t("εκκρεμούν","pending")}</span>}
-            {approved>0&&<span style={{color:P.gn}}>{approved} {t("εγκεκριμένοι","approved")}</span>}
           </div>
         </div>
 
@@ -85,7 +78,7 @@ export function ClientPicker({user,year,setYear,onSelect,onLogout,allData,loadin
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:12}}>
           <input placeholder={t("🔍 Αναζήτηση...","🔍 Search...")} value={search} onChange={e=>setSearch(e.target.value)} style={{padding:"7px 14px",border:"1px solid "+P.bd,borderRadius:6,fontSize:13,outline:"none",width:240,background:P.wh}} />
           <div style={{display:"flex",gap:4,fontSize:12}}>
-            {[{v:"name",l:"A→Z"},{v:"rev",l:t("Έσοδα","Revenue")},{v:"gm",l:"GM"},{v:"status",l:t("Κατάσταση","Status")}].map(s=>(
+            {[{v:"name",l:"A→Z"},{v:"rev",l:t("Έσοδα","Revenue")},{v:"gm",l:"GM"}].map(s=>(
               <button key={s.v} onClick={()=>setSort(s.v)} style={{padding:"5px 10px",border:"1px solid "+P.bd,borderRadius:4,cursor:"pointer",background:sort===s.v?P.ep:P.wh,color:P.tx,fontSize:11,fontWeight:sort===s.v?600:400}}>{s.l}</button>
             ))}
           </div>
@@ -95,12 +88,11 @@ export function ClientPicker({user,year,setYear,onSelect,onLogout,allData,loadin
         <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,overflow:"hidden"}}>
           <table style={{width:"100%",borderCollapse:"collapse"}}>
             <thead><tr>
-              {[["Client",t("Πελάτης","Client")],["Revenue €",t("Έσοδα €","Revenue €")],["Cost €",t("Κόστος €","Cost €")],["GM €","GM €"],["GM%","GM%"],["Invoices",t("Τιμολόγια","Invoices")],["Sub",t("Υπεργ.","Sub")],["Contracts",t("Συμβόλαια","Contracts")],["PO Value €",t("Αξία PO €","PO Value €")],["Report Status",t("Κατάσταση Αναφοράς","Report Status")]].map(([k,h])=>(
-                <th key={k} style={{padding:"8px 12px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:k==="Client"||k==="Report Status"?"left":"right"}}>{h}</th>
+              {[["Client",t("Πελάτης","Client")],["Revenue €",t("Έσοδα €","Revenue €")],["Cost €",t("Κόστος €","Cost €")],["GM €","GM €"],["GM%","GM%"],["Invoices",t("Τιμολόγια","Invoices")],["Sub",t("Υπεργ.","Sub")],["Contracts",t("Συμβόλαια","Contracts")],["PO Value €",t("Αξία PO €","PO Value €")]].map(([k,h])=>(
+                <th key={k} style={{padding:"8px 12px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:k==="Client"?"left":"right"}}>{h}</th>
               ))}
             </tr></thead>
             <tbody>{sorted.map((c,i) => {
-              const st = rs(c.status);
               return (
                 <tr key={c.name} onClick={()=>onSelect(c.name)} style={{cursor:"pointer",background:i%2===0?P.wh:P.al,transition:"background .1s"}}
                   onMouseEnter={e=>e.currentTarget.style.background=P.ep}
@@ -122,9 +114,6 @@ export function ClientPicker({user,year,setYear,onSelect,onLogout,allData,loadin
                   <td style={{padding:"8px 12px",fontSize:12,textAlign:"right",borderBottom:"1px solid "+P.bd}}>{c.sub||"-"}</td>
                   <td style={{padding:"8px 12px",fontSize:12,textAlign:"right",borderBottom:"1px solid "+P.bd}}>{c.contracts||"-"}</td>
                   <td style={{padding:"8px 12px",fontSize:12,textAlign:"right",borderBottom:"1px solid "+P.bd}}>{c.poVal?fmt(c.poVal):"-"}</td>
-                  <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd}}>
-                    <span style={{padding:"3px 10px",borderRadius:12,fontSize:10,fontWeight:700,background:st.bg,color:st.color,whiteSpace:"nowrap"}}>{statusLabel(st.v,st.l)}</span>
-                  </td>
                 </tr>
               );
             })}</tbody>
