@@ -82,7 +82,6 @@ export default function App() {
   const [dragTab,setDragTab] = useState(null);
   const [overTab,setOverTab] = useState(null);
   const [menuOpen,setMenuOpen] = useState(false);
-  const [importing,setImporting] = useState(false);
   const [reconcile,setReconcile] = useState(null);   // { parsed } — open Import & Reconcile modal
   const [reconciling,setReconciling] = useState(false);
   const [dupOpen,setDupOpen] = useState(false);      // duplicate-check modal
@@ -509,278 +508,6 @@ export default function App() {
     XLSX.writeFile(wb, "CBRE_"+client.replace(/\s/g,"")+"_Report_"+year+".xlsx");
   };
 
-  // Import historical data from Excel
-  const importExcel = async (file) => {
-    if(!file) return;
-    setImporting(true);
-    try {
-      const buf = await file.arrayBuffer();
-      // Read raw serials (cellDates:false) and convert them ourselves with UTC math. Letting XLSX
-      // build Dates (cellDates:true) shifts them by the local timezone, which rolled month/date
-      // serials back a day (e.g. 1-Jan → 31-Dec) and mis-bucketed whole periods.
-      const wb = XLSX.read(buf,{type:"array",cellDates:false});
-      const sheetNames = wb.SheetNames;
-      const get = name => name && wb.Sheets[name] ? XLSX.utils.sheet_to_json(wb.Sheets[name],{defval:"",raw:true}) : [];
-
-      const xlToDate = (n) => new Date(Math.round((n - 25569) * 86400000)); // Excel serial → UTC date
-      // Helper: convert any value to a dd/mm/yyyy string safely
-      const dateToStr = (v) => {
-        if(v==null||v==="") return "";
-        if(v instanceof Date && !isNaN(v)) return String(v.getUTCDate()).padStart(2,"0")+"/"+String(v.getUTCMonth()+1).padStart(2,"0")+"/"+v.getUTCFullYear();
-        if(typeof v==="number" && v>=20000 && v<=90000){ const d=xlToDate(v); return String(d.getUTCDate()).padStart(2,"0")+"/"+String(d.getUTCMonth()+1).padStart(2,"0")+"/"+d.getUTCFullYear(); }
-        return String(v);
-      };
-
-      // Fuzzy sheet finder by name keywords
-      const findSheet = (keywords) => {
-        const lc = sheetNames.map(n=>n.toLowerCase());
-        for(const kw of keywords) {
-          const idx = lc.findIndex(n => n.includes(kw.toLowerCase()));
-          if(idx>=0) return sheetNames[idx];
-        }
-        return null;
-      };
-      // Fallback: detect sheet by column headers
-      const findSheetByHeaders = (mustHave, mustNotHave=[]) => {
-        for(const name of sheetNames) {
-          const data = get(name);
-          if(!data.length) continue;
-          const headers = Object.keys(data[0]).map(h=>h.toLowerCase().trim());
-          const hasAll = mustHave.every(needed => headers.some(h=>h.includes(needed.toLowerCase())));
-          const hasNone = mustNotHave.every(bad => !headers.some(h=>h.includes(bad.toLowerCase())));
-          if(hasAll && hasNone) return name;
-        }
-        return null;
-      };
-
-      // Detect each sheet — name first, then header content fallback
-      let invSheet = findSheet(["cbre invoice","cbre_inv","client invoice","customer invoice","ar invoice","revenue"]);
-      let subSheet = findSheet(["sub invoice","subcontractor","sub_inv","sub inv","subs","ap invoice","supplier invoice","cost invoice","ap "]);
-      let labSheet = findSheet(["labour cost","labour","labor cost","labor","staff cost","payroll","headcount"]);
-      let conSheet = findSheet(["contract","po list","purchase order"]);
-
-      // Header-based fallback for sub (detects by presence of supplier+amount, no client_revenue)
-      if(!subSheet) subSheet = findSheetByHeaders(["supplier","amount"]) || findSheetByHeaders(["vendor","amount"]) || findSheetByHeaders(["supplier","net"]);
-      // For inv (revenue) — has revenue category or client revenue
-      if(!invSheet) invSheet = findSheetByHeaders(["category","amount"], ["supplier","vendor"]);
-      // Avoid sub being same as inv
-      if(invSheet && invSheet===subSheet) {
-        const altSub = sheetNames.find(n => n!==invSheet && get(n).length>0 && Object.keys(get(n)[0]||{}).some(h=>h.toLowerCase().includes("supplier")));
-        if(altSub) subSheet = altSub;
-      }
-
-      const fld = (r,...keys) => {
-        for(const k of keys) {
-          if(r[k]!==undefined && r[k]!=="" && r[k]!==null) return r[k];
-          const found = Object.keys(r).find(rk => rk.toLowerCase().trim()===k.toLowerCase().trim());
-          if(found && r[found]!==undefined && r[found]!=="" && r[found]!==null) return r[found];
-          // Partial match
-          const partial = Object.keys(r).find(rk => rk.toLowerCase().trim().includes(k.toLowerCase().trim()));
-          if(partial && r[partial]!==undefined && r[partial]!=="" && r[partial]!==null) return r[partial];
-        }
-        return "";
-      };
-
-      // When the parsed month isn't in the selected FY (e.g. importing an FY25 workbook while FY26
-      // is active), map it onto the active FY by its MONTH INDEX (MM) instead of collapsing every
-      // out-of-FY row into January. Mirrors remapMonth/normalizeClientData so the month is preserved.
-      const toFY = (mm) => { const i = (parseInt(mm,10)||1)-1; return MONTHS[Math.max(0,Math.min(11,i))]; };
-      const parseMonth = (v) => {
-        if(v==null||v==="") return MONTHS[0];
-        if(MONTHS.includes(v)) return v;
-        if(typeof v==="number" && v>=20000 && v<=90000){ const d=xlToDate(v); const m=d.getUTCFullYear()+"-"+String(d.getUTCMonth()+1).padStart(2,"0"); return MONTHS.includes(m)?m:toFY(d.getUTCMonth()+1); }
-        if(v instanceof Date && !isNaN(v)) { const m = v.getUTCFullYear()+"-"+String(v.getUTCMonth()+1).padStart(2,"0"); return MONTHS.includes(m)?m:toFY(v.getUTCMonth()+1); }
-        const s = String(v).trim();
-        const ymMatch = s.match(/(\d{4})[-\/](\d{1,2})/);
-        if(ymMatch) {const mm=ymMatch[2].padStart(2,"0"); const m = ymMatch[1]+"-"+mm; return MONTHS.includes(m)?m:toFY(mm);}
-        const dmyMatch = s.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
-        if(dmyMatch) {const y=dmyMatch[3].length===2?"20"+dmyMatch[3]:dmyMatch[3]; const mm=dmyMatch[2].padStart(2,"0"); const m=y+"-"+mm; return MONTHS.includes(m)?m:toFY(mm);}
-        const monMap = {jan:"01",feb:"02",mar:"03",apr:"04",may:"05",jun:"06",jul:"07",aug:"08",sep:"09",oct:"10",nov:"11",dec:"12",ian:"01",fev:"02",mar:"03",apr:"04",mai:"05",iun:"06",iul:"07",aug:"08",sep:"09",oct:"10",noi:"11",dec:"12"};
-        const lc = s.toLowerCase();
-        for(const [n,num] of Object.entries(monMap)) {
-          if(lc.includes(n)) {
-            const yMatch = s.match(/(\d{2,4})/);
-            const y = yMatch ? (yMatch[1].length===2?"20"+yMatch[1]:yMatch[1]) : "2026";
-            const m = y+"-"+num;
-            return MONTHS.includes(m)?m:toFY(num);
-          }
-        }
-        return MONTHS[0];
-      };
-
-      const num = (v) => {
-        if(v===""||v==null) return 0;
-        if(typeof v==="number") return v;
-        let s = String(v).replace(/\s/g,"").replace(/€|\$/g,"");
-        if(/^-?\d{1,3}\.\d{3}/.test(s) || (s.includes(",")&&s.match(/,\d{2}$/))) s=s.replace(/\./g,"").replace(",",".");
-        else s = s.replace(/,/g,"");
-        const n = parseFloat(s);
-        return isNaN(n) ? 0 : n;
-      };
-
-      const matchCat = (val, list) => {
-        if(!val) return list[0];
-        const v = String(val).toLowerCase().trim();
-        const exact = list.find(c => c.toLowerCase().trim()===v);
-        if(exact) return exact;
-        const partial = list.find(c => c.toLowerCase().includes(v) || v.includes(c.toLowerCase()));
-        if(partial) return partial;
-        if(v.includes("core")) return list.find(c=>c.toLowerCase().includes("core"))||list[0];
-        if(v.includes("extra")||v.includes("exra")) return list.find(c=>c.toLowerCase().includes("extra"))||list[0];
-        if(v.includes("pjm")||v.includes("project")) return list.find(c=>c.toLowerCase().includes("pjm"))||list[0];
-        return list[0];
-      };
-
-      // ── CBRE Invoices ──
-      const newInv = invSheet ? get(invSheet).map((r,i)=>{
-        const a = num(fld(r,"Amount","amt","Amount €","Net","Net Amount","Net €","Καθαρή Αξία"));
-        const v = num(fld(r,"VAT","vat","VAT €","ΦΠΑ","Φ.Π.Α."));
-        const t = num(fld(r,"Total","total","Total €","Σύνολο","Πληρωτέο"))||(a+v);
-        return {
-          id:Date.now()+i,
-          site:fld(r,"Site","site")||"Site 1",
-          month:parseMonth(fld(r,"Month","month","Period","Period/Month")),
-          cat:matchCat(fld(r,"Category","cat","Revenue Cat","Revenue Category"),REV_CATS),
-          amt:a, vat:v||a*0.24, total:t,
-          inv_no:String(fld(r,"Invoice No","inv_no","Inv No","Αρ. Τιμολογίου","Invoice Number","Inv #","No")||""),
-          date:dateToStr(fld(r,"Date","date","Ημερομηνία","Invoice Date")),
-          comments:String(fld(r,"Comments","comments","Notes","Σχόλια")||""),
-          act_acc:String(fld(r,"Act/Acc","act_acc","Actual/Accrual","Type")||"ACTUAL").toUpperCase().includes("ACCR")?"ACCRUAL":"ACTUAL",
-          po_no:String(fld(r,"PO No","po_no","PO","PO#","Purchase Order")||"")
-        };
-      }).filter(x=>x.amt!==0||x.inv_no||x.cat!==REV_CATS[0]) : [];
-
-      // ── Sub Invoices ──
-      const newSub = subSheet ? get(subSheet).map((r,i)=>{
-        const a = num(fld(r,"Amount","amt","Amount €","Net","Net Amount","Net €","Net Value","Καθαρή Αξία","Αξία"));
-        const v = num(fld(r,"VAT","vat","VAT €","ΦΠΑ","Φ.Π.Α."));
-        const t = num(fld(r,"Total","total","Total €","Total Amount","Σύνολο"))||(a+v);
-        const fee = num(fld(r,"Fee","fee_pct","Fee %","CBRE Fee %","Mgt Fee","Management Fee"))||5.5;
-        const supplier = String(fld(r,"Supplier","supplier","Vendor","Vendor Name","Supplier Name","Προμηθευτής","Επωνυμία")||"");
-        const invNo = String(fld(r,"Invoice No","inv_no","Inv No","Invoice #","Invoice Number","Αρ. Τιμολογίου","No","Number")||"");
-        const feeNorm = fee>1?fee/100:fee;
-        return {
-          id:Date.now()+1000+i,
-          site:String(fld(r,"Site","site")||"Site 1"),
-          month:parseMonth(fld(r,"Month","month","Period","Per","Mo")),
-          cat:matchCat(fld(r,"Category","cat","Sub Category","Cost Category","Cost Cat","Type"),COST_CATS),
-          supplier,
-          svc_cat:String(fld(r,"Service","svc_cat","Service Cat","Service Category","Svc Cat")||"Other"),
-          svc_desc:String(fld(r,"Description","svc_desc","Service Desc","Service Description","Desc","Περιγραφή")||""),
-          amt:a, vat:v||a*0.24, total:t,
-          inv_no:invNo,
-          date:dateToStr(fld(r,"Date","date","Ημερομηνία","Invoice Date")),
-          fee_pct:feeNorm, cbre_fee:a*feeNorm, cbre_billing:a+a*feeNorm,
-          act_acc:String(fld(r,"Act/Acc","act_acc","Actual/Accrual","Status")||"ACTUAL").toUpperCase().includes("ACCR")?"ACCRUAL":"ACTUAL",
-          comments:String(fld(r,"Comments","comments","Notes","Σχόλια","PO No","po_no","PO")||"")
-        };
-      }).filter(x=>x.amt!==0||x.inv_no||x.supplier) : [];
-
-      // ── Labour ──
-      const newLab = mkLab();
-      let labRowsImported = 0;
-      if(labSheet){
-        // Strict month finder: exact or case-insensitive trimmed match only (no partial)
-        const strictFld = (r, ...keys) => {
-          for(const k of keys) {
-            if(r[k]!==undefined && r[k]!=="" && r[k]!==null) return r[k];
-            const found = Object.keys(r).find(rk => rk.toLowerCase().trim()===k.toLowerCase().trim());
-            if(found && r[found]!==undefined && r[found]!=="" && r[found]!==null) return r[found];
-          }
-          return "";
-        };
-        get(labSheet).forEach(r => {
-          const catRaw = fld(r,"Category","cat","Line","Description")||"";
-          const lc = String(catRaw).toLowerCase();
-          let labKey = LAB_ROWS.find(x=>x.l.toLowerCase()===lc.trim())?.k;
-          if(!labKey){
-            if(lc.includes("onsite")||lc.includes("on site")||lc.includes("on-site")) labKey="onsite";
-            else if(lc.includes("regional")) labKey="regional";
-            else if(lc.includes("local")) labKey="local";
-            else if(lc.includes("sg&a")||lc.includes("sga")) labKey="sga";
-            else if(lc.includes("it")&&!lc.includes("with")&&!lc.includes("its")) labKey="it";
-            else if(lc.includes("other")) labKey="other";
-          }
-          if(labKey){
-            MONTHS.forEach(m => {
-              // Strict match only — exact month column
-              const v = strictFld(r, ML[m], m, ML[m].replace("-","_"));
-              if(num(v)) {newLab[m][labKey] = num(v); labRowsImported++;}
-            });
-          }
-        });
-      }
-
-      // ── Contracts ──
-      const newContracts = conSheet ? get(conSheet).map((r,i)=>{
-        const t = String(fld(r,"Type","type")||"PO").toUpperCase();
-        return {
-          id:Date.now()+2000+i,
-          type:t.includes("MSA")?"MSA":t.includes("LEA")||t.includes("LCA")?"LEA":t.includes("AMEND")?"Amendment":t.includes("NDA")?"NDA":t.includes("PO")||t.includes("PURCHASE")?"PO":"Other",
-          ref:String(fld(r,"Reference","ref","Contract Ref","Contract Number")||""),
-          client:String(fld(r,"Client","client","Customer")||""),
-          start:dateToStr(fld(r,"Start","start","Start Date","From")),
-          expiry:dateToStr(fld(r,"Expiry","expiry","Expiry Date","End","To")),
-          fee_pct:num(fld(r,"Fee %","fee_pct","Fee","Management Fee"))||5.5,
-          status:String(fld(r,"Status","status")||"Active"),
-          po:String(fld(r,"PO No","po","PO Number","PO#")||""),
-          po_value:num(fld(r,"PO Value","po_value","PO Value €","Value")),
-          scope:String(fld(r,"Scope","scope","Description")||""),
-          notes:String(fld(r,"Notes","notes","Comments")||"")
-        };
-      }).filter(x=>x.ref||x.po) : [];
-
-      // Apply imports — preview counts, then let the user choose Merge vs Replace
-      const hasExisting = (cd.inv?.length||0) + (cd.sub?.length||0) + (cd.contracts?.length||0) > 0;
-      let mode = "replace";
-      if(hasExisting) {
-        const ans = prompt(
-          t(`Βρέθηκαν προς εισαγωγή στο ${client} ${year}:\n`,`Found to import into ${client} ${year}:\n`)+
-          `  • CBRE Invoices: ${newInv.length}\n  • Sub Invoices: ${newSub.length}\n  • ${t("Γραμμές εργασίας","Labour rows")}: ${labRowsImported}\n  • Contracts/POs: ${newContracts.length}\n\n`+
-          t(`Υπάρχουν ήδη δεδομένα. Γράψε:\n  M = Merge (πρόσθεσε στα υπάρχοντα)\n  R = Replace (αντικατέστησε όλα)\n\n(Άκυρο για ακύρωση)`,`Data already exists. Type:\n  M = Merge (add to existing)\n  R = Replace (overwrite all)\n\n(Cancel to abort)`),
-          "M");
-        if(ans===null) { setImporting(false); setMenuOpen(false); return; }
-        mode = /^\s*r/i.test(ans) ? "replace" : "merge";
-      }
-      if(mode==="replace") {
-        if(newInv.length) setInv(newInv);
-        if(newSub.length) setSub(newSub);
-        if(labRowsImported) setLab(newLab);
-        if(newContracts.length) setContracts(newContracts);
-      } else {
-        if(newInv.length) setInv(p=>[...(p||[]),...newInv]);
-        if(newSub.length) setSub(p=>[...(p||[]),...newSub]);
-        if(newContracts.length) setContracts(p=>[...(p||[]),...newContracts]);
-        if(labRowsImported) setLab(p=>{ const out={}; MONTHS.forEach(m=>{ out[m]={...(p?.[m]||{})}; LAB_ROWS.forEach(r=>{ const nv=Number(newLab[m]?.[r.k])||0; if(nv) out[m][r.k]=nv; }); }); return out; });
-      }
-
-      // Build diagnostic info
-      const diag = [];
-      diag.push(`✓ Imported into ${client} ${year}:`);
-      diag.push(``);
-      diag.push(`📄 CBRE Invoices: ${newInv.length}${invSheet?` (sheet: "${invSheet}")`:" — NO SHEET DETECTED"}`);
-      diag.push(`📑 Sub Invoices: ${newSub.length}${subSheet?` (sheet: "${subSheet}")`:" — NO SHEET DETECTED"}`);
-      diag.push(`👥 Labour rows: ${labRowsImported}${labSheet?` (sheet: "${labSheet}")`:" — NO SHEET DETECTED"}`);
-      diag.push(`📋 Contracts/POs: ${newContracts.length}${conSheet?` (sheet: "${conSheet}")`:" — NO SHEET DETECTED"}`);
-      diag.push(``);
-      diag.push(`Sheets in file: ${sheetNames.join(", ")}`);
-      // If sub failed, dump first row keys for debug
-      if(subSheet && newSub.length===0) {
-        const sample = get(subSheet)[0];
-        if(sample) diag.push(``,`Sub sheet "${subSheet}" columns found:`,Object.keys(sample).join(", "));
-      }
-      if(!subSheet) {
-        diag.push(``,`⚠ No Sub sheet matched. Rename your subcontractors sheet to "Sub Invoices" or include "subcontractor"/"supplier" in the name.`);
-      }
-      alert(diag.join("\n"));
-    } catch(e) {
-      console.error(e);
-      alert(t("Η εισαγωγή απέτυχε: ","Import failed: ")+e.message);
-    } finally {
-      setImporting(false);
-      setMenuOpen(false);
-    }
-  };
 
   // Apply the reconciliation choices — ADD new rows (fresh id) + UPDATE changed rows in place
   // (keep the system id). Never deletes. The debounced auto-save persists it with versioning.
@@ -851,12 +578,6 @@ export default function App() {
                   <button onClick={()=>{exportXL();setMenuOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",border:"none",background:"none",cursor:"pointer",fontSize:13,color:P.em,fontWeight:600,textAlign:"left",borderBottom:"1px solid "+P.bd}}>
                     <span style={{fontSize:16}}>📥</span><div><div>{t("Λήψη Excel","Download Excel")}</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>{t("Εξαγωγή πλήρους αναφοράς","Export full report")}</div></div>
                   </button>
-                  {/* Import Excel */}
-                  <label style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",cursor:importing?"wait":"pointer",fontSize:13,color:P.em,fontWeight:600,textAlign:"left",borderBottom:"1px solid "+P.bd}}>
-                    <input type="file" accept=".xlsx,.xls,.xlsm" style={{display:"none"}} onChange={e=>{importExcel(e.target.files[0]);e.target.value="";}} disabled={importing} />
-                    <span style={{fontSize:16}}>📤</span>
-                    <div><div>{importing?t("Εισαγωγή...","Importing..."):t("Εισαγωγή Ιστορικού Excel","Import Historical Excel")}</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>{t("Μαζική φόρτωση τιμολογίων, εργασίας, POs","Bulk-load invoices, labour, POs")}</div></div>
-                  </label>
                   {/* Import & Reconcile P&L */}
                   <label style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",cursor:reconciling?"wait":"pointer",fontSize:13,color:P.em,fontWeight:600,textAlign:"left",borderBottom:"1px solid "+P.bd}}>
                     <input type="file" accept=".xlsx,.xls,.xlsm" style={{display:"none"}} disabled={reconciling} onChange={async e=>{
@@ -876,7 +597,10 @@ export default function App() {
                   </button>
                   {/* Clear All */}
                   <button onClick={async ()=>{
-                    if(!confirm(t("⚠ Οριστική διαγραφή ΟΛΩΝ των δεδομένων για "+client+" "+year+";\n(τιμολόγια, υπεργολάβοι, εργασία, συμβόλαια, έγγραφα, κατάσταση)\n\nΔεν αναιρείται.","⚠ Permanently delete ALL data for "+client+" "+year+"?\n(invoices, sub, labour, contracts, documents, status)\n\nThis cannot be undone."))) return;
+                    // Type-to-confirm: must type the exact client name, so a stray click can't wipe data.
+                    const typed = prompt(t(`⚠ ΟΡΙΣΤΙΚΗ διαγραφή ΟΛΩΝ των δεδομένων για ${client} ${year}\n(τιμολόγια, υπεργολάβοι, εργασία, συμβόλαια, έγγραφα, κατάσταση) — ΔΕΝ αναιρείται.\n\nΓια επιβεβαίωση γράψε το όνομα του πελάτη ακριβώς:\n${client}`,`⚠ PERMANENTLY delete ALL data for ${client} ${year}\n(invoices, sub, labour, contracts, documents, status) — cannot be undone.\n\nTo confirm, type the client name exactly:\n${client}`), "");
+                    if(typed===null) return;
+                    if(typed.trim()!==client){ alert(t("Το όνομα δεν ταιριάζει — η διαγραφή ακυρώθηκε.","Name doesn't match — deletion cancelled.")); return; }
                     setMenuOpen(false);
                     // Delete all uploaded files from server
                     try {

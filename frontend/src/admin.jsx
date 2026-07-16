@@ -54,13 +54,24 @@ export function AdminPanel({me,onClose}) {
     } catch(e){ setErr(e.message||t("Το reset κωδικού απέτυχε","Password reset failed")); }
     finally{ setBusy(false); }
   };
-  const editEmail = async (u) => {
+  // Inline edit of an existing user (name / email / role / client access).
+  const [editId,setEditId] = useState(null);
+  const [ef,setEf] = useState({name:"",email:"",role:"ops",clients:""});
+  const startEdit = (u) => { setErr(""); setEditId(u.id); setEf({name:u.name||"",email:u.email||"",role:u.role||"ops",clients:u.clients==="ALL"?"":(Array.isArray(u.clients)?u.clients.join(", "):"")}); };
+  const cancelEdit = () => setEditId(null);
+  const saveEdit = async (u) => {
     setErr("");
-    const email = prompt(t(`Email του "${u.username}" (για επαναφορά κωδικού):`,`Email for "${u.username}" (for password reset):`), u.email||"");
-    if(email===null) return;
+    if(!ef.name.trim()){ setErr(t("Το όνομα δεν μπορεί να είναι κενό","Name cannot be empty")); return; }
+    const clients = ef.role==="ops" ? ef.clients.split(",").map(s=>s.trim()).filter(Boolean) : "ALL";
+    const self = u.username===me.username;
+    if(self && ef.role!==u.role){ setErr(t("Δεν μπορείς να αλλάξεις τον δικό σου ρόλο (θα αποσυνδεόσουν).","You can't change your own role (it would log you out).")); return; }
     setBusy(true);
-    try { await api.updateUser(u.id, {email:email.trim()}); await loadUsers(); await loadLogs(); }
-    catch(e){ setErr(e.message||t("Η ενημέρωση email απέτυχε","Email update failed")); }
+    try {
+      // Omit role/clients for self to avoid self-lockout (a role/clients change revokes live sessions).
+      const patch = self ? {name:ef.name.trim(), email:ef.email.trim()} : {name:ef.name.trim(), email:ef.email.trim(), role:ef.role, clients};
+      await api.updateUser(u.id, patch);
+      setEditId(null); await loadUsers(); await loadLogs();
+    } catch(e){ setErr(e.message||t("Η ενημέρωση απέτυχε","Update failed")); }
     finally{ setBusy(false); }
   };
   const downloadBackup = async () => {
@@ -111,22 +122,44 @@ export function AdminPanel({me,onClose}) {
                   <thead><tr>{["Username",t("Όνομα","Name"),"Email",t("Ρόλος","Role"),t("Πρόσβαση","Access"),""].map((h,i)=>(
                     <th key={i} style={{padding:"8px 12px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:"left"}}>{h}</th>
                   ))}</tr></thead>
-                  <tbody>{users.map((u,i)=>(
-                    <tr key={u.id} style={{background:i%2===0?P.wh:P.al}}>
-                      <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd,fontWeight:600,color:P.em}}>{u.username}{u.username===me.username&&<span style={{fontSize:10,color:P.tm}}> {t("(εσύ)","(you)")}</span>}</td>
-                      <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd}}>{u.name}</td>
-                      <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd,fontSize:12}}>
-                        <span style={{color:u.email?P.tx:P.tm}}>{u.email||t("— χωρίς —","— none —")}</span>
-                        <button onClick={()=>editEmail(u)} title={t("Επεξεργασία email","Edit email")} style={{background:"none",border:"none",color:P.em,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>✎</button>
+                  <tbody>{users.map((u,i)=>{
+                    const editing = editId===u.id; const self = u.username===me.username;
+                    const cellInp = {width:"100%",padding:"4px 6px",border:"1px solid "+P.bd,borderRadius:4,fontSize:12,outline:"none",boxSizing:"border-box"};
+                    return (
+                    <tr key={u.id} style={{background:editing?"#FFFDE7":i%2===0?P.wh:P.al}}>
+                      <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd,fontWeight:600,color:P.em}}>{u.username}{self&&<span style={{fontSize:10,color:P.tm}}> {t("(εσύ)","(you)")}</span>}</td>
+                      <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd}}>
+                        {editing ? <input value={ef.name} onChange={e=>setEf(x=>({...x,name:e.target.value}))} style={cellInp} /> : u.name}
                       </td>
-                      <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd}}><span style={{padding:"2px 10px",borderRadius:10,fontSize:11,fontWeight:700,color:"#fff",background:roleBadge[u.role]||P.tm}}>{u.role}</span></td>
-                      <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd,color:P.tm,fontSize:12}}>{u.clients==="ALL"?t("ΟΛΟΙ","ALL"):(Array.isArray(u.clients)?`${u.clients.length} ${t("πελάτες","clients")}`:"—")}</td>
+                      <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd,fontSize:12}}>
+                        {editing ? <input value={ef.email} onChange={e=>setEf(x=>({...x,email:e.target.value}))} placeholder="email" style={cellInp} />
+                                 : <span style={{color:u.email?P.tx:P.tm}}>{u.email||t("— χωρίς —","— none —")}</span>}
+                      </td>
+                      <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd}}>
+                        {editing && !self
+                          ? <select value={ef.role} onChange={e=>setEf(x=>({...x,role:e.target.value}))} style={cellInp}>{["ops","finance","admin"].map(r=><option key={r} value={r}>{r}</option>)}</select>
+                          : <span style={{padding:"2px 10px",borderRadius:10,fontSize:11,fontWeight:700,color:"#fff",background:roleBadge[u.role]||P.tm}}>{u.role}</span>}
+                      </td>
+                      <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd,color:P.tm,fontSize:12}}>
+                        {editing && !self
+                          ? (ef.role==="ops"
+                              ? <input value={ef.clients} onChange={e=>setEf(x=>({...x,clients:e.target.value}))} placeholder={t("πελάτες, με κόμμα","clients, comma-sep")} style={cellInp} />
+                              : <span style={{fontSize:11}}>{t("ΟΛΟΙ","ALL")}</span>)
+                          : (u.clients==="ALL"?t("ΟΛΟΙ","ALL"):(Array.isArray(u.clients)?`${u.clients.length} ${t("πελάτες","clients")}`:"—"))}
+                      </td>
                       <td style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd,textAlign:"right",whiteSpace:"nowrap"}}>
-                        <button onClick={()=>resetPw(u)} style={{background:P.ep,color:P.em,border:"none",padding:"4px 12px",borderRadius:4,fontSize:12,fontWeight:600,cursor:"pointer",marginRight:6}}>{t("Reset κωδικού","Reset password")}</button>
-                        {u.username!==me.username&&<button onClick={()=>del(u)} style={{background:"#FFEBEE",color:P.rd,border:"none",padding:"4px 12px",borderRadius:4,fontSize:12,fontWeight:600,cursor:"pointer"}}>{t("Διαγραφή","Delete")}</button>}
+                        {editing ? (<>
+                          <button onClick={()=>saveEdit(u)} disabled={busy} style={{background:P.em,color:"#fff",border:"none",padding:"4px 12px",borderRadius:4,fontSize:12,fontWeight:600,cursor:busy?"wait":"pointer",marginRight:6}}>{t("Αποθήκευση","Save")}</button>
+                          <button onClick={cancelEdit} style={{background:"none",border:"1px solid "+P.bd,padding:"4px 10px",borderRadius:4,fontSize:12,cursor:"pointer"}}>{t("Άκυρο","Cancel")}</button>
+                        </>) : (<>
+                          <button onClick={()=>startEdit(u)} style={{background:P.ep,color:P.em,border:"none",padding:"4px 12px",borderRadius:4,fontSize:12,fontWeight:600,cursor:"pointer",marginRight:6}}>✎ {t("Επεξεργασία","Edit")}</button>
+                          <button onClick={()=>resetPw(u)} style={{background:P.ep,color:P.em,border:"none",padding:"4px 12px",borderRadius:4,fontSize:12,fontWeight:600,cursor:"pointer",marginRight:6}}>{t("Reset κωδικού","Reset password")}</button>
+                          {!self&&<button onClick={()=>del(u)} style={{background:"#FFEBEE",color:P.rd,border:"none",padding:"4px 12px",borderRadius:4,fontSize:12,fontWeight:600,cursor:"pointer"}}>{t("Διαγραφή","Delete")}</button>}
+                        </>)}
                       </td>
                     </tr>
-                  ))}</tbody>
+                    );
+                  })}</tbody>
                 </table>
               </div>
               <div style={{fontSize:11,color:P.tm,marginTop:8}}>{t("Οι νέοι χρήστες μπαίνουν με τον κωδικό που όρισες — δεν επιβάλλεται αλλαγή κατά την πρώτη είσοδο (σε αντίθεση με τους seeded).","New users sign in with the password you set — no forced change on first login (unlike seeded accounts).")}</div>
