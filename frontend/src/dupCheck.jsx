@@ -11,12 +11,12 @@ const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const grossAmt = (r) => Number(r.total) || ((Number(r.amt) || 0) + (Number(r.vat) || 0)) || Number(r.amt) || 0;
 
 // Groups of rows that share an invoice number (strong) or, when there is no number, an identical
-// content signature (month + category + amount + counterparty).
-function findGroups(rows) {
+// content signature (month + category + amount + counterparty). `noKey` builds the number-based
+// identity — for AP it includes the supplier, since suppliers can reuse invoice numbers.
+function findGroups(rows, noKey) {
   const byNo = {}, byContent = {};
   rows.forEach((r) => {
-    const no = norm(r.inv_no);
-    if (no) { (byNo[no] = byNo[no] || []).push(r); }
+    if (norm(r.inv_no)) { const k = noKey(r); (byNo[k] = byNo[k] || []).push(r); }
     else { const k = `${r.month}|${r.cat}|${round2(r.amt)}|${norm(r.supplier || r.comments)}`; (byContent[k] = byContent[k] || []).push(r); }
   });
   const strong = Object.entries(byNo).filter(([, g]) => g.length > 1).map(([no, g]) => ({ key: no, rows: g, strong: true }));
@@ -26,8 +26,8 @@ function findGroups(rows) {
 
 export function DuplicateModal({ inv, sub, setInv, setSub, year, client, onClose }) {
   const { t } = useT();
-  const invGroups = useMemo(() => findGroups(inv || []), [inv]);
-  const subGroups = useMemo(() => findGroups(sub || []), [sub]);
+  const invGroups = useMemo(() => findGroups(inv || [], (r) => norm(r.inv_no)), [inv]);
+  const subGroups = useMemo(() => findGroups(sub || [], (r) => norm(r.supplier) + "|" + norm(r.inv_no)), [sub]);
   const total = invGroups.length + subGroups.length;
   const dupCount = [...invGroups, ...subGroups].reduce((s, g) => s + (g.rows.length - 1), 0);
 
