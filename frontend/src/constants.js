@@ -88,6 +88,24 @@ export const normalizeClientData = (c) => {
     }
   }
   out.labAlloc = alloc;
+  // Manual accruals carry month keys too — remap them onto the active FY so entries saved while
+  // months were hardcoded to 2026 stay aligned with inv/sub/lab (else they'd land off-grid and vanish).
+  if (Array.isArray(out.manualAccruals)) {
+    out.manualAccruals = out.manualAccruals.map(a => (a && typeof a === "object" ? { ...a, month: remapMonth(a.month) } : a));
+  } else if (out.manualAccruals && typeof out.manualAccruals === "object") {
+    const src = out.manualAccruals, fixed = {};
+    for (const [sec, segs] of Object.entries(src)) {
+      if (!segs || typeof segs !== "object") { fixed[sec] = segs; continue; }
+      fixed[sec] = {};
+      for (const [g, byMonth] of Object.entries(segs)) {
+        if (!byMonth || typeof byMonth !== "object") { fixed[sec][g] = byMonth; continue; }
+        const nm = {};
+        for (const [m, v] of Object.entries(byMonth)) nm[remapMonth(m)] = v;
+        fixed[sec][g] = nm;
+      }
+    }
+    out.manualAccruals = fixed;
+  }
   return out;
 };
 export const SITES = ["Site 1","Site 2","Site 3","Site 4","Site 5"];

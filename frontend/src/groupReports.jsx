@@ -102,7 +102,11 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
     if (ii == null || mi == null || ii > mi) return false;
     if (!isPaid(i)) return true;
     const pm = i.paid_date ? monthIdx(String(i.paid_date).slice(0, 7)) : null;
-    return pm != null ? pm > mi : false; // paid but no date → treat as settled
+    // Paid WITH a date → settled from that month on. Paid but WITHOUT a date (legacy/imported/bulk-set
+    // rows) → keep it OPEN rather than silently dropping it: its net still sits in equity via cumNet, so
+    // removing the matching AR/AP asset would leave the balance sheet off by net+VAT with no visible cause.
+    // It surfaces in the aging ledger as outstanding, prompting the user to stamp the real settlement date.
+    return pm != null ? pm > mi : true;
   };
   MONTHS.forEach(m => {
     let nbv = 0; (fin?.capex || []).forEach(it => { if (onBooks(it)) nbv += nbvAtMonth(it, m); }); nbvByMonth[m] = nbv;

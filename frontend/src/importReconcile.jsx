@@ -122,54 +122,65 @@ export async function parseWorkbookFile(file) {
   // ── CBRE Invoices ──
   const invAll = (invSheet ? rows(invSheet) : []).map(r => {
     const a = num(fld(r, "Amount", "Net", "Net Amount", "Καθαρή Αξία"));
-    const v = num(fld(r, "VAT (24%)", "VAT", "VAT €", "ΦΠΑ", "Φ.Π.Α."));
+    // Preserve a genuine zero VAT (reverse-charge / intra-community / exempt): only estimate 24%
+    // when the VAT column is truly absent/blank, never overwrite a present "0" with a fabricated tax.
+    const vRaw = fld(r, "VAT (24%)", "VAT", "VAT €", "ΦΠΑ", "Φ.Π.Α.");
+    const v = (vRaw === "" || vRaw == null) ? round2(a * 0.24) : num(vRaw);
     const t = num(fld(r, "Total", "TOTAL", "Σύνολο", "Πληρωτέο")) || a + v;
+    const dRaw = fld(r, "Date", "Ημερομηνία");
     return {
       client: str(fld(r, "Client", "Customer")),
       site: str(fld(r, "Site")) || "Site 1",
-      month: toMonthKey(fld(r, "Month", "Period")) || MONTHS[0],
+      // Month column first, then fall back to the invoice date's month. null (unparseable) rows are
+      // dropped below rather than silently mis-bucketed into the first month of the fiscal year.
+      month: toMonthKey(fld(r, "Month", "Period")) || toMonthKey(dRaw),
       cat: matchCat(fld(r, "Revenue category", "Category"), REV_CATS),
-      amt: a, vat: v || round2(a * 0.24), total: t,
+      amt: a, vat: v, total: t,
       inv_no: str(fld(r, "Invoice Number", "Invoice No", "Αρ. Τιμολογίου", "No")),
-      date: dateToStr(fld(r, "Date", "Ημερομηνία")),
+      date: dateToStr(dRaw),
       comments: str(fld(r, "Comments", "Notes", "Σχόλια")),
       act_acc: str(fld(r, "Actual/Accrual", "Act/Acc", "Type")).toUpperCase().includes("ACCR") ? "ACCRUAL" : "ACTUAL",
       po_no: str(fld(r, "PO No", "PO", "Purchase Order")),
     };
   });
-  // Keep only rows with a recognized revenue category (drops blank footer/subtotal rows that
-  // would otherwise be mis-bucketed). Track how many carried an amount but no category.
-  const inv = invAll.filter(x => x.cat && (x.amt !== 0 || x.inv_no));
+  // Keep only rows with a recognized revenue category AND a resolvable month (drops blank
+  // footer/subtotal rows and rows whose month couldn't be parsed). Track both skip reasons.
+  const inv = invAll.filter(x => x.cat && x.month && (x.amt !== 0 || x.inv_no));
   const invSkipped = invAll.filter(x => !x.cat && x.amt !== 0).length;
+  const invMonthSkipped = invAll.filter(x => x.cat && !x.month && (x.amt !== 0 || x.inv_no)).length;
 
   // ── Sub Invoices ──
   const subAll = (subSheet ? rows(subSheet) : []).map(r => {
     const a = num(fld(r, "Amount (excluding", "Amount", "Net", "Net Value", "Αξία"));
-    const v = num(fld(r, "VAT (24%)", "VAT", "VAT €", "ΦΠΑ", "Φ.Π.Α."));
+    // Preserve a genuine zero VAT; only estimate 24% when the VAT column is truly absent/blank.
+    const vRaw = fld(r, "VAT (24%)", "VAT", "VAT €", "ΦΠΑ", "Φ.Π.Α.");
+    const v = (vRaw === "" || vRaw == null) ? round2(a * 0.24) : num(vRaw);
     const t = num(fld(r, "Total", "TOTAL", "Σύνολο")) || a + v;
     let fp = num(fld(r, "Fee %", "CBRE fee %", "Management Fee", "fee_pct"));
     if (fp > 0 && fp < 1) fp = fp * 100;                    // stored as 0.055 → 5.5
     if (!fp) fp = 5.5;
     const fee = round2(a * fp / 100);
+    const dRaw = fld(r, "Date", "Ημερομηνία");
     return {
       site: str(fld(r, "Site")) || "Site 1",
-      month: toMonthKey(fld(r, "Month", "Period")) || MONTHS[0],
+      month: toMonthKey(fld(r, "Month", "Period")) || toMonthKey(dRaw),
       cat: matchCat(fld(r, "Subcontractor Ca", "Subcontractor Category", "Category", "Cost Category"), COST_CATS),
       gl: str(fld(r, "GL Code", "GL")),
       supplier: str(fld(r, "Supplier name", "Supplier", "Vendor", "Προμηθευτής")),
       svc_cat: str(fld(r, "Service category", "Service Cat", "Svc Cat")) || "Other",
       svc_desc: str(fld(r, "Service descript", "Service Description", "Description", "Περιγραφή")),
-      amt: a, vat: v || round2(a * 0.24), total: t,
+      amt: a, vat: v, total: t,
       inv_no: str(fld(r, "Invoice number", "Invoice No", "Αρ. Τιμολογίου", "No")),
-      date: dateToStr(fld(r, "Date", "Ημερομηνία")),
+      date: dateToStr(dRaw),
       fee_pct: fp, cbre_fee: fee, cbre_bill: round2(a + fee),
       act_acc: str(fld(r, "Actual/Accrual", "Act/Acc", "Status")).toUpperCase().includes("ACCR") ? "ACCRUAL" : "ACTUAL",
       comments: str(fld(r, "Comments", "Notes", "Σχόλια")),
     };
   });
-  // A real sub line has a recognized cost category AND a supplier or invoice number.
-  const sub = subAll.filter(x => x.cat && (x.supplier || x.inv_no) && (x.amt !== 0 || x.total !== 0));
+  // A real sub line has a recognized cost category, a resolvable month AND a supplier or invoice number.
+  const sub = subAll.filter(x => x.cat && x.month && (x.supplier || x.inv_no) && (x.amt !== 0 || x.total !== 0));
   const subSkipped = subAll.filter(x => (!x.cat || (!x.supplier && !x.inv_no)) && x.amt !== 0).length;
+  const subMonthSkipped = subAll.filter(x => x.cat && !x.month && (x.supplier || x.inv_no) && (x.amt !== 0 || x.total !== 0)).length;
 
   // ── Labour Cost (grid mode — handles serial-date headers + multiple sub-sections) ──
   const lab = {}; MONTHS.forEach(m => { lab[m] = {}; });
@@ -212,7 +223,7 @@ export async function parseWorkbookFile(file) {
 
   // Client name: prefer the invoices' CLIENT column, else null.
   const client = str((inv.find(i => i.client) || {}).client) || null;
-  return { inv, sub, lab, meta: { client, invSheet, subSheet, labSheet, pnlSheet, labCells, invSkipped, subSkipped, sheets: names } };
+  return { inv, sub, lab, meta: { client, invSheet, subSheet, labSheet, pnlSheet, labCells, invSkipped, subSkipped, invMonthSkipped, subMonthSkipped, sheets: names } };
 }
 
 // ───────────────────────── reconciliation ─────────────────────────
@@ -228,12 +239,20 @@ export function reconcileRows(fileRows, sysRows, idOf, fullOf) {
   const used = new Set();
   const take = (map, k) => { const arr = map.get(k); if (!arr) return -1; const i = arr.find(ix => !used.has(ix)); return i === undefined ? -1 : i; };
   const out = { newRows: [], changed: [], match: [] };
+  // Two passes so exact (full) matches claim their system row BEFORE any fuzzy id-match can consume it.
+  // Single-pass ordering could let a CHANGED line (same invoice no, different amount) processed first
+  // steal the very system row that a later exact-duplicate line needs — leaving the exact line as NEW
+  // (a spurious duplicate). Pass 1 assigns all MATCHes; pass 2 resolves the rest as CHANGED or NEW.
+  const pending = [];
   fileRows.forEach(fr => {
-    let i = take(byFull, fullOf(fr));
-    if (i >= 0) { used.add(i); out.match.push({ file: fr, sys: sysRows[i] }); return; }
-    i = take(byId, idOf(fr));
-    if (i >= 0) { used.add(i); out.changed.push({ file: fr, sys: sysRows[i], sysId: sysRows[i].id }); return; }
-    out.newRows.push(fr);
+    const i = take(byFull, fullOf(fr));
+    if (i >= 0) { used.add(i); out.match.push({ file: fr, sys: sysRows[i] }); }
+    else pending.push(fr);
+  });
+  pending.forEach(fr => {
+    const i = take(byId, idOf(fr));
+    if (i >= 0) { used.add(i); out.changed.push({ file: fr, sys: sysRows[i], sysId: sysRows[i].id }); }
+    else out.newRows.push(fr);
   });
   out.onlySys = sysRows.filter((_, i) => !used.has(i));
   return out;
@@ -384,6 +403,9 @@ export function ReconcileModal({ parsed, cur, onApply, onClose }) {
           )}
           {(parsed.meta.invSkipped > 0 || parsed.meta.subSkipped > 0) && (
             <div style={{ marginTop: 6, color: "#F57F17", fontWeight: 600 }}>ℹ {t("Αγνοήθηκαν γραμμές χωρίς κατηγορία (footer/σύνολα)", "Skipped rows with no category (footers/subtotals)")}: {t("Τιμολ.", "Inv")} {parsed.meta.invSkipped}, {t("Υπεργ.", "Sub")} {parsed.meta.subSkipped}</div>
+          )}
+          {(parsed.meta.invMonthSkipped > 0 || parsed.meta.subMonthSkipped > 0) && (
+            <div style={{ marginTop: 6, color: P.rd, fontWeight: 600 }}>⚠ {t("Αγνοήθηκαν γραμμές με μη αναγνωρίσιμο μήνα (διόρθωσε τη στήλη Month/Date και ξαναφόρτωσε)", "Skipped rows with an unrecognized month (fix the Month/Date column and re-upload)")}: {t("Τιμολ.", "Inv")} {parsed.meta.invMonthSkipped}, {t("Υπεργ.", "Sub")} {parsed.meta.subMonthSkipped}</div>
           )}
         </div>
 

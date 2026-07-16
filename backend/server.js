@@ -5,7 +5,7 @@ import jwt from "jsonwebtoken";
 import Database from "better-sqlite3";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
-import { randomUUID, createHmac } from "crypto";
+import { randomUUID, createHmac, timingSafeEqual } from "crypto";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import fs from "fs";
@@ -282,16 +282,33 @@ app.patch("/api/users/:id", auth, requireRole("admin"), (req, res) => {
   const u = db.prepare("SELECT id FROM users WHERE id = ?").get(req.params.id);
   if (!u) return res.status(404).json({ error: "Not found" });
   const { email, name, clients, role } = req.body || {};
+  const isSelf = req.user.id === u.id;
+  // Self-lockout guard: an admin must not be able to demote themselves out of admin or
+  // narrow their own client access — that would strip their live session of the rights it
+  // is currently using and no other admin may exist to undo it.
+  if (isSelf && role !== undefined && role !== "admin") {
+    return res.status(400).json({ error: "You cannot change your own role" });
+  }
+  if (isSelf && clients !== undefined && clients !== "ALL") {
+    return res.status(400).json({ error: "You cannot restrict your own client access" });
+  }
   if (email !== undefined) db.prepare("UPDATE users SET email = ? WHERE id = ?").run(String(email), req.params.id);
   if (name !== undefined) db.prepare("UPDATE users SET name = ? WHERE id = ?").run(String(name), req.params.id);
-  if (role !== undefined && ["ops", "finance", "admin"].includes(role)) db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, req.params.id);
+  // Track whether a change that invalidates the JWT snapshot (role/clients) was actually applied,
+  // so an ignored invalid role value does not needlessly log the user out.
+  let roleApplied = false;
+  if (role !== undefined && ["ops", "finance", "admin"].includes(role)) {
+    db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, req.params.id);
+    roleApplied = true;
+  }
   if (clients !== undefined) db.prepare("UPDATE users SET clients = ? WHERE id = ?").run(clients === "ALL" ? "ALL" : JSON.stringify(clients || []), req.params.id);
   // Entitlement changes (client access or role) must take effect immediately — revoke live sessions
   // by bumping token_version so the stale JWT snapshot (which carries clients/role) stops validating.
-  if (clients !== undefined || role !== undefined) {
+  // Never bump for a self-edit (would log the acting admin out mid-session) or an ignored role value.
+  if (!isSelf && (clients !== undefined || roleApplied)) {
     db.prepare("UPDATE users SET token_version = COALESCE(token_version,0) + 1 WHERE id = ?").run(req.params.id);
   }
-  audit(req.user.username, "user_updated", `${req.params.id}${clients !== undefined ? " clients" : ""}${role !== undefined ? " role" : ""}`, req);
+  audit(req.user.username, "user_updated", `${req.params.id}${clients !== undefined ? " clients" : ""}${roleApplied ? " role" : ""}`, req);
   res.json({ ok: true });
 });
 
@@ -326,7 +343,9 @@ app.get("/api/data/:year/:client", auth, (req, res) => {
   if (!canAccess(req.user, client)) return res.status(403).json({ error: "Access denied for this client" });
   const row = db.prepare("SELECT data, version, updated_at, updated_by FROM client_data WHERE year = ? AND client = ?").get(year, client);
   if (!row) return res.json({ data: null, version: 0 });
-  res.json({ data: JSON.parse(row.data), version: row.version || 0, updated_at: row.updated_at, updated_by: row.updated_by });
+  let data = null;
+  try { data = JSON.parse(row.data); } catch { return res.status(500).json({ error: "Stored data is corrupt for this client/year" }); }
+  res.json({ data, version: row.version || 0, updated_at: row.updated_at, updated_by: row.updated_by });
 });
 
 // Optimistic locking: client sends { data, baseVersion }. Version mismatch → 409 (no silent overwrite).
@@ -365,7 +384,7 @@ app.get("/api/data/:year", auth, (req, res) => {
   const rows = db.prepare("SELECT client, data, updated_at FROM client_data WHERE year = ?").all(year);
   const filtered = rows.filter(r => canAccess(req.user, r.client));
   const result = {};
-  filtered.forEach(r => { result[r.client] = JSON.parse(r.data); });
+  filtered.forEach(r => { try { result[r.client] = JSON.parse(r.data); } catch { /* skip corrupt row rather than 500 the whole year */ } });
   res.json(result);
 });
 
@@ -373,7 +392,9 @@ app.get("/api/data/:year", auth, (req, res) => {
 app.get("/api/finance/:year", auth, requireRole("finance", "admin"), (req, res) => {
   const row = db.prepare("SELECT data, version, updated_at, updated_by FROM finance_data WHERE year = ?").get(req.params.year);
   if (!row) return res.json({ data: null, version: 0 });
-  res.json({ data: JSON.parse(row.data), version: row.version || 0, updated_at: row.updated_at, updated_by: row.updated_by });
+  let data = null;
+  try { data = JSON.parse(row.data); } catch { return res.status(500).json({ error: "Stored finance data is corrupt for this year" }); }
+  res.json({ data, version: row.version || 0, updated_at: row.updated_at, updated_by: row.updated_by });
 });
 
 // Optimistic locking: { data, baseVersion } → 409 on version mismatch (no silent overwrite).
@@ -398,6 +419,9 @@ app.put("/api/finance/:year", auth, requireRole("finance", "admin"), (req, res) 
 
 // ── File uploads ──
 const upload = multer({
+  // Browsers send the multipart filename as UTF-8; busboy defaults to latin1, which mangles Greek
+  // names into mojibake. Decode as UTF-8 so "Τιμολόγιο.pdf" survives.
+  defParamCharset: "utf8",
   storage: multer.diskStorage({
     destination: (req, file, cb) => cb(null, FILES_DIR),
     filename: (req, file, cb) => cb(null, randomUUID() + "_" + file.originalname.replace(/[^a-zA-Z0-9._-]/g,"_"))
@@ -407,8 +431,9 @@ const upload = multer({
 
 app.post("/api/files/:year/:client", auth, upload.single("file"), (req, res) => {
   const { year, client } = req.params;
+  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
   if (!canAccess(req.user, client)) {
-    fs.unlinkSync(req.file.path);
+    try { fs.unlinkSync(req.file.path); } catch (e) { /* best-effort cleanup */ }
     return res.status(403).json({ error: "Access denied" });
   }
   const id = randomUUID();
@@ -431,6 +456,11 @@ app.get("/api/files/:year/:client", auth, (req, res) => {
 
 // ── Signed, short-lived download links (no JWT in URLs → nothing sensitive in logs/history) ──
 const signDownload = (id, exp) => createHmac("sha256", JWT_SECRET).update(`dl.${id}.${exp}`).digest("base64url");
+// Constant-time signature comparison so a forged download link can't be tuned byte-by-byte via timing.
+const sigMatches = (a, b) => {
+  const ba = Buffer.from(String(a)), bb = Buffer.from(String(b));
+  return ba.length === bb.length && timingSafeEqual(ba, bb);
+};
 
 app.post("/api/files/:year/:client/:id/link", auth, (req, res) => {
   const { year, client, id } = req.params;
@@ -450,7 +480,7 @@ app.get("/api/files/:year/:client/:id/download", (req, res) => {
   const { exp, sig } = req.query;
   if (exp && sig) {
     // Signed-link path: issued by an authorized user moments ago
-    if (Math.floor(Date.now() / 1000) > Number(exp) || sig !== signDownload(id, String(exp))) {
+    if (Math.floor(Date.now() / 1000) > Number(exp) || !sigMatches(sig, signDownload(id, String(exp)))) {
       return res.status(403).json({ error: "Link expired" });
     }
   } else {

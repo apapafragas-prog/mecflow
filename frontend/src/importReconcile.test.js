@@ -48,6 +48,21 @@ describe("reconcileRows", () => {
     expect(r.match.length).toBe(1);   // first consumes "a"
     expect(r.newRows.length).toBe(1); // second has no free match
   });
+
+  it("an exact-match line is never starved by an earlier same-invoice CHANGED line", () => {
+    // File order matters: the different-amount line comes FIRST. It must NOT consume system row "a"
+    // and leave the exact duplicate to fall through to NEW (a spurious re-add of existing data).
+    const file = [
+      { month: "2026-01", cat: "X", inv_no: "1", amt: 150 }, // different amount → a distinct line
+      { month: "2026-01", cat: "X", inv_no: "1", amt: 100 }, // exact duplicate of system "a"
+    ];
+    const r = reconcileRows(file, sys, idOf, fullOf);
+    expect(r.match.length).toBe(1);       // the exact line matches "a" (no-op)
+    expect(r.match[0].file.amt).toBe(100);
+    expect(r.changed.length).toBe(0);     // "a" is NOT overwritten by the 150 line
+    expect(r.newRows.length).toBe(1);     // the 150 line is a genuinely new line item
+    expect(r.newRows[0].amt).toBe(150);
+  });
 });
 
 describe("reconcileLabour", () => {

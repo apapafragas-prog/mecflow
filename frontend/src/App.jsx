@@ -235,8 +235,24 @@ export default function App() {
     if(!dirtyRef.current || !ctxRef.current) return;
     const {year:yr, client:cl, cd:c} = ctxRef.current;
     const {docs, ...rest} = c;
+    const ckey = `${yr}:${cl}`;
     dirtyRef.current = false;
-    if(beacon) { api.saveClientDataBeacon(yr, cl, rest, versionsRef.current[`${yr}:${cl}`] ?? 0); }
+    if(beacon) {
+      // Fire-and-forget save on leave/hide. The server increments the stored version by 1, so we must
+      // bump our cached version to match — otherwise a resumed tab reuses the stale baseVersion and the
+      // next real save self-inflicts a false 409 ("modified by another user") that drops the last edit.
+      const base = versionsRef.current[ckey] ?? 0;
+      versionsRef.current[ckey] = base + 1;                    // optimistic: matches the server on success
+      const p = api.saveClientDataBeacon(yr, cl, rest, base);
+      // On visibility-hidden (page still alive) the fetch resolves — reconcile with the true version,
+      // and roll back the optimistic bump if the beacon never landed, so a later save isn't wrongly rejected.
+      if(p && typeof p.then === "function") {
+        p.then(async r => {
+          try { const j = await r.json(); if(j && typeof j.version === "number") versionsRef.current[ckey] = j.version; }
+          catch { versionsRef.current[ckey] = base; }
+        }).catch(() => { versionsRef.current[ckey] = base; });
+      }
+    }
     else { return doSave(yr, cl, rest); }
   };
   // Save main data on change (debounced 500ms)
@@ -273,6 +289,9 @@ export default function App() {
   // AI chat assistant — mounted on every authenticated screen; the snapshot reflects the current view.
   const navChat = (view) => {
     if (typeof view !== "string") return;
+    // Any navigation away from the current client must first flush its debounced (unsaved) edit,
+    // otherwise the 500ms save timer is cleared by the client switch and the last change is lost.
+    flushSave();
     const fin = user.role==="finance"||user.role==="admin";
     if (view==="dashboard") { setClient(null); setFinanceOpen(false); setLedgerOpen(false); setGroupOpen(false); setDashOpen(true); }
     else if (view==="ledger" && fin) { setClient(null); setDashOpen(false); setFinanceOpen(false); setGroupOpen(false); setLedgerOpen(true); }
@@ -289,7 +308,7 @@ export default function App() {
   const scanPill = busyScans.length ? (
     <div style={{position:"fixed",bottom:22,left:22,zIndex:1300,display:"flex",flexDirection:"column",gap:8}}>
       {busyScans.map(bs=>(
-        <button key={bs.key} onClick={()=>{ setDashOpen(false);setLedgerOpen(false);setFinanceOpen(false);setGroupOpen(false); setYear(bs.year); setClient(bs.client); setTab("scan"); }}
+        <button key={bs.key} onClick={()=>{ flushSave(); setDashOpen(false);setLedgerOpen(false);setFinanceOpen(false);setGroupOpen(false); setYear(bs.year); setClient(bs.client); setTab("scan"); }}
           style={{background:P.em,color:"#fff",border:"none",borderRadius:20,padding:"9px 16px",boxShadow:"0 6px 20px rgba(0,0,0,.25)",cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:8,maxWidth:320}}>
           <span style={{fontSize:14}}>🤖</span>
           <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t("Σάρωση","Scanning")} {bs.client}: {bs.done}/{bs.total}</span>
@@ -618,7 +637,7 @@ export default function App() {
       </div>
       <div style={{padding:20,maxWidth:1400,margin:"0 auto"}}>
         {tab==="contracts" && <ContractTab data={contracts} set={setContracts} inv={inv} docs={docs} setDocs={setDocs} year={year} client={client} />}
-        {tab==="scan" && <Scan session={scanSession} scanApi={scanApi} goTo={setTab} year={year} client={client} onAdd={items => setSub(p => [...p,...items.map(x => ({...x,id:uid()}))])} onAddAR={items => setInv(p => [...p,...items.map(x => ({...x,id:uid()}))])} />}
+        {tab==="scan" && <Scan session={scanSession} scanApi={scanApi} goTo={setTab} year={year} client={client} onAdd={items => setSub(p => [...p,...items.map(x => { const a=Number(x.amt)||0, v=Number(x.vat)||0; const fp=Number(x.fee_pct)|| (contracts||[]).find(c=>c.status==="Active"&&c.type==="MSA")?.fee_pct || 5.5; const fee=Math.round(a*fp/100*100)/100; return {...x,id:uid(),total:x.total!=null?x.total:Math.round((a+v)*100)/100,fee_pct:fp,cbre_fee:fee,cbre_bill:Math.round((a+fee)*100)/100}; })])} onAddAR={items => setInv(p => [...p,...items.map(x => ({...x,id:uid()}))])} />}
         {tab==="pnl" && <PnL inv={inv} sub={sub} lab={lab} />}
         {tab==="insights" && <Insights inv={inv} sub={sub} lab={lab} contracts={contracts} client={client} year={year} />}
         {tab==="inv" && <InvTab data={inv} set={setInv} contracts={contracts} year={year} client={client} onDupCheck={()=>setDupOpen(true)} />}
