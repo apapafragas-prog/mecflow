@@ -15,6 +15,7 @@ import {
 import { LogoImg, LangToggle } from "./ui.jsx";
 import { Login, ForcePw, ResetPassword } from "./auth.jsx";
 import { PnL, InvTab, SubTab, AccTab, LabTab, POTracker } from "./reportTabs.jsx";
+import { parseWorkbookFile, ReconcileModal } from "./importReconcile.jsx";
 import { Insights } from "./insights.jsx";
 import { ChatWidget } from "./chat.jsx";
 import { Dashboard, ApArLedger, OpexCapex } from "./finance.jsx";
@@ -76,6 +77,8 @@ export default function App() {
   const [overTab,setOverTab] = useState(null);
   const [menuOpen,setMenuOpen] = useState(false);
   const [importing,setImporting] = useState(false);
+  const [reconcile,setReconcile] = useState(null);   // { parsed } — open Import & Reconcile modal
+  const [reconciling,setReconciling] = useState(false);
   const [allData, setAllData] = useState(() => {
     const d = {};
     YEARS.forEach(y => {
@@ -686,6 +689,27 @@ export default function App() {
     }
   };
 
+  // Apply the reconciliation choices — ADD new rows (fresh id) + UPDATE changed rows in place
+  // (keep the system id). Never deletes. The debounced auto-save persists it with versioning.
+  const applyReconcile = ({ invAdd, invUpd, subAdd, subUpd, labSet }) => {
+    if (invAdd.length || invUpd.length) setInv(prev => {
+      const upd = (prev || []).map(r => { const u = invUpd.find(x => x.sysId === r.id); return u ? { ...r, ...u.file, id: r.id } : r; });
+      return [...upd, ...invAdd.map(f => ({ ...f, id: uid() }))];
+    });
+    if (subAdd.length || subUpd.length) setSub(prev => {
+      const upd = (prev || []).map(r => { const u = subUpd.find(x => x.sysId === r.id); return u ? { ...r, ...u.file, id: r.id } : r; });
+      return [...upd, ...subAdd.map(f => ({ ...f, id: uid() }))];
+    });
+    if (labSet.length) setLab(prev => {
+      const out = {}; MONTHS.forEach(m => { out[m] = { ...(prev?.[m] || {}) }; });
+      labSet.forEach(({ m, k, v }) => { if (!out[m]) out[m] = {}; out[m][k] = v; });
+      return out;
+    });
+    const n = invAdd.length + invUpd.length + subAdd.length + subUpd.length + labSet.length;
+    setReconcile(null);
+    alert(t(`Εφαρμόστηκαν ${n} αλλαγές. Αποθηκεύονται αυτόματα.`, `Applied ${n} changes. Auto-saving.`));
+  };
+
   return withChat(
     <div style={{minHeight:"100vh",background:P.of,fontFamily:"Segoe UI,Tahoma,sans-serif"}}>
       <div style={{background:P.em,color:P.wh,padding:"12px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
@@ -739,6 +763,19 @@ export default function App() {
                     <input type="file" accept=".xlsx,.xls,.xlsm" style={{display:"none"}} onChange={e=>{importExcel(e.target.files[0]);e.target.value="";}} disabled={importing} />
                     <span style={{fontSize:16}}>📤</span>
                     <div><div>{importing?t("Εισαγωγή...","Importing..."):t("Εισαγωγή Ιστορικού Excel","Import Historical Excel")}</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>{t("Μαζική φόρτωση τιμολογίων, εργασίας, POs","Bulk-load invoices, labour, POs")}</div></div>
+                  </label>
+                  {/* Import & Reconcile P&L */}
+                  <label style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 16px",cursor:reconciling?"wait":"pointer",fontSize:13,color:P.em,fontWeight:600,textAlign:"left",borderBottom:"1px solid "+P.bd}}>
+                    <input type="file" accept=".xlsx,.xls,.xlsm" style={{display:"none"}} disabled={reconciling} onChange={async e=>{
+                      const f=e.target.files[0]; e.target.value="";
+                      if(!f) return;
+                      setMenuOpen(false); setReconciling(true);
+                      try { const parsed=await parseWorkbookFile(f); setReconcile({parsed}); }
+                      catch(err){ console.error(err); alert(t("Η ανάγνωση απέτυχε: ","Parse failed: ")+err.message); }
+                      finally { setReconciling(false); }
+                    }} />
+                    <span style={{fontSize:16}}>📊</span>
+                    <div><div>{reconciling?t("Ανάγνωση...","Reading..."):t("Import & Reconcile P&L","Import & Reconcile P&L")}</div><div style={{fontSize:10,color:P.tm,fontWeight:400}}>{t("Σύγκριση με τα υπάρχοντα + προσθήκη/ενημέρωση","Compare with existing + add / update")}</div></div>
                   </label>
                   {/* Clear All */}
                   <button onClick={async ()=>{
@@ -803,6 +840,14 @@ export default function App() {
         {tab==="acc" && <AccTab inv={inv} sub={sub} />}
         {tab==="lab" && <LabTab data={lab} set={setLab} />}
       </div>
+      {reconcile && (
+        <ReconcileModal
+          parsed={reconcile.parsed}
+          cur={{ inv, sub, lab, client }}
+          onClose={()=>setReconcile(null)}
+          onApply={applyReconcile}
+        />
+      )}
     </div>
   );
 }
