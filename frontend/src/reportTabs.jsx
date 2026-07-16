@@ -306,44 +306,45 @@ export function SubTab({data,set,contracts,year,client,onDupCheck}) {
 
 export function AccTab({inv,sub,data,set}) {
   const { t } = useT();
-  const manual = data || [];
-  const [f,sF] = useState({month:MONTHS[0],section:"UBR",seg:0,amt:"",note:""});
-  const thS = {padding:"6px 8px",textAlign:"center",fontSize:10,fontWeight:700,color:"#fff",background:P.em,whiteSpace:"nowrap"};
-  const cellS = {padding:"6px 8px",textAlign:"right",fontSize:12,borderBottom:"1px solid "+P.bd};
-
-  // Revenue accruals from CBRE Invoices where act_acc=ACCRUAL, split by sign
-  const revAcc = (cat,m,sign) => inv.filter(i=>i.month===m&&(i.act_acc||"").toUpperCase()==="ACCRUAL"&&(i.cat||"").includes(cat)&&(sign==="+"?(Number(i.amt)||0)>0:(Number(i.amt)||0)<0)).reduce((s,i)=>s+(Number(i.amt)||0),0);
-  // Expense accruals from Sub Invoices where act_acc=ACCRUAL
-  const costAcc = (cat,m) => sub.filter(i=>i.month===m&&(i.act_acc||"").toUpperCase()==="ACCRUAL"&&(i.cat||"").toUpperCase().includes(cat)).reduce((s,i)=>s+(Number(i.amt)||0),0);
-  // Manual accrual entries added on this tab, summed per section (UBR/UER/EXP) + segment + month.
-  const manualSum = (secKey,seg,m) => manual.filter(a=>a.section===secKey&&a.seg===seg&&a.month===m).reduce((s,a)=>s+(Number(a.amt)||0),0);
-
-  const cats = ["FM Core","FM Extra Works","PJMs"];
   const costCats = ["CORE","EXTRA","PJM"];
+  const cats = ["FM Core","FM Extra Works","PJMs"];
   const catLabels = ["FM Core","FM Extra Works","FM PJMs"];
+  const SECS = ["UBR","UER","EXP"];
+
+  // Manual accruals as an editable grid M[section][segIndex][month]=amount (like Labour).
+  // Accepts the previous array format so any existing manual entries carry over.
+  const M = {}; SECS.forEach(s=>{ M[s]={0:{},1:{},2:{}}; });
+  if(Array.isArray(data)) data.forEach(a=>{ if(M[a.section]&&M[a.section][a.seg]) M[a.section][a.seg][a.month]=(M[a.section][a.seg][a.month]||0)+(Number(a.amt)||0); });
+  else if(data&&typeof data==="object") SECS.forEach(s=>{ if(data[s]) [0,1,2].forEach(g=>{ if(data[s][g]) M[s][g]={...data[s][g]}; }); });
+  const manVal = (s,g,m)=> Number(M[s]?.[g]?.[m])||0;
+  const setMan = (s,g,m,v)=>{
+    const next={}; SECS.forEach(x=>{ next[x]={}; [0,1,2].forEach(gg=>{ next[x][gg]={...(M[x]?.[gg]||{})}; }); });
+    next[s][g][m]=parseFloat(v)||0;
+    set(next);
+  };
+
+  // Auto accruals derived from ACCRUAL-marked invoices — shown per cell and added into the totals.
+  const revAcc = (cat,m,sign) => inv.filter(i=>i.month===m&&(i.act_acc||"").toUpperCase()==="ACCRUAL"&&(i.cat||"").includes(cat)&&(sign==="+"?(Number(i.amt)||0)>0:(Number(i.amt)||0)<0)).reduce((s,i)=>s+(Number(i.amt)||0),0);
+  const costAcc = (cat,m) => sub.filter(i=>i.month===m&&(i.act_acc||"").toUpperCase()==="ACCRUAL"&&(i.cat||"").toUpperCase().includes(cat)).reduce((s,i)=>s+(Number(i.amt)||0),0);
+  const derived = (sk,g,m) => sk==="UBR" ? revAcc(cats[g],m,"+") : sk==="UER" ? revAcc(cats[g],m,"-") : costAcc(costCats[g],m);
+  const cell = (sk,g,m) => derived(sk,g,m) + manVal(sk,g,m);
+
+  const thS = {padding:"6px 8px",textAlign:"center",fontSize:10,fontWeight:700,color:"#fff",background:P.em,whiteSpace:"nowrap"};
+  const inpS = {width:"100%",padding:"3px 4px",border:"1px solid "+P.bd,borderRadius:3,fontSize:11,textAlign:"right",background:P.ip,outline:"none",boxSizing:"border-box"};
 
   const sections = [
-    {t:t("Δουλευμένα Εσόδων — UBR (Ανείσπρακτα Έσοδα)","Revenue Accruals — UBR (Unbilled Revenue)"),sub:"UBR",key:"UBR",rows:cats.map((c,i)=>({l:catLabels[i],fn:m=>revAcc(c,m,"+")+manualSum("UBR",i,m)}))},
-    {t:t("Δουλευμένα Εσόδων — UER (Έσοδα Επόμενων Χρήσεων)","Revenue Accruals — UER (Unearned Revenue)"),sub:"UER",key:"UER",rows:cats.map((c,i)=>({l:catLabels[i],fn:m=>revAcc(c,m,"-")+manualSum("UER",i,m)}))},
-    {t:t("Δουλευμένα Εξόδων (Τιμολόγια Υπεργ. Accrual + χειροκίνητα)","Expense Accruals (Sub Accrual entries + manual)"),sub:"Total",key:"EXP",rows:costCats.map((c,i)=>({l:catLabels[i],fn:m=>costAcc(c,m)+manualSum("EXP",i,m)}))},
+    {t:t("Δουλευμένα Εσόδων — UBR (Ανείσπρακτα Έσοδα)","Revenue Accruals — UBR (Unbilled Revenue)"),sub:"UBR",key:"UBR"},
+    {t:t("Δουλευμένα Εσόδων — UER (Έσοδα Επόμενων Χρήσεων)","Revenue Accruals — UER (Unearned Revenue)"),sub:"UER",key:"UER"},
+    {t:t("Δουλευμένα Εξόδων","Expense Accruals"),sub:"Total",key:"EXP"},
   ];
-
-  const addManual = () => {
-    const a = parseFloat(f.amt);
-    if(f.amt===""||Number.isNaN(a)) return;
-    set([...manual,{id:uid(),month:f.month,section:f.section,seg:Number(f.seg),amt:a,note:f.note||""}]);
-    sF(x=>({...x,amt:"",note:""}));
-  };
-  const delManual = (id) => set(manual.filter(a=>a.id!==id));
-  const secOpts = [{v:"UBR",l:"UBR — "+t("Ανείσπρακτα","Unbilled")},{v:"UER",l:"UER — "+t("Επόμ. Χρήσεων","Unearned")},{v:"EXP",l:t("Έξοδα","Expense")}];
 
   return (
     <div>
       <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 6px"}}>{t("Δουλευμένα (Accruals)","Accruals")}</h2>
-      <p style={{fontSize:12,color:P.tm,margin:"0 0 16px"}}>{t("Αυτόματη συμπλήρωση από τιμολόγια ACCRUAL + χειροκίνητες εγγραφές (παρακάτω). Τα σύνολα αθροίζουν και τα δύο.","Auto-populated from ACCRUAL-marked invoices + manual entries (below). Totals include both.")}</p>
+      <p style={{fontSize:12,color:P.tm,margin:"0 0 16px",lineHeight:1.5}}>{t("Γράψε τα accruals χειροκίνητα ανά μήνα (όπως το Labour). Ο μικρός γκρι αριθμός πάνω από ένα κελί είναι όσα προκύπτουν αυτόματα από τιμολόγια ACCRUAL — προστίθεται στα σύνολα.","Type accruals manually per month (like Labour). The small grey number above a cell is the amount auto-derived from ACCRUAL invoices — it is added into the totals.")}</p>
       {sections.map(sec => (
-        <div key={sec.t} style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,marginBottom:16}}>
-          <div style={{background:sec.bold?"#00695C":P.ep,padding:"10px 16px",fontWeight:700,fontSize:13,color:sec.bold?"#fff":P.em}}>{sec.t}</div>
+        <div key={sec.key} style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,marginBottom:16}}>
+          <div style={{background:P.ep,padding:"10px 16px",fontWeight:700,fontSize:13,color:P.em}}>{sec.t}</div>
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed",minWidth:1100}}>
               <colgroup>
@@ -357,27 +358,32 @@ export function AccTab({inv,sub,data,set}) {
                 <th style={{...thS,background:"#00695C"}}>{t("Σύνολο","Total")}</th>
               </tr></thead>
               <tbody>
-                {sec.rows.map((r,ri) => {
-                  const total = MONTHS.reduce((s,m)=>s+r.fn(m),0);
+                {[0,1,2].map(g => {
+                  const total = MONTHS.reduce((s,m)=>s+cell(sec.key,g,m),0);
                   return (
-                    <tr key={r.l+ri} style={{background:ri%2===0?P.wh:P.al}}>
-                      <td style={{padding:"6px 10px",fontSize:12,fontWeight:500,borderBottom:"1px solid "+P.bd,borderRight:"2px solid "+P.bd}}>{r.l}</td>
+                    <tr key={g} style={{background:g%2===0?P.wh:P.al}}>
+                      <td style={{padding:"6px 10px",fontSize:12,fontWeight:500,borderBottom:"1px solid "+P.bd,borderRight:"2px solid "+P.bd}}>{catLabels[g]}</td>
                       {MONTHS.map(m => {
-                        const v = r.fn(m);
-                        return <td key={m} style={{...cellS,color:v<0?P.rd:v>0?P.em:P.tm,fontWeight:v!==0?600:400}}>{v!==0?fmt(v):"-"}</td>;
+                        const der = derived(sec.key,g,m);
+                        return (
+                          <td key={m} style={{padding:"2px 4px",borderBottom:"1px solid "+P.bd,textAlign:"center"}}>
+                            {der!==0 && <div title={t("auto από τιμολόγια ACCRUAL","auto from ACCRUAL invoices")} style={{fontSize:9,color:der<0?P.rd:P.tm,textAlign:"right",lineHeight:1.1}}>{fmt(der)}</div>}
+                            <input type="number" step="0.01" value={M[sec.key][g][m]||""} onChange={e=>setMan(sec.key,g,m,e.target.value)} style={inpS} />
+                          </td>
+                        );
                       })}
-                      <td style={{...cellS,fontWeight:700,color:total<0?P.rd:P.em,background:"#f5f5f5",borderLeft:"2px solid "+P.bd}}>{total!==0?fmt(total):"-"}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontSize:12,fontWeight:700,color:total<0?P.rd:P.em,background:"#f5f5f5",borderLeft:"2px solid "+P.bd,borderBottom:"1px solid "+P.bd}}>{total!==0?fmt(total):"-"}</td>
                     </tr>
                   );
                 })}
                 <tr style={{background:P.ep}}>
                   <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,borderRight:"2px solid #00695C"}}>{t("Υποσύνολο","Sub-Total")} {sec.sub}</td>
                   {MONTHS.map(m => {
-                    const v = sec.rows.reduce((s,r)=>s+r.fn(m),0);
+                    const v = [0,1,2].reduce((s,g)=>s+cell(sec.key,g,m),0);
                     return <td key={m} style={{padding:"6px 8px",textAlign:"right",fontSize:12,fontWeight:700,color:v<0?P.rd:P.em}}>{fmt(v)}</td>;
                   })}
                   <td style={{padding:"6px 8px",textAlign:"right",fontSize:13,fontWeight:700,color:P.em,background:"#C8E6C9",borderLeft:"2px solid #00695C"}}>
-                    {fmt(MONTHS.reduce((x,m)=>x+sec.rows.reduce((s,r)=>s+r.fn(m),0),0))}
+                    {fmt(MONTHS.reduce((x,m)=>x+[0,1,2].reduce((s,g)=>s+cell(sec.key,g,m),0),0))}
                   </td>
                 </tr>
               </tbody>
@@ -385,38 +391,6 @@ export function AccTab({inv,sub,data,set}) {
           </div>
         </div>
       ))}
-
-      {/* ── Manual accrual entries ── */}
-      <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,marginTop:4}}>
-        <div style={{background:P.ep,padding:"10px 16px",fontWeight:700,fontSize:13,color:P.em}}>✍️ {t("Χειροκίνητη Εγγραφή Accrual","Manual Accrual Entry")}</div>
-        <div style={{padding:14,display:"flex",flexWrap:"wrap",gap:8,alignItems:"flex-end"}}>
-          <Sel l={t("Μήνας","Month")} v={f.month} set={v=>sF(x=>({...x,month:v}))} opts={MONTHS.map(m=>({v:m,l:monthLabel(m)}))} w={100} />
-          <Sel l={t("Τύπος","Type")} v={f.section} set={v=>sF(x=>({...x,section:v}))} opts={secOpts} w={180} />
-          <Sel l="Segment" v={String(f.seg)} set={v=>sF(x=>({...x,seg:Number(v)}))} opts={catLabels.map((l,i)=>({v:String(i),l}))} w={130} />
-          <Inp l={t("Ποσό €","Amount €")} v={f.amt} set={v=>sF(x=>({...x,amt:v}))} w={100} t="number" />
-          <Inp l={t("Σημείωση","Note")} v={f.note} set={v=>sF(x=>({...x,note:v}))} w={200} />
-          <button onClick={addManual} style={{background:P.em,color:"#fff",border:"none",padding:"8px 18px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>+ {t("Προσθήκη","Add")}</button>
-        </div>
-        {manual.length>0 && (
-          <div style={{padding:"0 14px 14px",overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse"}}>
-              <thead><tr>{[t("Μήνας","Month"),t("Τύπος","Type"),"Segment",t("Ποσό €","Amount €"),t("Σημείωση","Note"),""].map((h,i)=>(
-                <th key={i} style={{padding:"5px 8px",fontSize:10,fontWeight:700,color:"#fff",background:P.em,textAlign:i===3?"right":"left"}}>{h}</th>
-              ))}</tr></thead>
-              <tbody>{manual.map(a=>(
-                <tr key={a.id} style={{borderBottom:"1px solid "+P.bd}}>
-                  <td style={{padding:"5px 8px",fontSize:12}}>{monthLabel(a.month)}</td>
-                  <td style={{padding:"5px 8px",fontSize:12}}>{a.section}</td>
-                  <td style={{padding:"5px 8px",fontSize:12}}>{catLabels[a.seg]||"-"}</td>
-                  <td style={{padding:"5px 8px",fontSize:12,textAlign:"right",color:a.amt<0?P.rd:P.em,fontWeight:600}}>{fmt(a.amt)}</td>
-                  <td style={{padding:"5px 8px",fontSize:12,color:P.tm}}>{a.note}</td>
-                  <td style={{padding:"5px 8px",textAlign:"right"}}><button onClick={()=>delManual(a.id)} title={t("Διαγραφή","Delete")} style={{background:"none",border:"none",color:P.rd,cursor:"pointer",fontSize:15}}>×</button></td>
-                </tr>
-              ))}</tbody>
-            </table>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
