@@ -16,6 +16,7 @@ import { LogoImg, LangToggle } from "./ui.jsx";
 import { Login, ForcePw, ResetPassword } from "./auth.jsx";
 import { PnL, InvTab, SubTab, AccTab, LabTab, POTracker } from "./reportTabs.jsx";
 import { parseWorkbookFile, ReconcileModal } from "./importReconcile.jsx";
+import { expandFiles, extractOne } from "./scanEngine.js";
 import { Insights } from "./insights.jsx";
 import { ChatWidget } from "./chat.jsx";
 import { Dashboard, ApArLedger, OpexCapex } from "./finance.jsx";
@@ -25,6 +26,10 @@ import { Scan } from "./scan.jsx";
 import { ClientPicker } from "./clientPicker.jsx";
 import { ContractTab } from "./contracts.jsx";
 import { useT, statusLabel, monthLabel } from "./i18n.jsx";
+
+// A scan session is per-client so scanning survives tab/client navigation (it lives in App,
+// which never unmounts). Fresh object each call to avoid shared-reference mutation.
+const emptyScan = () => ({ files: [], results: [], busy: false, prog: "", mode: "AP", autoMode: false, targetMonth: "", approved: { sub: 0, inv: 0 } });
 
 export default function App() {
   const { t } = useT();
@@ -79,6 +84,30 @@ export default function App() {
   const [importing,setImporting] = useState(false);
   const [reconcile,setReconcile] = useState(null);   // { parsed } — open Import & Reconcile modal
   const [reconciling,setReconciling] = useState(false);
+
+  // ── Background invoice scanning (per-client sessions; the loop lives here so it keeps running
+  // while you switch tabs or clients, and you see the progress when you come back) ──
+  const [scanSessions,setScanSessions] = useState({});
+  const scanRef = useRef({}); scanRef.current = scanSessions;
+  const scanBusyRef = useRef({});
+  const patchScan = (key,upd) => setScanSessions(p => { const cur = p[key] || emptyScan(); const nx = typeof upd==="function"?upd(cur):upd; return {...p,[key]:{...cur,...nx}}; });
+  const patchScanResult = (key,i,kv) => setScanSessions(p => { const cur = p[key] || emptyScan(); return {...p,[key]:{...cur,results:cur.results.map((r,j)=>j===i?{...r,...kv}:r)}}; });
+  const runScan = async (key) => {
+    if(!key || scanBusyRef.current[key]) return;
+    const sess = scanRef.current[key] || emptyScan();
+    if(!sess.files.length) return;
+    scanBusyRef.current[key] = true;
+    const { mode, autoMode, files } = sess;
+    patchScan(key,{busy:true,results:[],approved:{sub:0,inv:0}});
+    for(let i=0;i<files.length;i++){
+      const f = files[i];
+      patchScan(key,{prog:t(`🤖 AI ανάγνωση ${i+1}/${files.length}: ${f.name}`,`🤖 AI reading ${i+1}/${files.length}: ${f.name}`)});
+      const row = await extractOne(f, mode, autoMode, (msg)=>patchScan(key,{prog:msg}));
+      setScanSessions(p => { const cur = p[key] || emptyScan(); return {...p,[key]:{...cur,results:[...cur.results,row]}}; });
+    }
+    patchScan(key,{busy:false,prog:""});
+    scanBusyRef.current[key] = false;
+  };
   const [allData, setAllData] = useState(() => {
     const d = {};
     YEARS.forEach(y => {
@@ -253,7 +282,21 @@ export default function App() {
     else if (view.startsWith("client:")) { const p=view.split(":"); if (p[1]) { setDashOpen(false); setLedgerOpen(false); setFinanceOpen(false); setGroupOpen(false); setClient(p[1]); setTab(p[2]||"contracts"); } }
   };
   const chatEl = <ChatWidget user={user} year={year} ctx={{client, cd:(client&&cd)?cd:null, tab}} nav={navChat} />;
-  const withChat = (screen) => <>{screen}{chatEl}</>;
+  // Floating pill(s) for any scan running in the background — visible on every screen, click to jump
+  // to that client's Scanner and watch the progress.
+  const busyScans = Object.entries(scanSessions).filter(([,s])=>s.busy).map(([k,s])=>{ const i=k.indexOf(":"); return {key:k,year:k.slice(0,i),client:k.slice(i+1),done:s.results.length,total:s.files.length}; });
+  const scanPill = busyScans.length ? (
+    <div style={{position:"fixed",bottom:22,left:22,zIndex:1300,display:"flex",flexDirection:"column",gap:8}}>
+      {busyScans.map(bs=>(
+        <button key={bs.key} onClick={()=>{ setDashOpen(false);setLedgerOpen(false);setFinanceOpen(false);setGroupOpen(false); setYear(bs.year); setClient(bs.client); setTab("scan"); }}
+          style={{background:P.em,color:"#fff",border:"none",borderRadius:20,padding:"9px 16px",boxShadow:"0 6px 20px rgba(0,0,0,.25)",cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:8,maxWidth:320}}>
+          <span style={{fontSize:14}}>🤖</span>
+          <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t("Σάρωση","Scanning")} {bs.client}: {bs.done}/{bs.total}</span>
+        </button>
+      ))}
+    </div>
+  ) : null;
+  const withChat = (screen) => <>{screen}{scanPill}{chatEl}</>;
 
   if (!client && dashOpen)
     return withChat(<Dashboard year={year} setYear={setYear} user={user} onBack={()=>setDashOpen(false)} onLogout={logout} onSelectClient={c=>{setDashOpen(false);setClient(c);setTab("contracts");}} />);
@@ -273,6 +316,22 @@ export default function App() {
   const setManualAccruals=v=>upClient("manualAccruals",v);
   const setContracts=v=>upClient("contracts",v);
   const setDocs=v=>upClient("docs",v);
+
+  // Current client's scan session + bound actions passed to the Scan view (which is now a
+  // controlled view over App-owned, per-client scan state).
+  const curScanKey = client ? `${year}:${client}` : null;
+  const scanSession = (curScanKey && scanSessions[curScanKey]) || emptyScan();
+  const scanApi = {
+    addFiles: async (fl) => { patchScan(curScanKey,{prog:t("Φόρτωση αρχείων…","Loading files…")}); const files = await expandFiles(fl,(m)=>patchScan(curScanKey,{prog:m})); patchScan(curScanKey, s=>({files:[...s.files,...files],prog:""})); },
+    resetPick: (auto) => patchScan(curScanKey,{files:[],results:[],approved:{sub:0,inv:0},autoMode:auto}),
+    clearFiles: () => patchScan(curScanKey,{files:[],autoMode:false}),
+    removeFile: (idx) => patchScan(curScanKey, s=>({files:s.files.filter((_,j)=>j!==idx)})),
+    setField: (k,v) => patchScan(curScanKey,{[k]:v}),
+    run: () => runScan(curScanKey),
+    updateResult: (i,kv) => patchScanResult(curScanKey,i,kv),
+    setResults: (fn) => patchScan(curScanKey, s=>({results:fn(s.results)})),
+    bumpApproved: (k) => patchScan(curScanKey, s=>({approved:{...s.approved,[k]:s.approved[k]+1}})),
+  };
 
   const exportXL = () => {
     const wb = XLSX.utils.book_new();
@@ -858,7 +917,7 @@ export default function App() {
       </div>
       <div style={{padding:20,maxWidth:1400,margin:"0 auto"}}>
         {tab==="contracts" && <ContractTab data={contracts} set={setContracts} inv={inv} docs={docs} setDocs={setDocs} year={year} client={client} />}
-        {tab==="scan" && <Scan goTo={setTab} year={year} client={client} onAdd={items => setSub(p => [...p,...items.map(x => ({...x,id:uid()}))])} onAddAR={items => setInv(p => [...p,...items.map(x => ({...x,id:uid()}))])} />}
+        {tab==="scan" && <Scan session={scanSession} scanApi={scanApi} goTo={setTab} year={year} client={client} onAdd={items => setSub(p => [...p,...items.map(x => ({...x,id:uid()}))])} onAddAR={items => setInv(p => [...p,...items.map(x => ({...x,id:uid()}))])} />}
         {tab==="pnl" && <PnL inv={inv} sub={sub} lab={lab} />}
         {tab==="insights" && <Insights inv={inv} sub={sub} lab={lab} contracts={contracts} client={client} year={year} />}
         {tab==="inv" && <InvTab data={inv} set={setInv} contracts={contracts} year={year} client={client} />}
