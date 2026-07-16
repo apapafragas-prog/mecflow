@@ -513,14 +513,19 @@ export default function App() {
     setImporting(true);
     try {
       const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf,{type:"array",cellDates:true});
+      // Read raw serials (cellDates:false) and convert them ourselves with UTC math. Letting XLSX
+      // build Dates (cellDates:true) shifts them by the local timezone, which rolled month/date
+      // serials back a day (e.g. 1-Jan → 31-Dec) and mis-bucketed whole periods.
+      const wb = XLSX.read(buf,{type:"array",cellDates:false});
       const sheetNames = wb.SheetNames;
-      const get = name => name && wb.Sheets[name] ? XLSX.utils.sheet_to_json(wb.Sheets[name],{defval:"",raw:false}) : [];
+      const get = name => name && wb.Sheets[name] ? XLSX.utils.sheet_to_json(wb.Sheets[name],{defval:"",raw:true}) : [];
 
-      // Helper: convert any value to string safely
+      const xlToDate = (n) => new Date(Math.round((n - 25569) * 86400000)); // Excel serial → UTC date
+      // Helper: convert any value to a dd/mm/yyyy string safely
       const dateToStr = (v) => {
-        if(!v) return "";
-        if(v instanceof Date && !isNaN(v)) return String(v.getDate()).padStart(2,"0")+"/"+String(v.getMonth()+1).padStart(2,"0")+"/"+v.getFullYear();
+        if(v==null||v==="") return "";
+        if(v instanceof Date && !isNaN(v)) return String(v.getUTCDate()).padStart(2,"0")+"/"+String(v.getUTCMonth()+1).padStart(2,"0")+"/"+v.getUTCFullYear();
+        if(typeof v==="number" && v>=20000 && v<=90000){ const d=xlToDate(v); return String(d.getUTCDate()).padStart(2,"0")+"/"+String(d.getUTCMonth()+1).padStart(2,"0")+"/"+d.getUTCFullYear(); }
         return String(v);
       };
 
@@ -579,9 +584,10 @@ export default function App() {
       // out-of-FY row into January. Mirrors remapMonth/normalizeClientData so the month is preserved.
       const toFY = (mm) => { const i = (parseInt(mm,10)||1)-1; return MONTHS[Math.max(0,Math.min(11,i))]; };
       const parseMonth = (v) => {
-        if(!v) return MONTHS[0];
+        if(v==null||v==="") return MONTHS[0];
         if(MONTHS.includes(v)) return v;
-        if(v instanceof Date && !isNaN(v)) { const m = v.getFullYear()+"-"+String(v.getMonth()+1).padStart(2,"0"); return MONTHS.includes(m)?m:toFY(v.getMonth()+1); }
+        if(typeof v==="number" && v>=20000 && v<=90000){ const d=xlToDate(v); const m=d.getUTCFullYear()+"-"+String(d.getUTCMonth()+1).padStart(2,"0"); return MONTHS.includes(m)?m:toFY(d.getUTCMonth()+1); }
+        if(v instanceof Date && !isNaN(v)) { const m = v.getUTCFullYear()+"-"+String(v.getUTCMonth()+1).padStart(2,"0"); return MONTHS.includes(m)?m:toFY(v.getUTCMonth()+1); }
         const s = String(v).trim();
         const ymMatch = s.match(/(\d{4})[-\/](\d{1,2})/);
         if(ymMatch) {const mm=ymMatch[2].padStart(2,"0"); const m = ymMatch[1]+"-"+mm; return MONTHS.includes(m)?m:toFY(mm);}
