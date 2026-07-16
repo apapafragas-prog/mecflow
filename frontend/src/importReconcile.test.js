@@ -90,6 +90,17 @@ describe("buildReconciliation — invoice-number identity prevents duplicates", 
     expect(rec.inv.newRows.length).toBe(3);   // all three kept as distinct new rows
     expect(rec.inv.changed.length).toBe(0);
   });
+  it("recurring monthly accruals (same amount, different months) are NOT duplicates", () => {
+    // Iron Mountain: the same -220.78 accrual recurs each month with inv_no "ACCRUAL".
+    const parsed = { inv: [
+      { month: MONTHS[0], cat: "CLIENT REVENUE - FM Core", inv_no: "ACCRUAL", amt: -220.78, vat: -52.99, act_acc: "ACCRUAL" },
+      { month: MONTHS[1], cat: "CLIENT REVENUE - FM Core", inv_no: "ACCRUAL", amt: -220.78, vat: -52.99, act_acc: "ACCRUAL" },
+      { month: MONTHS[2], cat: "CLIENT REVENUE - FM Core", inv_no: "ACCRUAL", amt: -220.78, vat: -52.99, act_acc: "ACCRUAL" },
+    ], sub: [], lab: {} };
+    const rec = buildReconciliation(parsed, { inv: [], sub: [], lab: {} });
+    expect(rec.inv.newRows.length).toBe(3);   // three distinct monthly accruals, not collapsed
+    expect(rec.inv.changed.length).toBe(0);
+  });
   it("identical invoice (same month/amount) → MATCH, no action", () => {
     const row = { month: MONTHS[5], cat: "CLIENT REVENUE - FM Core", inv_no: "2026-742", amt: 22132.24, vat: 5311.74 };
     const rec = buildReconciliation({ inv: [row], sub: [], lab: {} }, { inv: [{ ...row, id: "s1" }], sub: [], lab: {} });

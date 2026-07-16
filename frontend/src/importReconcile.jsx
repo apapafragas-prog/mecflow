@@ -246,9 +246,13 @@ export function reconcileRows(fileRows, sysRows, idOf, fullOf) {
 // duplicate. FULL adds month/category so a real difference registers as CHANGED vs MATCH.
 // No invoice number (accruals) → fall back to a content key.
 const norm = (s) => String(s || "").toLowerCase().replace(/\s+/g, "").trim();
-const invId = (r) => { const no = norm(r.inv_no); return no ? `no:${no}|${round2(r.amt)}` : `x:${r.month}|${r.cat}|${round2(r.amt)}|${norm(r.comments)}`; };
+// A REAL invoice number — not blank and not an accrual placeholder ("ACCRUAL" / "REVERSE ACCRUAL").
+// Accruals recur monthly with the same amount, so they must key on the MONTH (via the content
+// fallback), otherwise every month's accrual would look like a duplicate of the others.
+const realNo = (r) => { const no = norm(r.inv_no); return (no && (r.act_acc || "").toUpperCase() !== "ACCRUAL" && no !== "accrual" && no !== "reverseaccrual") ? no : ""; };
+const invId = (r) => { const no = realNo(r); return no ? `no:${no}|${round2(r.amt)}` : `x:${r.month}|${r.cat}|${round2(r.amt)}|${norm(r.comments)}`; };
 const invFull = (r) => `${invId(r)}|${r.month}|${r.cat}|${round2(r.vat)}`;
-const subId = (r) => { const no = norm(r.inv_no); return no ? `no:${no}|${round2(r.amt)}` : `x:${r.month}|${r.cat}|${norm(r.supplier)}|${round2(r.amt)}`; };
+const subId = (r) => { const no = realNo(r); return no ? `no:${no}|${round2(r.amt)}` : `x:${r.month}|${r.cat}|${norm(r.supplier)}|${round2(r.amt)}`; };
 const subFull = (r) => `${subId(r)}|${r.month}|${r.cat}|${norm(r.supplier)}`;
 
 // Per-cell labour diff (month × labour line). Skips 0/0 cells.

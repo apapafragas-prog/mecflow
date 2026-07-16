@@ -10,13 +10,17 @@ const norm = (s) => String(s || "").toLowerCase().replace(/\s+/g, "").trim();
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const grossAmt = (r) => Number(r.total) || ((Number(r.amt) || 0) + (Number(r.vat) || 0)) || Number(r.amt) || 0;
 
-// Groups of rows that share an invoice number (strong) or, when there is no number, an identical
+// A real invoice number — not blank and not an accrual placeholder. Accruals recur monthly with
+// the same amount, so they must key on the MONTH (content fallback), not their fake "ACCRUAL" number.
+const realNo = (r) => { const no = norm(r.inv_no); return no && (r.act_acc || "").toUpperCase() !== "ACCRUAL" && no !== "accrual" && no !== "reverseaccrual"; };
+
+// Groups of rows that share an invoice number (strong) or, when there is no real number, an identical
 // content signature (month + category + amount + counterparty). `noKey` builds the number-based
 // identity — for AP it includes the supplier, since suppliers can reuse invoice numbers.
 function findGroups(rows, noKey) {
   const byNo = {}, byContent = {};
   rows.forEach((r) => {
-    if (norm(r.inv_no)) { const k = noKey(r); (byNo[k] = byNo[k] || []).push(r); }
+    if (realNo(r)) { const k = noKey(r); (byNo[k] = byNo[k] || []).push(r); }
     else { const k = `${r.month}|${r.cat}|${round2(r.amt)}|${norm(r.supplier || r.comments)}`; (byContent[k] = byContent[k] || []).push(r); }
   });
   const strong = Object.entries(byNo).filter(([, g]) => g.length > 1).map(([no, g]) => ({ key: no, rows: g, strong: true }));
