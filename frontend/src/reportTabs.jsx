@@ -7,12 +7,11 @@
 //   POTracker — PO spend tracker (budget vs actuals).
 import { useState } from "react";
 import { api } from "./api.js";
-import { MONTHS, ML, P, fmt, fPct, uid, SITES, REV_CATS, COST_CATS, SVC_CATS, LAB_ROWS } from "./constants.js";
-import { allocFractions } from "./calc.js";
+import { MONTHS, ML, P, fmt, fPct, uid, SITES, REV_CATS, COST_CATS, SVC_CATS, LAB_ROWS, LAB_SEG_ROWS, LAB_ALL_ROWS, LAB_EW_KEY, LAB_PJM_KEY } from "./constants.js";
 import { Inp, Sel, Tbl } from "./ui.jsx";
 import { useT, monthLabel, catLabel } from "./i18n.jsx";
 
-export function PnL({inv,sub,lab,labAlloc}) {
+export function PnL({inv,sub,lab}) {
   const { t } = useT();
   const [drill,setDrill] = useState(null);
   const pnl = {};
@@ -23,13 +22,11 @@ export function PnL({inv,sub,lab,labAlloc}) {
     const sc = sub.filter(i=>i.month===m&&(i.cat||"").toUpperCase().includes("CORE")).reduce((s,i)=>s+i.amt,0);
     const se = sub.filter(i=>i.month===m&&((i.cat||"").toUpperCase().includes("EXRA")||(i.cat||"").toUpperCase().includes("EXTRA"))).reduce((s,i)=>s+i.amt,0);
     const sp = sub.filter(i=>i.month===m&&(i.cat||"").toUpperCase().includes("PJM")).reduce((s,i)=>s+i.amt,0);
-    // Total monthly labour, split across segments by the (proportional) allocation weights.
-    // Total is preserved exactly: lc + lc_ew + lc_pjm === labTotal for any weights.
-    const labTotal = lab[m] ? Object.values(lab[m]).reduce((s,v)=>s+(Number(v)||0),0) : 0;
-    const fr = allocFractions(labAlloc, m);
-    const lc = labTotal * fr.core;
-    const lc_ew = labTotal * fr.ew;
-    const lc_pjm = labTotal * fr.pjm;
+    // Labour per segment comes from ACTUAL amounts entered on the Labour tab:
+    //   FM Core = sum of the 6 core components; Extra Works / PJM = their own direct lines.
+    const lc = LAB_ROWS.reduce((s,r)=>s+(Number(lab[m]?.[r.k])||0),0);
+    const lc_ew = Number(lab[m]?.[LAB_EW_KEY])||0;
+    const lc_pjm = Number(lab[m]?.[LAB_PJM_KEY])||0;
     const lc_total = lc + lc_ew + lc_pjm;
     const tr = rc+re+rp;
     const sub_total = sc+se+sp;
@@ -50,10 +47,12 @@ export function PnL({inv,sub,lab,labAlloc}) {
       const matcher = i => key==="sc"?(i.cat||"").toUpperCase().includes("CORE"):key==="se"?((i.cat||"").toUpperCase().includes("EXTRA")||(i.cat||"").toUpperCase().includes("EXRA")):key==="sp"?(i.cat||"").toUpperCase().includes("PJM"):true;
       recs = sub.filter(i=>monthsScope.includes(i.month)&&matcher(i)).map(i=>({type:"Sub Cost",month:i.month,cat:i.cat,desc:i.inv_no,supplier:i.supplier,amt:i.amt,vat:i.vat,total:i.total,ref:"-",actAcc:i.act_acc,date:i.date}));
     } else if(["lc","lc_ew","lc_pjm","lc_total"].includes(key)) {
+      const pushLab = (m,label,v)=>{ if(Number(v)) recs.push({type:"Labour",month:m,cat:label,desc:label,supplier:"-",amt:Number(v),vat:0,total:Number(v),ref:"-",actAcc:"-",date:"-"}); };
       monthsScope.forEach(m => {
-        const fr = allocFractions(labAlloc, m);
-        const f = key==="lc"?fr.core:key==="lc_ew"?fr.ew:key==="lc_pjm"?fr.pjm:1;
-        if(f && lab[m]) Object.entries(lab[m]).forEach(([k,v])=>{ const a=Number(v)*f; if(Number(v)) recs.push({type:"Labour",month:m,cat:k,desc:k,supplier:"-",amt:a,vat:0,total:a,ref:"-",actAcc:"-",date:"-"}); });
+        if(!lab[m]) return;
+        if(key==="lc"||key==="lc_total") LAB_ROWS.forEach(r=>pushLab(m,r.l,lab[m][r.k]));
+        if(key==="lc_ew"||key==="lc_total") pushLab(m,"FM Extra Works Labour",lab[m][LAB_EW_KEY]);
+        if(key==="lc_pjm"||key==="lc_total") pushLab(m,"FM PJM Labour",lab[m][LAB_PJM_KEY]);
       });
     } else if(["tc"].includes(key)) {
       // Sub + labour combined
@@ -69,11 +68,13 @@ export function PnL({inv,sub,lab,labAlloc}) {
       recs = inv.filter(i=>monthsScope.includes(i.month)&&revCats.includes(i.cat)).map(i=>({type:"Revenue",month:i.month,cat:i.cat,desc:i.inv_no,supplier:i.site,amt:i.amt,vat:i.vat,total:i.total,ref:i.po_no||"-",actAcc:i.act_acc,date:i.date}));
       const costRecs = sub.filter(i=>monthsScope.includes(i.month)&&costMatcher(i)).map(i=>({type:"Sub Cost",month:i.month,cat:i.cat,desc:i.inv_no,supplier:i.supplier,amt:-i.amt,vat:i.vat,total:-i.total,ref:"-",actAcc:i.act_acc,date:i.date}));
       recs = [...recs,...costRecs];
-      // Labour attributable to this GM segment (full for total GM, allocated share for gc/ge/gp)
+      // Labour attributable to this GM segment (direct actuals: core = 6 components, ew/pjm = their own line)
+      const pushNegLab = (m,label,v)=>{ if(Number(v)) recs.push({type:"Labour",month:m,cat:label,desc:label,supplier:"-",amt:-Number(v),vat:0,total:-Number(v),ref:"-",actAcc:"-",date:"-"}); };
       monthsScope.forEach(m => {
-        const fr = allocFractions(labAlloc, m);
-        const f = key==="gm"?1:key==="gc"?fr.core:key==="ge"?fr.ew:fr.pjm;
-        if(f && lab[m]) Object.entries(lab[m]).forEach(([k,v])=>{ const a=-Number(v)*f; if(Number(v)) recs.push({type:"Labour",month:m,cat:k,desc:k,supplier:"-",amt:a,vat:0,total:a,ref:"-",actAcc:"-",date:"-"}); });
+        if(!lab[m]) return;
+        if(key==="gm"||key==="gc") LAB_ROWS.forEach(r=>pushNegLab(m,r.l,lab[m][r.k]));
+        if(key==="gm"||key==="ge") pushNegLab(m,"FM Extra Works Labour",lab[m][LAB_EW_KEY]);
+        if(key==="gm"||key==="gp") pushNegLab(m,"FM PJM Labour",lab[m][LAB_PJM_KEY]);
       });
     }
     return recs;
@@ -365,24 +366,36 @@ export function AccTab({inv,sub}) {
   );
 }
 
-export function LabTab({data,set,alloc,setAlloc}) {
+export function LabTab({data,set}) {
   const { t } = useT();
   const up = (m,k,v) => set(p => ({...p,[m]:{...p[m],[k]:parseFloat(v)||0}}));
-  const A = alloc || {};
-  const av = (m,seg) => { const a=A[m]; return a && a[seg]!==undefined ? a[seg] : (seg==="core"?100:0); };
-  const upA = (m,seg,v) => setAlloc && setAlloc({...A,[m]:{core:av(m,"core"),ew:av(m,"ew"),pjm:av(m,"pjm"),[seg]:parseFloat(v)||0}});
-  const ALLOC_SEGS = [{k:"core",l:"FM Core"},{k:"ew",l:"FM Extra Works"},{k:"pjm",l:"FM PJM"}];
-  const monthLabTotal = m => LAB_ROWS.reduce((s,r)=>s+(Number(data[m]?.[r.k])||0),0);
+  const rowTot = k => MONTHS.reduce((s,m)=>s+(Number(data[m]?.[k])||0),0);
+  const coreMonth = m => LAB_ROWS.reduce((s,r)=>s+(Number(data[m]?.[r.k])||0),0);
+  const totalMonth = m => LAB_ALL_ROWS.reduce((s,r)=>s+(Number(data[m]?.[r.k])||0),0);
   const thS = {padding:"6px 8px",textAlign:"center",fontSize:10,fontWeight:700,color:"#fff",background:P.em,whiteSpace:"nowrap"};
   const inpS = {width:"100%",padding:"4px 5px",border:"1px solid "+P.bd,borderRadius:3,fontSize:11,textAlign:"right",background:P.ip,outline:"none",boxSizing:"border-box"};
+  const inpRow = (r,i,shade) => (
+    <tr key={r.k} style={{background:shade!==undefined?shade:(i%2===0?P.wh:P.al)}}>
+      <td style={{padding:"6px 10px",fontSize:12,fontWeight:500,borderBottom:"1px solid "+P.bd,borderRight:"2px solid "+P.bd,whiteSpace:"nowrap"}}>{r.l}</td>
+      {MONTHS.map(m => (
+        <td key={m} style={{padding:"3px 4px",borderBottom:"1px solid "+P.bd,textAlign:"center"}}>
+          <input type="number" step="0.01" value={data[m]?.[r.k]||""} onChange={e=>up(m,r.k,e.target.value)} style={inpS} />
+        </td>
+      ))}
+      <td style={{padding:"5px 8px",textAlign:"right",fontSize:12,fontWeight:700,color:P.em,borderBottom:"1px solid "+P.bd,background:"#f5f5f5",borderLeft:"2px solid "+P.bd}}>
+        {fmt(rowTot(r.k))}
+      </td>
+    </tr>
+  );
   return (
     <div>
-      <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 16px"}}>{t("Κόστος Εργασίας","Labour Cost")}</h2>
+      <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 8px"}}>{t("Κόστος Εργασίας","Labour Cost")}</h2>
+      <div style={{fontSize:11.5,color:P.tm,margin:"0 0 12px",lineHeight:1.5}}>{t("Οι κατηγορίες αθροίζουν στο FM Core Labour. Οι γραμμές Extra Works & PJM δέχονται πραγματικά ποσά και μεταφέρονται αυτούσιες στο P&L (Labour Cost - FM Extra Works / PJMs).","The categories sum into FM Core Labour. The Extra Works & PJM lines take actual amounts and flow verbatim into the P&L (Labour Cost - FM Extra Works / PJMs).")}</div>
       <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd}}>
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed",minWidth:1100}}>
             <colgroup>
-              <col style={{width:150}} />
+              <col style={{width:170}} />
               {MONTHS.map(m=><col key={m} style={{width:75}} />)}
               <col style={{width:95}} />
             </colgroup>
@@ -392,68 +405,24 @@ export function LabTab({data,set,alloc,setAlloc}) {
               <th style={{...thS,background:"#00695C"}}>{t("Σύνολο","Total")}</th>
             </tr></thead>
             <tbody>
-              {LAB_ROWS.map((r,i) => (
-                <tr key={r.k} style={{background:i%2===0?P.wh:P.al}}>
-                  <td style={{padding:"6px 10px",fontSize:12,fontWeight:500,borderBottom:"1px solid "+P.bd,borderRight:"2px solid "+P.bd,whiteSpace:"nowrap"}}>{r.l}</td>
-                  {MONTHS.map(m => (
-                    <td key={m} style={{padding:"3px 4px",borderBottom:"1px solid "+P.bd,textAlign:"center"}}>
-                      <input type="number" step="0.01" value={data[m]?.[r.k]||""} onChange={e=>up(m,r.k,e.target.value)} style={inpS} />
-                    </td>
-                  ))}
-                  <td style={{padding:"5px 8px",textAlign:"right",fontSize:12,fontWeight:700,color:P.em,borderBottom:"1px solid "+P.bd,background:"#f5f5f5",borderLeft:"2px solid "+P.bd}}>
-                    {fmt(MONTHS.reduce((s,m)=>s+(Number(data[m]?.[r.k])||0),0))}
-                  </td>
-                </tr>
-              ))}
-              <tr style={{background:P.ep}}>
-                <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,borderRight:"2px solid #00695C"}}>SUM</td>
-                {MONTHS.map(m => {
-                  const v = LAB_ROWS.reduce((s,r)=>s+(Number(data[m]?.[r.k])||0),0);
-                  return <td key={m} style={{padding:"6px 8px",textAlign:"right",fontSize:12,fontWeight:700,color:P.em}}>{fmt(v)}</td>;
-                })}
-                <td style={{padding:"6px 8px",textAlign:"right",fontSize:13,fontWeight:700,color:P.em,background:"#C8E6C9",borderLeft:"2px solid #00695C"}}>
-                  {fmt(MONTHS.reduce((x,m)=>x+LAB_ROWS.reduce((s,r)=>s+(Number(data[m]?.[r.k])||0),0),0))}
+              {LAB_ROWS.map((r,i) => inpRow(r,i))}
+              {/* Subtotal — FM Core Labour → P&L "Labour Cost - FM Core" */}
+              <tr style={{background:"#E8F5E9"}}>
+                <td style={{padding:"7px 10px",fontSize:12,fontWeight:700,color:P.em,borderRight:"2px solid #00695C"}}>{t("Υποσύνολο — FM Core Labour","Subtotal — FM Core Labour")}</td>
+                {MONTHS.map(m => <td key={m} style={{padding:"6px 8px",textAlign:"right",fontSize:12,fontWeight:700,color:P.em}}>{fmt(coreMonth(m))}</td>)}
+                <td style={{padding:"6px 8px",textAlign:"right",fontSize:12,fontWeight:700,color:P.em,background:"#DcEDC8",borderLeft:"2px solid #00695C"}}>
+                  {fmt(MONTHS.reduce((x,m)=>x+coreMonth(m),0))}
                 </td>
               </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* ── Labour allocation across segments ── */}
-      <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,marginTop:16}}>
-        <div style={{background:P.ep,padding:"10px 16px",fontWeight:700,fontSize:13,color:P.em}}>{t("Κατανομή Labour ανά segment (βάρη)","Labour allocation per segment (weights)")}</div>
-        <div style={{padding:"6px 16px 0",fontSize:11.5,color:P.tm}}>{t("Default 100% στο FM Core. Άλλαξε τα βάρη για να κατανεμηθεί το labour κάθε μήνα σε Core / Extra Works / PJM — το συνολικό κόστος labour & GM δεν αλλάζει, μόνο η ανά-segment ανάλυση. Ιδανικά κάθε μήνας αθροίζει 100.","Default 100% to FM Core. Change the weights to split each month's labour across Core / Extra Works / PJM — the total labour cost & GM don't change, only the per-segment breakdown. Ideally each month sums to 100.")}</div>
-        <div style={{overflowX:"auto",padding:"10px 0 4px"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed",minWidth:1100}}>
-            <colgroup>
-              <col style={{width:150}} />
-              {MONTHS.map(m=><col key={m} style={{width:75}} />)}
-              <col style={{width:95}} />
-            </colgroup>
-            <thead><tr>
-              <th style={{...thS,textAlign:"left",borderRight:"2px solid #00695C"}}>Segment</th>
-              {MONTHS.map(m=><th key={m} style={thS}>{monthLabel(m)}</th>)}
-              <th style={{...thS,background:"#00695C"}}>{t("€ / μήνα","€ / month")}</th>
-            </tr></thead>
-            <tbody>
-              {ALLOC_SEGS.map((seg,i)=>(
-                <tr key={seg.k} style={{background:i%2===0?P.wh:P.al}}>
-                  <td style={{padding:"6px 10px",fontSize:12,fontWeight:500,borderBottom:"1px solid "+P.bd,borderRight:"2px solid "+P.bd,whiteSpace:"nowrap"}}>{seg.l}</td>
-                  {MONTHS.map(m=>(
-                    <td key={m} style={{padding:"3px 4px",borderBottom:"1px solid "+P.bd,textAlign:"center"}}>
-                      <input type="number" step="1" value={av(m,seg.k)||""} placeholder="0" onChange={e=>upA(m,seg.k,e.target.value)} style={inpS} />
-                    </td>
-                  ))}
-                  <td style={{padding:"5px 8px",textAlign:"right",fontSize:11,fontWeight:600,color:P.em,borderBottom:"1px solid "+P.bd,background:"#f5f5f5",borderLeft:"2px solid "+P.bd}}>
-                    {(()=>{const t=MONTHS.reduce((x,m)=>{const s=av(m,"core")+av(m,"ew")+av(m,"pjm");return x+(s>0?monthLabTotal(m)*av(m,seg.k)/s:(seg.k==="core"?monthLabTotal(m):0));},0);return fmt(t);})()}
-                  </td>
-                </tr>
-              ))}
+              {/* Direct actual labour for the Extra Works & PJM segments */}
+              {LAB_SEG_ROWS.map((r,i) => inpRow(r,i,"#FFFDE7"))}
+              {/* SUM — Total Labour → P&L "Total Labour Cost" */}
               <tr style={{background:P.ep}}>
-                <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,borderRight:"2px solid #00695C"}}>{t("Άθροισμα βαρών","Sum of weights")}</td>
-                {MONTHS.map(m=>{const s=av(m,"core")+av(m,"ew")+av(m,"pjm");const ok=Math.abs(s-100)<0.01;return <td key={m} style={{padding:"6px 8px",textAlign:"center",fontSize:11,fontWeight:700,color:ok?P.gn:s===0?P.tm:P.rd}} title={ok?"":t("Δεν αθροίζει 100 — η κατανομή γίνεται αναλογικά","Doesn't sum to 100 — allocation is proportional")}>{s||0}</td>;})}
-                <td style={{background:"#C8E6C9",borderLeft:"2px solid #00695C"}}></td>
+                <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,borderRight:"2px solid #00695C"}}>{t("ΣΥΝΟΛΟ — Total Labour","SUM — Total Labour")}</td>
+                {MONTHS.map(m => <td key={m} style={{padding:"6px 8px",textAlign:"right",fontSize:12,fontWeight:700,color:P.em}}>{fmt(totalMonth(m))}</td>)}
+                <td style={{padding:"6px 8px",textAlign:"right",fontSize:13,fontWeight:700,color:P.em,background:"#C8E6C9",borderLeft:"2px solid #00695C"}}>
+                  {fmt(MONTHS.reduce((x,m)=>x+totalMonth(m),0))}
+                </td>
               </tr>
             </tbody>
           </table>

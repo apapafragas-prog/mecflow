@@ -94,9 +94,15 @@ export const SITES = ["Site 1","Site 2","Site 3","Site 4","Site 5"];
 export const REV_CATS = ["CLIENT REVENUE - FM Core","CLIENT REVENUE - FM Extra Works","CLIENT REVENUE - PJMs"];
 export const COST_CATS = ["Subcontractors cost - FM Core","Subcontractors cost - FM Extra Works","Subcontractors cost - PJMs"];
 export const SVC_CATS = ["Cleaning","Building Systems & maintenance","Waste Management","Handyman services","Office supplies","Kitchen supplies","Water supplies","Small works","Laundry services","Mail services","Pest Control","Landscaping","Security services","Catering services","Employee Convenience","Other"];
+// FM Core labour components (their monthly sum → "Labour Cost - FM Core" in the P&L).
 export const LAB_ROWS = [{k:"onsite",l:"CBRE On site team"},{k:"regional",l:"Regional Cost"},{k:"it",l:"IT Cost"},{k:"local",l:"Local Support"},{k:"sga",l:"SG&A"},{k:"other",l:"Other items"}];
-export function mkLab() { const o = {}; MONTHS.forEach(m => { o[m] = {}; LAB_ROWS.forEach(r => { o[m][r.k] = 0; }); }); return o; }
-// Per-month allocation of total labour across the 3 segments (weights, default all to Core).
+// Direct actual labour for the Extra Works and PJM segments — entered as real € amounts (not weights).
+export const LAB_EW_KEY = "ew_labour", LAB_PJM_KEY = "pjm_labour";
+export const LAB_SEG_ROWS = [{k:LAB_EW_KEY,l:"FM Extra Works Labour"},{k:LAB_PJM_KEY,l:"FM PJM Labour"}];
+// All labour rows in display order (6 core components + 2 segment lines).
+export const LAB_ALL_ROWS = [...LAB_ROWS, ...LAB_SEG_ROWS];
+export function mkLab() { const o = {}; MONTHS.forEach(m => { o[m] = {}; LAB_ALL_ROWS.forEach(r => { o[m][r.k] = 0; }); }); return o; }
+// Legacy per-month segment weights — no longer used for the P&L split (kept for old saved blobs).
 export function mkAlloc() { const o = {}; MONTHS.forEach(m => { o[m] = {core:100,ew:0,pjm:0}; }); return o; }
 
 export const P = { em:"#003F2D",ep:"#E8F5E9",wh:"#fff",of:"#F7F9F8",bd:"#D5DDD8",tx:"#1A2E23",tm:"#5F7567",rd:"#C62828",gn:"#2E7D32",al:"#F0F5F2",ip:"#FFFFF0" };

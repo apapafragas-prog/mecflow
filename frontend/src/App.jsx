@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
 import { api, setToken, getToken } from "./api.js";
-import { allocFractions } from "./calc.js";
 import * as XLSX from "xlsx";
 // Bundled locally (no CDN dependency): zip handling + PDF rendering for the scanner
 import JSZip from "jszip";
@@ -11,7 +10,7 @@ if (typeof window !== "undefined") { window.JSZip = JSZip; window.pdfjsLib = pdf
 
 import {
   uid, CLIENTS, REPORT_STATUS, MONTHS, ML, setFiscalYear, normalizeClientData,
-  REV_CATS, COST_CATS, LAB_ROWS, mkLab, mkAlloc, P, YEARS,
+  REV_CATS, COST_CATS, LAB_ROWS, LAB_ALL_ROWS, LAB_EW_KEY, LAB_PJM_KEY, mkLab, mkAlloc, P, YEARS,
 } from "./constants.js";
 import { LogoImg, LangToggle } from "./ui.jsx";
 import { Login, ForcePw, ResetPassword } from "./auth.jsx";
@@ -240,11 +239,9 @@ export default function App() {
   if (!client) return withChat(<ClientPicker user={user} year={year} setYear={setYear} onSelect={c=>{setClient(c);setTab("contracts");}} onLogout={logout} allData={yd} onOpenFinance={()=>setFinanceOpen(true)} onOpenDash={()=>setDashOpen(true)} onOpenLedger={()=>setLedgerOpen(true)} onOpenGroup={()=>setGroupOpen(true)} />);
 
   const inv=cd.inv; const sub=cd.sub; const lab=cd.lab; const contracts=cd.contracts; const docs=cd.docs||[];
-  const labAlloc=cd.labAlloc||mkAlloc();
   const setInv=v=>upClient("inv",v);
   const setSub=v=>upClient("sub",v);
   const setLab=v=>upClient("lab",v);
-  const setLabAlloc=v=>upClient("labAlloc",v);
   const setContracts=v=>upClient("contracts",v);
   const setDocs=v=>upClient("docs",v);
 
@@ -353,7 +350,9 @@ export default function App() {
         else if(key==="rev_ew") sc(pWS,pr,col,null,st,`SUMIFS('CBRE Invoices'!$E:$E,'CBRE Invoices'!$D:$D,"CLIENT REVENUE - FM Extra Works",'CBRE Invoices'!$C:$C,${C}3)`);
         else if(key==="rev_pjm") sc(pWS,pr,col,null,st,`SUMIFS('CBRE Invoices'!$E:$E,'CBRE Invoices'!$D:$D,"CLIENT REVENUE - PJMs",'CBRE Invoices'!$C:$C,${C}3)`);
         else if(key==="rev_total") sc(pWS,pr,col,null,st,`${C}${pr-2}+${C}${pr-1}+${C}${pr}`);
-        else if(key==="lab_core"||key==="lab_ew"||key==="lab_pjm") { const lt=lab[m]?Object.values(lab[m]).reduce((s,v)=>s+(Number(v)||0),0):0; const fr=allocFractions(labAlloc,m); const f=key==="lab_core"?fr.core:key==="lab_ew"?fr.ew:fr.pjm; sc(pWS,pr,col,Math.round(lt*f*100)/100,st); }
+        else if(key==="lab_core") sc(pWS,pr,col,Math.round(LAB_ROWS.reduce((s,r)=>s+(Number(lab[m]?.[r.k])||0),0)*100)/100,st);
+        else if(key==="lab_ew") sc(pWS,pr,col,Math.round((Number(lab[m]?.[LAB_EW_KEY])||0)*100)/100,st);
+        else if(key==="lab_pjm") sc(pWS,pr,col,Math.round((Number(lab[m]?.[LAB_PJM_KEY])||0)*100)/100,st);
         else if(key==="lab_total") sc(pWS,pr,col,null,st,`${C}9+${C}10+${C}11`);
         else if(key==="sub_core") sc(pWS,pr,col,null,st,`SUMIFS('Sub Invoices'!$J:$J,'Sub Invoices'!$C:$C,"*CORE*",'Sub Invoices'!$B:$B,${C}3)`);
         else if(key==="sub_ew") sc(pWS,pr,col,null,st,`SUMIFS('Sub Invoices'!$J:$J,'Sub Invoices'!$C:$C,"*Extra*",'Sub Invoices'!$B:$B,${C}3)`);
@@ -374,12 +373,12 @@ export default function App() {
     // ── 4. LABOUR COST ──
     const labH = ["Category","FTEs",...am.map(m=>ML[m])];
     const labData = [labH];
-    LAB_ROWS.forEach(r => { const row=[r.l,""];am.forEach(m=>row.push(Number(lab[m]?.[r.k])||0));labData.push(row); });
+    LAB_ALL_ROWS.forEach(r => { const row=[r.l,""];am.forEach(m=>row.push(Number(lab[m]?.[r.k])||0));labData.push(row); });
     labData.push(["SUM","",...am.map(()=>null)]);
     const lWS = XLSX.utils.aoa_to_sheet(labData);
     labH.forEach((_,i) => { if(lWS[ce(0,i)]) lWS[ce(0,i)].s = {font:{name:"Arial",sz:10,bold:true},alignment:{horizontal:i>=2?"right":"left"}}; });
-    LAB_ROWS.forEach((r,i) => { am.forEach((m,mi) => { const c=lWS[ce(i+1,2+mi)]; if(c) c.s={font:{name:"Arial",sz:10},numFmt:"#,##0.00",alignment:{horizontal:"center"}}; }); });
-    am.forEach((m,mi) => { const C=XLSX.utils.encode_col(2+mi); lWS[ce(LAB_ROWS.length+1,2+mi)]={t:'n',f:`SUM(${C}2:${C}${LAB_ROWS.length+1})`,s:{font:{name:"Arial",sz:10,bold:true},numFmt:"#,##0.00",alignment:{horizontal:"center"}}}; });
+    LAB_ALL_ROWS.forEach((r,i) => { am.forEach((m,mi) => { const c=lWS[ce(i+1,2+mi)]; if(c) c.s={font:{name:"Arial",sz:10},numFmt:"#,##0.00",alignment:{horizontal:"center"}}; }); });
+    am.forEach((m,mi) => { const C=XLSX.utils.encode_col(2+mi); lWS[ce(LAB_ALL_ROWS.length+1,2+mi)]={t:'n',f:`SUM(${C}2:${C}${LAB_ALL_ROWS.length+1})`,s:{font:{name:"Arial",sz:10,bold:true},numFmt:"#,##0.00",alignment:{horizontal:"center"}}}; });
     lWS['!cols'] = [{wch:14},{wch:9},...am.map(()=>({wch:11}))];
     XLSX.utils.book_append_sheet(wb, lWS, "Labour Cost");
 
@@ -797,12 +796,12 @@ export default function App() {
       <div style={{padding:20,maxWidth:1400,margin:"0 auto"}}>
         {tab==="contracts" && <ContractTab data={contracts} set={setContracts} inv={inv} docs={docs} setDocs={setDocs} year={year} client={client} />}
         {tab==="scan" && <Scan goTo={setTab} year={year} client={client} onAdd={items => setSub(p => [...p,...items.map(x => ({...x,id:uid()}))])} onAddAR={items => setInv(p => [...p,...items.map(x => ({...x,id:uid()}))])} />}
-        {tab==="pnl" && <PnL inv={inv} sub={sub} lab={lab} labAlloc={labAlloc} />}
+        {tab==="pnl" && <PnL inv={inv} sub={sub} lab={lab} />}
         {tab==="insights" && <Insights inv={inv} sub={sub} lab={lab} contracts={contracts} client={client} year={year} />}
         {tab==="inv" && <InvTab data={inv} set={setInv} contracts={contracts} year={year} client={client} />}
         {tab==="sub" && <SubTab data={sub} set={setSub} contracts={contracts} year={year} client={client} />}
         {tab==="acc" && <AccTab inv={inv} sub={sub} />}
-        {tab==="lab" && <LabTab data={lab} set={setLab} alloc={labAlloc} setAlloc={setLabAlloc} />}
+        {tab==="lab" && <LabTab data={lab} set={setLab} />}
       </div>
     </div>
   );
