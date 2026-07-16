@@ -75,6 +75,16 @@ describe("groupPnLSeries (consolidated monthly P&L)", () => {
     const s = groupPnLSeries(allData, {}, months);
     expect(s[0]).toMatchObject({ gm: 1200, opex: 0, ebitda: 1200, da: 0, ebit: 1200, net: 1200 });
   });
+  it("excludes Planned/Approved capex from D&A (must match the balance-sheet NBV filter)", () => {
+    const fin = { capex: [
+      { amount: 1200, life: 12, month: "2026-01", status: "Capitalised" }, // on books → 100/mo
+      { amount: 2400, life: 12, month: "2026-01", status: "Planned" },      // not on books → 0
+      { amount: 3600, life: 12, month: "2026-01", status: "Approved" },     // not on books → 0
+    ] };
+    const s = groupPnLSeries({}, fin, months);
+    expect(s[0].da).toBeCloseTo(100, 5);   // only the Capitalised asset depreciates
+    expect(s[1].da).toBeCloseTo(100, 5);
+  });
 });
 
 describe("allocFractions", () => {

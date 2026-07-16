@@ -44,8 +44,11 @@ export const groupPnLSeries = (allData, finance, months) => {
   const actual = finance?.opex?.actual || {};
   const capex = Array.isArray(finance?.capex) ? finance.capex : [];
   const pnl = finance?.pnl || {};
-  // Pre-compute per-item straight-line depreciation within these FY months.
-  const depr = capex.map(it => depreciation(it, months));
+  // Only capitalised assets depreciate — Planned/Approved aren't on the books yet. This MUST match
+  // the balance-sheet NBV filter (groupReports onBooks), or D&A and NBV disagree and the balance
+  // check can never hit zero.
+  const onBooks = it => it && it.status !== "Planned" && it.status !== "Approved";
+  const depr = capex.filter(onBooks).map(it => depreciation(it, months));
   return months.map(m => {
     let rev = 0, sub = 0, labour = 0;
     Object.values(allData || {}).forEach(cd => {
