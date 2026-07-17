@@ -64,6 +64,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
       if (!d.pnl.tax) d.pnl.tax = {};
       if (!d.bs || !Array.isArray(d.bs.accounts) || !d.bs.accounts.length) d.bs = mkDefaultBS();
       if (!d.bs.values) d.bs.values = {};
+      if (!d.budgets || typeof d.budgets !== "object") d.budgets = {}; // { [client]: { rev, gmPct } } annual targets
       setFin(d); dirtyRef.current = false; setSaveState("idle"); setLoaded(true);
     })();
     return () => { cancelled = true; };
@@ -89,6 +90,16 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   const ytd = k => series.reduce((s, r) => s + (r[k] || 0), 0);
 
   const setPnl = (kind, m, v) => mutate(n => { if (!n.pnl[kind]) n.pnl[kind] = {}; n.pnl[kind][m] = parseFloat(v) || 0; });
+
+  // ── Budget vs Actual (annual targets per client, stored in the finance blob) ──
+  const clientActual = (cd) => {
+    const rev = (cd?.inv || []).reduce((s, i) => s + (Number(i.amt) || 0), 0);
+    const cost = (cd?.sub || []).reduce((s, i) => s + (Number(i.amt) || 0), 0);
+    let labour = 0; Object.values(cd?.lab || {}).forEach(mo => Object.values(mo || {}).forEach(v => labour += Number(v) || 0));
+    return { rev, cost, labour, gm: rev - cost - labour };
+  };
+  const budgetOf = (client) => fin?.budgets?.[client] || {};
+  const setBudget = (client, field, v) => mutate(n => { if (!n.budgets[client]) n.budgets[client] = {}; n.budgets[client][field] = parseFloat(v) || 0; });
 
   // ── Balance-sheet derived lines (read-only) ──
   const nbvByMonth = {}, arByMonth = {}, apByMonth = {}, cumNet = {}, vatNetByMonth = {};
@@ -275,7 +286,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             {loaded && <button onClick={exportGroup} style={{ padding: "6px 14px", border: "1px solid " + P.em, borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600, background: P.wh, color: P.em }}>⬇ {t("Εξαγωγή Excel", "Export Excel")}</button>}
             <div style={{ display: "flex", gap: 0, background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, padding: 4 }}>
-              {[{ v: "pnl", l: t("📈 P&L (Όμιλος)", "📈 P&L (Group)") }, { v: "bs", l: t("⚖️ Ισολογισμός", "⚖️ Balance Sheet") }].map(o => (
+              {[{ v: "pnl", l: t("📈 P&L (Όμιλος)", "📈 P&L (Group)") }, { v: "bs", l: t("⚖️ Ισολογισμός", "⚖️ Balance Sheet") }, { v: "budget", l: t("🎯 Budget vs Actual", "🎯 Budget vs Actual") }].map(o => (
                 <button key={o.v} onClick={() => setTab(o.v)} style={{ background: tab === o.v ? P.em : "transparent", color: tab === o.v ? "#fff" : P.tx, border: "none", padding: "7px 20px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>{o.l}</button>
               ))}
             </div>
@@ -391,6 +402,59 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
             </div>
           </div>
         )}
+
+        {/* ── BUDGET vs ACTUAL (annual targets per client) ── */}
+        {loaded && tab === "budget" && (() => {
+          const rows = Object.entries(allData || {}).map(([name, cd]) => {
+            const a = clientActual(cd), b = budgetOf(name);
+            const gmPct = a.rev ? (a.gm / a.rev) * 100 : null;
+            const revT = Number(b.rev) || 0, gmT = Number(b.gmPct);
+            return { name, ...a, gmPct, revT, gmT: (b.gmPct === undefined || b.gmPct === "") ? null : gmT,
+              revPct: revT > 0 ? (a.rev / revT) * 100 : null,
+              gmDelta: (gmPct != null && b.gmPct !== undefined && b.gmPct !== "") ? gmPct - gmT : null };
+          }).filter(r => r.rev !== 0 || r.cost !== 0 || r.revT || r.gmT != null)
+            .sort((x, y) => (y.revT || y.rev) - (x.revT || x.rev));
+          const totRevT = rows.reduce((s, r) => s + (r.revT || 0), 0);
+          const totRevA = rows.reduce((s, r) => s + r.rev, 0);
+          const tdS = { padding: "6px 10px", borderBottom: "1px solid " + P.bd, fontSize: 12 };
+          const inp = { width: 96, padding: "3px 5px", border: "1px solid " + P.bd, borderRadius: 4, fontSize: 12, textAlign: "right", background: P.ip, outline: "none" };
+          const pctColor = (p) => p == null ? P.tm : p >= 100 ? P.gn : p >= 85 ? "#F57F17" : P.rd;
+          return (
+            <div>
+              <div style={{ background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+                  <thead><tr>{[t("Πελάτης", "Client"), t("Στόχος Εσόδων €", "Revenue Target €"), t("Πραγμ. Έσοδα €", "Actual Revenue €"), t("Επίτευξη", "Achieved"), t("Στόχος GM %", "Target GM %"), t("Πραγμ. GM %", "Actual GM %"), t("Διαφορά", "Variance")].map((h, i) => (
+                    <th key={i} style={{ padding: "7px 10px", fontSize: 11, fontWeight: 700, color: "#fff", background: P.em, textAlign: i === 0 ? "left" : "right", whiteSpace: "nowrap" }}>{h}</th>
+                  ))}</tr></thead>
+                  <tbody>
+                    {rows.map((r, i) => (
+                      <tr key={r.name} style={{ background: i % 2 === 0 ? P.wh : P.al }}>
+                        <td style={{ ...tdS, fontWeight: 600, color: P.em }}>{r.name}</td>
+                        <td style={{ ...tdS, textAlign: "right" }}><input type="number" step="0.01" value={budgetOf(r.name).rev ?? ""} onChange={e => setBudget(r.name, "rev", e.target.value)} style={inp} /></td>
+                        <td style={{ ...tdS, textAlign: "right" }}>{fmt(r.rev)}</td>
+                        <td style={{ ...tdS, textAlign: "right", fontWeight: 700, color: pctColor(r.revPct) }}>{r.revPct == null ? "—" : Math.round(r.revPct) + "%"}</td>
+                        <td style={{ ...tdS, textAlign: "right" }}><input type="number" step="0.1" value={budgetOf(r.name).gmPct ?? ""} onChange={e => setBudget(r.name, "gmPct", e.target.value)} style={{ ...inp, width: 70 }} /></td>
+                        <td style={{ ...tdS, textAlign: "right", color: r.gmPct != null && r.gmPct < 0 ? P.rd : P.tx }}>{r.gmPct == null ? "—" : r.gmPct.toFixed(1) + "%"}</td>
+                        <td style={{ ...tdS, textAlign: "right", fontWeight: 700, color: r.gmDelta == null ? P.tm : r.gmDelta >= 0 ? P.gn : P.rd }}>{r.gmDelta == null ? "—" : (r.gmDelta >= 0 ? "+" : "") + r.gmDelta.toFixed(1) + t("μον", "pp")}</td>
+                      </tr>
+                    ))}
+                    <tr style={{ background: P.ep, fontWeight: 700 }}>
+                      <td style={{ ...tdS, color: P.em }}>{t("Σύνολο", "Total")}</td>
+                      <td style={{ ...tdS, textAlign: "right", color: P.em }}>{fmt(totRevT)}</td>
+                      <td style={{ ...tdS, textAlign: "right", color: P.em }}>{fmt(totRevA)}</td>
+                      <td style={{ ...tdS, textAlign: "right", color: pctColor(totRevT > 0 ? totRevA / totRevT * 100 : null) }}>{totRevT > 0 ? Math.round(totRevA / totRevT * 100) + "%" : "—"}</td>
+                      <td colSpan={3}></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ fontSize: 11, color: P.tm, marginTop: 8, lineHeight: 1.6 }}>
+                {t("Καταχώρησε ετήσιους στόχους εσόδων (€) και μικτού περιθωρίου (GM %) ανά πελάτη. Η «Επίτευξη» = πραγματικά έσοδα / στόχος. Η «Διαφορά» = πραγματικό GM% − στόχος (σε μονάδες). Αποθηκεύεται αυτόματα.",
+                   "Enter annual revenue (€) and gross-margin (GM %) targets per client. 'Achieved' = actual revenue / target. 'Variance' = actual GM% − target (in points). Saved automatically.")}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Drill-down: per-client breakdown of a P&L cell (revenue / sub cost / labour / GM for one month) */}
