@@ -176,3 +176,60 @@ export const clientRisks = (cd, months, now = new Date()) => {
   });
   return risks;
 };
+
+// Portfolio-wide anomaly detection — a flat, severity-ranked feed of transactional/data-quality
+// anomalies across every client. Deterministic (the AI narrative sits on top). Each anomaly:
+//   { client, level: "high"|"med"|"low", type, month, detail }
+// `type` is language-neutral so the UI renders bilingual labels; `detail` is a short numeric hint.
+export const detectAnomalies = (allData, months) => {
+  const out = [];
+  const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const norm = (s) => String(s || "").toLowerCase().replace(/\s+/g, "").trim();
+  // A real invoice number — not blank and not an accrual placeholder (accruals recur monthly).
+  const realNo = (r) => { const no = norm(r.inv_no); return !!no && (r.act_acc || "").toUpperCase() !== "ACCRUAL" && no !== "accrual" && no !== "reverseaccrual"; };
+  Object.entries(allData || {}).forEach(([client, cd]) => {
+    if (!cd) return;
+    // Duplicate invoices — same real number + amount within a client (AP also keys on supplier).
+    const dupScan = (rows, keyFn, tag) => {
+      const by = {};
+      (rows || []).forEach((r) => { if (realNo(r)) { const k = keyFn(r); (by[k] = by[k] || []).push(r); } });
+      Object.values(by).forEach((g) => { if (g.length > 1) out.push({ client, level: "high", type: "duplicate", month: g[0].month, detail: `${tag} #${g[0].inv_no} ×${g.length}` }); });
+    };
+    dupScan(cd.inv, (r) => norm(r.inv_no) + "|" + round2(r.amt), "AR");
+    dupScan(cd.sub, (r) => norm(r.supplier) + "|" + norm(r.inv_no) + "|" + round2(r.amt), "AP");
+
+    const s = clientSeries(cd, months);
+    // Loss months, plus revenue/cost deviations vs the trailing average of PRIOR active months.
+    const prevRev = [], prevCost = [];
+    s.forEach((x) => {
+      if (x.rev > 0 && x.gm < 0) out.push({ client, level: "high", type: "loss", month: x.m, detail: `GM ${round2(x.gm)}` });
+      if (x.rev > 0) {
+        if (prevRev.length >= 2) {
+          const avg = prevRev.reduce((a, b) => a + b, 0) / prevRev.length;
+          if (avg > 0) {
+            const dv = (x.rev - avg) / avg;
+            if (dv <= -0.5) out.push({ client, level: "med", type: "rev_drop", month: x.m, detail: `${Math.round(dv * 100)}%` });
+            else if (dv >= 1.2) out.push({ client, level: "low", type: "rev_spike", month: x.m, detail: `+${Math.round(dv * 100)}%` });
+          }
+        }
+        prevRev.push(x.rev);
+      }
+      if (x.cost > 0) {
+        if (prevCost.length >= 2) {
+          const avg = prevCost.reduce((a, b) => a + b, 0) / prevCost.length;
+          if (avg > 0 && x.cost >= avg * 1.8) out.push({ client, level: "med", type: "cost_spike", month: x.m, detail: `+${Math.round((x.cost / avg - 1) * 100)}%` });
+        }
+        prevCost.push(x.cost);
+      }
+    });
+    // Missing-month gap: a zero month wedged between two active months (likely un-entered data).
+    const activeIdx = s.map((x, i) => ({ i, a: !!(x.rev || x.cost || x.labour) })).filter((o) => o.a).map((o) => o.i);
+    if (activeIdx.length >= 2) {
+      for (let i = activeIdx[0]; i < activeIdx[activeIdx.length - 1]; i++) {
+        if (!(s[i].rev || s[i].cost || s[i].labour)) out.push({ client, level: "med", type: "gap", month: s[i].m, detail: "" });
+      }
+    }
+  });
+  const rank = { high: 0, med: 1, low: 2 };
+  return out.sort((a, b) => (rank[a.level] - rank[b.level]) || String(a.client).localeCompare(String(b.client)));
+};

@@ -5,11 +5,22 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "./api.js";
 import { P, MONTHS, ML, YEARS, uid, fmt, fPct, DEFAULT_OPEX_CATS, CAPEX_CATS, CAPEX_STATUS, normalizeClientData } from "./constants.js";
-import { agingBucket, AGING_BUCKETS, depreciation, daysUntil, parseDate, runRateFY, clientRisks } from "./calc.js";
+import { agingBucket, AGING_BUCKETS, depreciation, daysUntil, parseDate, runRateFY, clientRisks, detectAnomalies } from "./calc.js";
 import { exportWorkbook } from "./exportXlsx.js";
 
 // Previous fiscal-year label ("FY26" → "FY25"), or null if it falls before the first tracked year.
 const prevFy = (y) => { const n = parseInt(String(y).replace(/\D/g, ""), 10); const p = `FY${n - 1}`; return YEARS.includes(p) ? p : null; };
+
+// Bilingual label + icon for each anomaly type from detectAnomalies (which returns neutral types).
+const ANOM_LABEL = {
+  duplicate: { el: "Πιθανό διπλό τιμολόγιο", en: "Possible duplicate invoice", icon: "📄" },
+  loss: { el: "Ζημιογόνος μήνας", en: "Loss-making month", icon: "🔻" },
+  rev_drop: { el: "Πτώση εσόδων", en: "Revenue drop", icon: "📉" },
+  rev_spike: { el: "Άνοδος εσόδων — έλεγξε", en: "Revenue spike — review", icon: "📈" },
+  cost_spike: { el: "Απότομη αύξηση κόστους", en: "Cost spike", icon: "💸" },
+  gap: { el: "Κενός μήνας (πιθανόν λείπουν δεδομένα)", en: "Missing month (data may be un-entered)", icon: "🕳️" },
+};
+const ANOM_COLOR = { high: "#C62828", med: "#F57F17", low: "#78909C" };
 
 // getYearData returns RAW stored blobs; heal each client's months/keys onto the active FY (same as
 // the per-client screens) so the finance aggregates match the client P&L and are self-consistent.
@@ -85,6 +96,10 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
   });
   const maxRev = Math.max(1,...monthly.map(x=>x.rev));
 
+  // AI-assisted anomaly feed across the whole portfolio (deterministic detection, severity-ranked).
+  const anomalies = detectAnomalies(data, MONTHS);
+  const anomHigh = anomalies.filter(a=>a.level==="high").length;
+
   // Small YoY badge — green ▲ when the metric improved vs prior FY, red ▼ when it worsened.
   const yoyBadge = (d)=> d==null ? null : (
     <span style={{fontSize:11,fontWeight:700,color:d>=0?P.gn:P.rd,marginLeft:6}} title={t("έναντι προηγ. έτους","vs prior year")}>
@@ -135,6 +150,28 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
               <div style={{fontSize:22,fontWeight:800,color:P.em,marginTop:5}}>{active.length}<span style={{fontSize:13,color:P.tm,fontWeight:400}}> / {rows.length}</span></div>
             </div>
           </div>
+
+          {/* 🔔 AI Anomaly Alerts — portfolio-wide, severity-ranked, click a row to open the client */}
+          {anomalies.length>0 && (
+            <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,marginBottom:16,overflow:"hidden"}}>
+              <div style={{padding:"10px 16px",borderBottom:"1px solid "+P.bd,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+                <div style={{fontSize:13,fontWeight:700,color:P.em}}>🔔 {t("Ειδοποιήσεις — ανωμαλίες δεδομένων","Alerts — data anomalies")} ({anomalies.length})</div>
+                {anomHigh>0 && <div style={{fontSize:11,fontWeight:700,color:P.rd}}>⚠️ {anomHigh} {t("υψηλής προτεραιότητας","high priority")}</div>}
+              </div>
+              <div style={{maxHeight:300,overflowY:"auto"}}>
+                {anomalies.slice(0,40).map((a,i)=>{ const L=ANOM_LABEL[a.type]||{el:a.type,en:a.type,icon:"•"}; return (
+                  <div key={i} onClick={()=>onSelectClient&&onSelectClient(a.client)} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 16px",borderBottom:"1px solid "+P.al,cursor:"pointer",fontSize:12}}>
+                    <span style={{width:8,height:8,borderRadius:"50%",background:ANOM_COLOR[a.level],flexShrink:0}} />
+                    <span style={{flexShrink:0}}>{L.icon}</span>
+                    <span style={{fontWeight:600,color:P.em,minWidth:130,flexShrink:0}}>{a.client}</span>
+                    <span style={{color:P.tx,flex:1}}>{t(L.el,L.en)}{a.month?` · ${monthLabel(a.month)}`:""}</span>
+                    {a.detail && <span style={{color:P.tm,fontSize:11,whiteSpace:"nowrap"}}>{a.detail}</span>}
+                  </div>
+                ); })}
+                {anomalies.length>40 && <div style={{padding:"7px 16px",fontSize:11,color:P.tm,fontStyle:"italic"}}>… +{anomalies.length-40} {t("ακόμα","more")}</div>}
+              </div>
+            </div>
+          )}
 
           <div style={{display:"grid",gridTemplateColumns:"1fr",gap:16,alignItems:"start"}}>
             {/* Monthly trend */}
@@ -197,6 +234,7 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
               gmPctActual: totRev?+((totGM/totRev)*100).toFixed(1):null,
               monthly: monthly.filter(x=>x.rev||x.cost).map(x=>({month:ML[x.m]||x.m, rev:Math.round(x.rev), cost:Math.round(x.cost), gm:Math.round(x.gm)})),
               clientsAtRisk: riskyClients.slice(0,10).map(c=>({client:c.name, risks:c.labels})),
+              anomalies: anomalies.slice(0,20).map(a=>({client:a.client, type:a.type, month:a.month?(ML[a.month]||a.month):null, severity:a.level, detail:a.detail})),
             });
             return (
               <div style={{marginTop:16}}>

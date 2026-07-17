@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { monthIdx, depreciation, nbvAtMonth, groupPnLSeries, allocFractions, parseDate, daysUntil, clientSeries, linregSlope, runRateFY, clientRisks, agingBucket } from "./calc.js";
+import { monthIdx, depreciation, nbvAtMonth, groupPnLSeries, allocFractions, parseDate, daysUntil, clientSeries, linregSlope, runRateFY, clientRisks, agingBucket, detectAnomalies } from "./calc.js";
 
 const FY26 = Array.from({ length: 12 }, (_, i) => `2026-${String(i + 1).padStart(2, "0")}`);
 
@@ -166,5 +166,47 @@ describe("analytics helpers", () => {
     const r = clientRisks(data, FY26, now);
     expect(r.some(x => x.label.includes("PO1") && x.level === "high")).toBe(true);
     expect(r.some(x => x.label.includes("Λήγει"))).toBe(true);
+  });
+});
+
+describe("detectAnomalies", () => {
+  const at = (arr, m) => arr.map((c, i) => ({ month: FY26[i], amt: c }));
+  it("flags a duplicate AR invoice (same number + amount)", () => {
+    const data = { Acme: { inv: [
+      { month: FY26[0], cat: "CLIENT REVENUE - FM Core", inv_no: "100", amt: 500 },
+      { month: FY26[1], cat: "CLIENT REVENUE - FM Core", inv_no: "100", amt: 500 },
+    ], sub: [], lab: {} } };
+    const a = detectAnomalies(data, FY26);
+    const dup = a.find(x => x.type === "duplicate");
+    expect(dup).toBeTruthy();
+    expect(dup.level).toBe("high");
+    expect(dup.detail).toContain("#100");
+  });
+  it("does NOT flag recurring monthly accruals as duplicates", () => {
+    const data = { Acme: { inv: [
+      { month: FY26[0], cat: "CLIENT REVENUE - FM Core", inv_no: "ACCRUAL", amt: -220, act_acc: "ACCRUAL" },
+      { month: FY26[1], cat: "CLIENT REVENUE - FM Core", inv_no: "ACCRUAL", amt: -220, act_acc: "ACCRUAL" },
+    ], sub: [], lab: {} } };
+    expect(detectAnomalies(data, FY26).some(x => x.type === "duplicate")).toBe(false);
+  });
+  it("flags a loss month (revenue positive, GM negative)", () => {
+    const data = { Acme: { inv: [{ month: FY26[0], cat: "R", inv_no: "1", amt: 100 }],
+      sub: [{ month: FY26[0], cat: "C", inv_no: "9", amt: 300 }], lab: {} } };
+    const loss = detectAnomalies(data, FY26).find(x => x.type === "loss");
+    expect(loss && loss.level).toBe("high");
+  });
+  it("flags a revenue drop vs the trailing average", () => {
+    const inv = [1000, 1000, 1000, 100].map((amt, i) => ({ month: FY26[i], cat: "R", inv_no: "n" + i, amt }));
+    const drop = detectAnomalies({ Acme: { inv, sub: [], lab: {} } }, FY26).find(x => x.type === "rev_drop");
+    expect(drop && drop.month).toBe(FY26[3]);
+  });
+  it("flags a missing month wedged between active months", () => {
+    const inv = [{ month: FY26[0], cat: "R", inv_no: "1", amt: 100 }, { month: FY26[2], cat: "R", inv_no: "2", amt: 100 }];
+    const gap = detectAnomalies({ Acme: { inv, sub: [], lab: {} } }, FY26).find(x => x.type === "gap");
+    expect(gap && gap.month).toBe(FY26[1]);
+  });
+  it("clean data yields no anomalies, and results are severity-ranked", () => {
+    const inv = [1000, 1000, 1000].map((amt, i) => ({ month: FY26[i], cat: "R", inv_no: "n" + i, amt }));
+    expect(detectAnomalies({ Acme: { inv, sub: [], lab: {} } }, FY26)).toHaveLength(0);
   });
 });
