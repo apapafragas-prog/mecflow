@@ -261,6 +261,7 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
   const [terms,setTerms] = useState(30);          // payment terms in days (0 = from invoice date)
   const [showPaid,setShowPaid] = useState(false);
   const [busy,setBusy] = useState("");
+  const [payDate,setPayDate] = useState(new Date().toISOString().slice(0,10)); // value date stamped when marking Paid
 
   const load = () => { setLoading(true); api.getYearData(year).then(d=>{ setData(normYear(d)); setLoading(false); }).catch(()=>{ setData({}); setLoading(false); }); };
   useEffect(()=>{ load(); /* eslint-disable-next-line */ },[year]);
@@ -306,7 +307,9 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
       const cd = r?.data; if(!cd || !Array.isArray(cd[list])) throw new Error("Δεν βρέθηκαν δεδομένα");
       const row = cd[list].find(x=>x.id===e.id); if(!row) throw new Error("Δεν βρέθηκε το τιμολόγιο");
       const nowPaid = !(row.paid==="paid"||row.paid===true);
-      row.paid = nowPaid ? "paid" : ""; row.paid_date = nowPaid ? new Date().toISOString().slice(0,10) : "";
+      // Stamp the actual settlement date the user set (value date), not "today" — this drives aging
+      // and the month the invoice leaves AR/AP on the balance sheet. Falls back to today if cleared.
+      row.paid = nowPaid ? "paid" : ""; row.paid_date = nowPaid ? (payDate || new Date().toISOString().slice(0,10)) : "";
       await api.saveClientData(year, e.client, cd, r.version);
       setData(p=>({ ...p, [e.client]: cd }));
     } catch(err){ alert(t("Δεν αποθηκεύτηκε: ","Not saved: ")+(err.message||t("σφάλμα","error"))); }
@@ -348,6 +351,7 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
             <button key={o.v} onClick={()=>setTerms(o.v)} style={{padding:"5px 12px",border:"1px solid "+P.bd,borderRadius:6,cursor:"pointer",fontSize:12,background:terms===o.v?P.ep:P.wh,color:P.tx,fontWeight:terms===o.v?700:400}}>{o.l}</button>
           ))}
           <label style={{fontSize:12,color:P.tm,display:"flex",alignItems:"center",gap:6,marginLeft:8,cursor:"pointer"}}><input type="checkbox" checked={showPaid} onChange={e=>setShowPaid(e.target.checked)} /> {t("Εμφάνιση εξοφλημένων","Show paid")}</label>
+          <label style={{fontSize:12,color:P.tm,display:"flex",alignItems:"center",gap:6,marginLeft:8}} title={t("Η ημερομηνία που θα καταχωρηθεί όταν πατάς «Πληρώθηκε»","The date stamped when you click 'Paid'")}>{t("Ημ/νία πληρωμής","Payment date")}: <input type="date" value={payDate} onChange={e=>setPayDate(e.target.value)} style={{padding:"4px 6px",border:"1px solid "+P.bd,borderRadius:6,fontSize:12,outline:"none"}} /></label>
           {!loading && <button onClick={exportLedger} style={{marginLeft:"auto",padding:"6px 14px",border:"1px solid "+P.em,borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,background:P.wh,color:P.em}}>⬇ {t("Εξαγωγή Excel","Export Excel")}</button>}
         </div>
 
@@ -426,20 +430,24 @@ export function OpexCapex({year,setYear,user,onBack,onLogout}) {
   const dirtyRef = useRef(false);
 
   const mkDefault = () => ({ opex:{ cats:DEFAULT_OPEX_CATS.map(l=>({id:uid(),label:l})), budget:{}, actual:{} }, capex:[] });
+  // Normalize a getFinanceData response into state + record the server version for optimistic locking.
+  const hydrate = (r)=>{
+    verRef.current = (r&&r.version)||0;
+    const d = (r&&r.data) || mkDefault();
+    if(!d.opex) d.opex = mkDefault().opex;
+    if(!Array.isArray(d.opex.cats)||!d.opex.cats.length) d.opex.cats = mkDefault().opex.cats;
+    if(!d.opex.budget) d.opex.budget={};
+    if(!d.opex.actual) d.opex.actual={};
+    if(!Array.isArray(d.capex)) d.capex=[];
+    setFin(d); dirtyRef.current=false;
+  };
 
   useEffect(()=>{
     let cancelled=false; setLoaded(false);
     (async()=>{
       const r = await api.getFinanceData(year).catch(()=>null);
       if(cancelled) return;
-      verRef.current = (r&&r.version)||0;
-      const d = (r&&r.data) || mkDefault();
-      if(!d.opex) d.opex = mkDefault().opex;
-      if(!Array.isArray(d.opex.cats)||!d.opex.cats.length) d.opex.cats = mkDefault().opex.cats;
-      if(!d.opex.budget) d.opex.budget={};
-      if(!d.opex.actual) d.opex.actual={};
-      if(!Array.isArray(d.capex)) d.capex=[];
-      setFin(d); dirtyRef.current=false; setSaveState("idle"); setLoaded(true);
+      hydrate(r); setSaveState("idle"); setLoaded(true);
     })();
     return ()=>{cancelled=true;};
   // eslint-disable-next-line
@@ -450,7 +458,16 @@ export function OpexCapex({year,setYear,user,onBack,onLogout}) {
     setSaveState("saving");
     const t=setTimeout(async()=>{
       try{ const resp=await api.saveFinanceData(year, fin, verRef.current); verRef.current=(resp&&resp.version)||verRef.current+1; dirtyRef.current=false; setSaveState("saved"); }
-      catch(e){ setSaveState("error"); console.warn("finance save failed",e); }
+      catch(e){
+        // 409 = another finance/admin user saved first. Never silently overwrite their work: reload the
+        // latest server copy so the user re-applies onto current data (same policy as client-data saves).
+        if(e&&e.status===409){
+          dirtyRef.current=false; setSaveState("error");
+          alert(t("⚠️ Τα δεδομένα OPEX/CAPEX ενημερώθηκαν από άλλον χρήστη.\n\nΘα φορτωθεί τώρα η τελευταία αποθηκευμένη έκδοση — οι πολύ πρόσφατες αλλαγές σου ΔΕΝ αποθηκεύτηκαν, ξαναπέρασέ τες.","⚠️ The OPEX/CAPEX data was updated by another user.\n\nThe latest saved version will load now — your most recent edits were NOT saved, please re-apply them."));
+          const r = await api.getFinanceData(year).catch(()=>null);
+          hydrate(r); setSaveState("idle");
+        } else { setSaveState("error"); console.warn("finance save failed",e); }
+      }
     },600);
     return ()=>clearTimeout(t);
   // eslint-disable-next-line

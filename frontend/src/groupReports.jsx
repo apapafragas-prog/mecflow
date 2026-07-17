@@ -6,7 +6,7 @@
 // (same store as OPEX/CAPEX) — we load the whole blob and save it back, preserving opex/capex.
 import { useState, useEffect, useRef } from "react";
 import { api } from "./api.js";
-import { P, MONTHS, ML, YEARS, uid, fmt, fPct, normalizeClientData } from "./constants.js";
+import { P, MONTHS, ML, YEARS, uid, fmt, fPct, normalizeClientData, REV_CATS, COST_CATS } from "./constants.js";
 import { groupPnLSeries, nbvAtMonth, monthIdx } from "./calc.js";
 import { exportWorkbook } from "./exportXlsx.js";
 
@@ -110,22 +110,31 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
     // It surfaces in the aging ledger as outstanding, prompting the user to stamp the real settlement date.
     return pm != null ? pm > mi : true;
   };
+  // Issued on/before month `m` (regardless of payment). VAT liability accrues on ISSUANCE and stays
+  // owed to the state until remitted — it must NOT vanish when the invoice is collected/paid.
+  const issuedBy = (i, m) => { const mi = monthIdx(m), ii = monthIdx(i.month); return ii != null && mi != null && ii <= mi; };
   MONTHS.forEach(m => {
     let nbv = 0; (fin?.capex || []).forEach(it => { if (onBooks(it)) nbv += nbvAtMonth(it, m); }); nbvByMonth[m] = nbv;
     let ar = 0, ap = 0, vatAr = 0, vatAp = 0, accrInc = 0, accrCost = 0;
     Object.values(allData || {}).forEach(cd => {
       (cd?.inv || []).forEach(i => {
-        if (isActual(i)) { if (openAt(i, m)) { ar += grossAmt(i); vatAr += vatOf(i); } }
-        else if (i.month === m) accrInc += Number(i.amt) || 0;   // ACCRUAL revenue booked this month (net)
+        if (isActual(i)) {
+          if (openAt(i, m)) ar += grossAmt(i);            // AR asset: open (uncollected) only
+          if (issuedBy(i, m)) vatAr += vatOf(i);          // output VAT: accrues on issuance, persists after payment
+        } else if (i.month === m) accrInc += Number(i.amt) || 0;   // ACCRUAL revenue booked this month (net)
       });
       (cd?.sub || []).forEach(i => {
-        if (isActual(i)) { if (openAt(i, m)) { ap += grossAmt(i); vatAp += vatOf(i); } }
-        else if (i.month === m) accrCost += Number(i.amt) || 0;  // ACCRUAL cost booked this month (net)
+        if (isActual(i)) {
+          if (openAt(i, m)) ap += grossAmt(i);            // AP liability: open (unpaid) only
+          if (issuedBy(i, m)) vatAp += vatOf(i);          // input VAT: accrues on issuance
+        } else if (i.month === m) accrCost += Number(i.amt) || 0;  // ACCRUAL cost booked this month (net)
       });
     });
     arByMonth[m] = ar; apByMonth[m] = ap;
-    // Net VAT embedded in open AR/AP (output − input). Booking AR/AP gross while P&L is net leaves
-    // this VAT delta; surfacing it as a liability keeps the accounting identity from being ~24% off.
+    // Net VAT (output − input) accrued on ALL issued invoices up to month m, whether paid or not.
+    // While an invoice is open, its gross AR/AP carries the VAT; once paid, the AR/AP swaps to cash but
+    // the VAT stays here as a liability owed to the state — so the balance identity holds through payment.
+    // Reduced by actual VAT remittances, which the user books on the manual "ΦΠΑ / Φόροι πληρωτέοι" line.
     vatNetByMonth[m] = vatAr - vatAp;
     // Accrued income (asset) / accrued expenses (liability): ACCRUAL invoices hit the P&L → equity
     // (cumNet) but are NOT trade AR/AP. Booking their cumulative net as matching asset/liability lines
@@ -140,7 +149,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
     { section: "asset", label: t("Δουλευμένα έσοδα (accruals)", "Accrued income (accruals)"), fn: m => accrIncByMonth[m] },
     { section: "liability", label: t("Υποχρεώσεις προμηθευτών (AP, ανοιχτά)", "Trade payables (AP, open)"), fn: m => apByMonth[m] },
     { section: "liability", label: t("Δουλευμένα έξοδα (accruals)", "Accrued expenses (accruals)"), fn: m => accrCostByMonth[m] },
-    { section: "liability", label: t("Καθαρό ΦΠΑ σε ανοιχτά AR/AP", "Net VAT in open AR/AP"), fn: m => vatNetByMonth[m] },
+    { section: "liability", label: t("Καθαρό ΦΠΑ δουλευμένο (εκροών − εισροών)", "Net VAT accrued (output − input)"), fn: m => vatNetByMonth[m] },
     { section: "equity", label: t("Αποτέλεσμα περιόδου (σωρευτικά)", "Result for the period (cumulative)"), fn: m => cumNet[m] },
   ];
 
@@ -223,6 +232,18 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
     exportWorkbook(`CBRE_Group_${year}.xlsx`, [{ name: "P&L", aoa: pnlAoa }, { name: "Balance Sheet", aoa: bsAoa }]);
   };
 
+  // Data-quality guard: rows whose category isn't one of the canonical REV/COST buckets are counted in
+  // the Group/Dashboard totals but DROPPED from the per-client P&L (which filters by category) — so
+  // "Group = Σ per-client" silently breaks. Surface them so the user can fix the category.
+  const miscat = [];
+  Object.entries(allData || {}).forEach(([name, cd]) => {
+    let n = 0;
+    (cd?.inv || []).forEach(i => { if ((Number(i.amt) || 0) !== 0 && !REV_CATS.includes(i.cat)) n++; });
+    (cd?.sub || []).forEach(i => { if ((Number(i.amt) || 0) !== 0 && !COST_CATS.includes(i.cat)) n++; });
+    if (n) miscat.push({ name, n });
+  });
+  const miscatTotal = miscat.reduce((s, x) => s + x.n, 0);
+
   const kpi = (l, v, c, pct) => (
     <div style={{ background: P.wh, border: "1px solid " + P.bd, borderRadius: 10, padding: "12px 14px" }}>
       <div style={{ fontSize: 11, color: P.tm }}>{l}</div>
@@ -262,6 +283,12 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
         </div>
 
         {!loaded && <div style={{ padding: 40, textAlign: "center", color: P.tm }}>{t("Φόρτωση…", "Loading…")}</div>}
+
+        {loaded && miscatTotal > 0 && (
+          <div style={{ background: "#FFF8E1", border: "1px solid #F5D76E", borderRadius: 8, padding: "10px 16px", marginBottom: 14, fontSize: 12, color: "#7A5B00" }}>
+            ⚠️ {t("Προσοχή στη συμφωνία", "Reconciliation notice")}: {miscatTotal} {t("γραμμές με μη-κανονική κατηγορία μετρούν στα σύνολα του Ομίλου αλλά ΟΧΙ στο P&L του κάθε πελάτη", "rows with a non-canonical category count in the Group totals but NOT in each client's P&L")} — {miscat.slice(0, 6).map(x => `${x.name} (${x.n})`).join(", ")}{miscat.length > 6 ? "…" : ""}. {t("Διόρθωσε την κατηγορία τους ώστε «Όμιλος = Σ πελατών».", "Fix their category so \"Group = Σ clients\".")}
+          </div>
+        )}
 
         {/* ── GROUP P&L ── */}
         {loaded && tab === "pnl" && (
@@ -359,8 +386,8 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
               </table>
             </div>
             <div style={{ fontSize: 11, color: P.tm, marginTop: 8, lineHeight: 1.6 }}>
-              {t("Τιμές = υπόλοιπο τέλους κάθε μήνα. Οι auto γραμμές (Πάγια/AR/AP/Αποτέλεσμα) υπολογίζονται από τα δεδομένα και είναι read-only. Οι υπόλοιπες (ταμείο, δάνεια, κεφάλαιο, opening balances) καταχωρούνται χειροκίνητα. Ο «Έλεγχος» δείχνει τη διαφορά Ενεργητικού − (Υποχρεώσεις + Ίδια Κεφάλαια)· συμπλήρωσε ταμείο/opening balances ώσπου να μηδενίσει.",
-                 "Values = closing balance for each month. The auto rows (Fixed assets/AR/AP/Result) are computed from the data and read-only. The rest (cash, loans, capital, opening balances) are entered manually. The 'Check' shows Assets − (Liabilities + Equity); fill cash/opening balances until it hits zero.")}
+              {t("Τιμές = υπόλοιπο τέλους κάθε μήνα. Οι auto γραμμές (Πάγια/AR/AP/ΦΠΑ/Αποτέλεσμα) υπολογίζονται από τα δεδομένα και είναι read-only. Το «Καθαρό ΦΠΑ δουλευμένο» μένει ως υποχρέωση ακόμα κι όταν εξοφληθεί το τιμολόγιο (οφειλή στο κράτος)· όταν αποδίδεις ΦΠΑ, καταχώρησέ το στη χειροκίνητη γραμμή «ΦΠΑ / Φόροι πληρωτέοι» (μειώνει την υποχρέωση) μαζί με τη μείωση του ταμείου. Ο «Έλεγχος» δείχνει τη διαφορά Ενεργητικού − (Υποχρεώσεις + Ίδια Κεφάλαια)· συμπλήρωσε ταμείο/opening balances ώσπου να μηδενίσει.",
+                 "Values = closing balance for each month. The auto rows (Fixed assets/AR/AP/VAT/Result) are computed from the data and read-only. 'Net VAT accrued' stays as a liability even after an invoice is paid (owed to the state); when you remit VAT, record it on the manual 'ΦΠΑ / Φόροι πληρωτέοι' line (which reduces the liability) alongside the cash decrease. The 'Check' shows Assets − (Liabilities + Equity); fill cash/opening balances until it hits zero.")}
             </div>
           </div>
         )}
