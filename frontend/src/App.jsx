@@ -638,7 +638,7 @@ export default function App() {
       <div style={{padding:20,maxWidth:1400,margin:"0 auto"}}>
         {tab==="contracts" && <ContractTab data={contracts} set={setContracts} inv={inv} docs={docs} setDocs={setDocs} year={year} client={client} />}
         {tab==="scan" && <Scan session={scanSession} scanApi={scanApi} goTo={setTab} year={year} client={client} onAdd={items => setSub(p => [...p,...items.map(x => { const a=Number(x.amt)||0, v=Number(x.vat)||0; const fp=Number(x.fee_pct)|| (contracts||[]).find(c=>c.status==="Active"&&c.type==="MSA")?.fee_pct || 5.5; const fee=Math.round(a*fp/100*100)/100; return {...x,id:uid(),total:x.total!=null?x.total:Math.round((a+v)*100)/100,fee_pct:fp,cbre_fee:fee,cbre_bill:Math.round((a+fee)*100)/100}; })])} onAddAR={items => setInv(p => [...p,...items.map(x => ({...x,id:uid()}))])} />}
-        {tab==="pnl" && <PnL inv={inv} sub={sub} lab={lab} />}
+        {tab==="pnl" && <PnL inv={inv} sub={sub} lab={lab} client={client} year={year} user={user} />}
         {tab==="insights" && <Insights inv={inv} sub={sub} lab={lab} contracts={contracts} client={client} year={year} />}
         {tab==="inv" && <InvTab data={inv} set={setInv} contracts={contracts} year={year} client={client} onDupCheck={()=>setDupOpen(true)} />}
         {tab==="sub" && <SubTab data={sub} set={setSub} contracts={contracts} year={year} client={client} onDupCheck={()=>setDupOpen(true)} />}

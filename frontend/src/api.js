@@ -114,6 +114,9 @@ export const api = {
   // AI chat assistant — single-shot with a client-built snapshot
   chat: (question, history, snapshot, lang) => req("/chat", { method: "POST", body: JSON.stringify({ question, history, snapshot, lang }) }),
 
+  // Email a P&L report (finance/admin) — server renders + sends the pre-formatted rows
+  emailReport: (payload) => req("/reports/email", { method: "POST", body: JSON.stringify(payload) }),
+
   // Audit
   audit: () => req("/audit"),
 

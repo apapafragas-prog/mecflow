@@ -417,6 +417,47 @@ app.put("/api/finance/:year", auth, requireRole("finance", "admin"), (req, res) 
   try { audit(req.user.username, "finance_save", `${year} v${newVersion}`, req); } catch (e) { console.error("audit error:", e.message); }
 });
 
+// ── Email a P&L report (finance/admin) ──
+// The frontend sends already-computed, pre-formatted rows so the emailed table matches the on-screen
+// P&L exactly; the server only renders + delivers (every field HTML-escaped — no injection from labels).
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const reportEmailHtml = (title, subtitle, tableHtml, link) => `
+  <div style="font-family:Segoe UI,Arial,sans-serif;max-width:760px;margin:0 auto;color:#1A2E23">
+    <div style="background:#003F2D;color:#fff;padding:18px 24px;border-radius:10px 10px 0 0;font-size:18px;font-weight:700">CBRE Reporting — ${esc(title)}</div>
+    <div style="border:1px solid #D5DDD8;border-top:none;border-radius:0 0 10px 10px;padding:20px 24px">
+      <div style="font-size:13px;color:#5F7567;margin-bottom:12px">${esc(subtitle)}</div>
+      <div style="overflow-x:auto">${tableHtml}</div>
+      ${link ? `<p style="text-align:center;margin:22px 0"><a href="${esc(link)}" style="background:#003F2D;color:#fff;text-decoration:none;padding:10px 24px;border-radius:6px;font-weight:600;display:inline-block">Άνοιγμα πλατφόρμας</a></p>` : ""}
+      <p style="font-size:12px;color:#5F7567">Αυτόματη αναφορά P&amp;L από την πλατφόρμα CBRE Hellas.</p>
+    </div>
+  </div>`;
+
+app.post("/api/reports/email", auth, requireRole("finance", "admin"), async (req, res) => {
+  if (!EMAIL_ENABLED) return res.status(503).json({ error: "Η αποστολή email δεν έχει ρυθμιστεί (SMTP)." });
+  const { client, year, subtitle, months, rows, recipients, subject } = req.body || {};
+  const to = (Array.isArray(recipients) ? recipients : []).map((e) => String(e).trim()).filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+  if (!to.length) return res.status(400).json({ error: "Δεν δόθηκαν έγκυροι παραλήπτες" });
+  if (!Array.isArray(rows) || !rows.length) return res.status(400).json({ error: "Κενή αναφορά" });
+  if (to.length > 20 || rows.length > 200) return res.status(400).json({ error: "Πολύ μεγάλο αίτημα" });
+  const mh = (Array.isArray(months) ? months : []).slice(0, 12);
+  const th = "padding:6px 8px;font-size:11px;font-weight:700;color:#fff;background:#003F2D;white-space:nowrap";
+  const header = `<tr><th style="${th};text-align:left">Γραμμή</th>${mh.map((m) => `<th style="${th};text-align:right">${esc(m)}</th>`).join("")}<th style="${th};text-align:right">YTD</th></tr>`;
+  const body = rows.map((r) => {
+    const bold = r && r.bold ? "font-weight:700;background:#E8F5E9" : "";
+    const td = "padding:5px 8px;font-size:11px;border-bottom:1px solid #D5DDD8;text-align:right;white-space:nowrap";
+    const vals = (Array.isArray(r && r.values) ? r.values : []).slice(0, 12).map((v) => `<td style="${td}">${esc(v)}</td>`).join("");
+    return `<tr style="${bold}"><td style="${td};text-align:left">${esc(r && r.label)}</td>${vals}<td style="${td};font-weight:700">${esc(r && r.ytd)}</td></tr>`;
+  }).join("");
+  const table = `<table style="width:100%;border-collapse:collapse;min-width:520px">${header}${body}</table>`;
+  const subj = String(subject || `P&L ${client || ""} — ${year || ""}`).slice(0, 160);
+  const base = (APP_BASE_URL || `${req.protocol}://${req.headers.host}`).replace(/\/$/, "");
+  try {
+    await sendEmail(to.join(","), subj, reportEmailHtml(subj, subtitle || `${client || ""} · ${year || ""}`, table, base));
+    audit(req.user.username, "report_email", `${year}/${client} → ${to.join(", ")}`, req);
+    res.json({ ok: true, sent: to.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── File uploads ──
 const upload = multer({
   // Browsers send the multipart filename as UTF-8; busboy defaults to latin1, which mangles Greek
