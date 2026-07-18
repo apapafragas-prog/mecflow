@@ -45,6 +45,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   const [saveState, setSaveState] = useState("idle");
   const [na, setNa] = useState({ label: "", section: "asset" });
   const [drill, setDrill] = useState(null);    // { k, m } → per-client breakdown modal for a P&L cell
+  const [cashTerms, setCashTerms] = useState(30); // payment-terms lag (days) for the cash-flow forecast
   const verRef = useRef(0);
   const dirtyRef = useRef(false);
 
@@ -65,6 +66,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
       if (!d.bs || !Array.isArray(d.bs.accounts) || !d.bs.accounts.length) d.bs = mkDefaultBS();
       if (!d.bs.values) d.bs.values = {};
       if (!d.budgets || typeof d.budgets !== "object") d.budgets = {}; // { [client]: { rev, gmPct } } annual targets
+      if (d.cashOpening == null) d.cashOpening = 0; // opening cash balance for the cash-flow forecast
       setFin(d); dirtyRef.current = false; setSaveState("idle"); setLoaded(true);
     })();
     return () => { cancelled = true; };
@@ -128,6 +130,33 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
     }).sort((x, y) => y.fee - x.fee);
     const T = { fee: rows.reduce((s, r) => s + r.fee, 0), cost: rows.reduce((s, r) => s + r.cost, 0), gm: rows.reduce((s, r) => s + r.gm, 0), cop: rows.reduce((s, r) => s + r.cop, 0), rev: totRev };
     return { rows, T };
+  };
+
+  // ── Direct monthly cash-flow forecast ──
+  // Collections/payments are timed by their settlement month: paid invoices land in their paid_date
+  // month; open invoices in (issue month + payment-terms lag). Payroll/OPEX/CAPEX/interest/tax are
+  // cash-out in their booked month. Running balance = opening cash + cumulative net.
+  const cashFlowSeries = () => {
+    const termsM = Math.max(0, Math.round((Number(cashTerms) || 0) / 30));
+    const shift = (m, n) => { const i = MONTHS.indexOf(m); return (i >= 0 && i + n < MONTHS.length) ? MONTHS[i + n] : null; };
+    const paidMonthOf = (i) => { const pm = i.paid_date ? String(i.paid_date).slice(0, 7) : null; return (pm && MONTHS.includes(pm)) ? pm : null; };
+    const z = () => { const o = {}; MONTHS.forEach(m => o[m] = 0); return o; };
+    const collIn = z(), payOut = z(), lab = z(), opx = z(), cpx = z(), intr = z(), tax = z();
+    Object.values(allData || {}).forEach(cd => {
+      (cd?.inv || []).forEach(i => { if (!isActual(i)) return; const tm = isPaid(i) ? paidMonthOf(i) : shift(i.month, termsM); if (tm) collIn[tm] += grossAmt(i); });
+      (cd?.sub || []).forEach(i => { if (!isActual(i)) return; const tm = isPaid(i) ? paidMonthOf(i) : shift(i.month, termsM); if (tm) payOut[tm] += grossAmt(i); });
+      MONTHS.forEach(m => { if (cd?.lab?.[m]) lab[m] += Object.values(cd.lab[m]).reduce((s, v) => s + (Number(v) || 0), 0); });
+    });
+    const cats = fin?.opex?.cats || [], act = fin?.opex?.actual || {};
+    MONTHS.forEach(m => { opx[m] = cats.reduce((s, c) => s + (Number(act[c.id]?.[m]) || 0), 0); });
+    (fin?.capex || []).forEach(it => { if (onBooks(it) && it.month && MONTHS.includes(it.month)) cpx[it.month] += Number(it.amount) || 0; });
+    MONTHS.forEach(m => { intr[m] = Number(fin?.pnl?.interest?.[m]) || 0; tax[m] = Number(fin?.pnl?.tax?.[m]) || 0; });
+    let run = Number(fin?.cashOpening) || 0;
+    return MONTHS.map(m => {
+      const net = collIn[m] - payOut[m] - lab[m] - opx[m] - cpx[m] - intr[m] - tax[m];
+      const open = run; run += net;
+      return { m, open, collIn: collIn[m], payOut: payOut[m], lab: lab[m], opx: opx[m], cpx: cpx[m], intr: intr[m], tax: tax[m], net, close: run };
+    });
   };
 
   // ── Balance-sheet derived lines (read-only) ──
@@ -274,7 +303,19 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
     const feeAoa = [["Client", "Revenue", "Sub cost", "Mgmt Fee", "Effective %", "Contracted %", "Fee gap", "GM", "Alloc. OPEX", "COP", "COP %"],
       ...fcRows.map(r => [r.name, r.rev, r.cost, r.fee, r.effFee == null ? "" : +r.effFee.toFixed(1), r.conFee == null ? "" : r.conFee, r.feeGap == null ? "" : +r.feeGap.toFixed(1), r.gm, r.alloc, r.cop, r.copPct == null ? "" : +r.copPct.toFixed(1)]),
       ["TOTAL", fcT.rev, fcT.cost, fcT.fee, fcT.cost ? +(fcT.fee / fcT.cost * 100).toFixed(1) : "", "", "", fcT.gm, totalOpex, fcT.cop, fcT.rev ? +(fcT.cop / fcT.rev * 100).toFixed(1) : ""]];
-    exportWorkbook(`CBRE_Group_${year}.xlsx`, [{ name: "P&L", aoa: pnlAoa }, { name: "Balance Sheet", aoa: bsAoa }, { name: "Fee & COP", aoa: feeAoa }]);
+    // Cash Flow sheet (rows = lines, columns = months)
+    const cf = cashFlowSeries(), cfBy = Object.fromEntries(cf.map(r => [r.m, r]));
+    const cfLine = (label, k, sign = 1) => [label, ...MONTHS.map(m => sign * cfBy[m][k]), cf.reduce((a, r) => a + sign * r[k], 0)];
+    const cashAoa = [["Line", ...MONTHS.map(m => ML[m] || m), "Total"],
+      [t("Ταμείο έναρξης", "Opening cash"), Number(fin?.cashOpening) || 0, ...MONTHS.slice(1).map(() => ""), ""],
+      cfLine(t("Εισπράξεις πελατών (AR)", "Client collections (AR)"), "collIn"),
+      cfLine(t("Πληρωμές προμηθευτών (AP)", "Supplier payments (AP)"), "payOut", -1),
+      cfLine(t("Μισθοδοσία", "Payroll"), "lab", -1),
+      cfLine("OPEX", "opx", -1), cfLine("CAPEX", "cpx", -1),
+      cfLine(t("Τόκοι", "Interest"), "intr", -1), cfLine(t("Φόροι", "Taxes"), "tax", -1),
+      cfLine(t("Καθαρή ταμειακή ροή", "Net cash flow"), "net"),
+      [t("Ταμείο τέλους", "Closing cash"), ...MONTHS.map(m => cfBy[m].close), cf.length ? cf[cf.length - 1].close : 0]];
+    exportWorkbook(`CBRE_Group_${year}.xlsx`, [{ name: "P&L", aoa: pnlAoa }, { name: "Balance Sheet", aoa: bsAoa }, { name: "Fee & COP", aoa: feeAoa }, { name: "Cash Flow", aoa: cashAoa }]);
   };
 
   // Data-quality guard: rows whose category isn't one of the canonical REV/COST buckets are counted in
@@ -320,7 +361,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             {loaded && <button onClick={exportGroup} style={{ padding: "6px 14px", border: "1px solid " + P.em, borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600, background: P.wh, color: P.em }}>⬇ {t("Εξαγωγή Excel", "Export Excel")}</button>}
             <div style={{ display: "flex", gap: 0, background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, padding: 4 }}>
-              {[{ v: "pnl", l: t("📈 P&L (Όμιλος)", "📈 P&L (Group)") }, { v: "bs", l: t("⚖️ Ισολογισμός", "⚖️ Balance Sheet") }, { v: "budget", l: t("🎯 Budget vs Actual", "🎯 Budget vs Actual") }, { v: "fee", l: t("💰 Fee & COP", "💰 Fee & COP") }].map(o => (
+              {[{ v: "pnl", l: t("📈 P&L (Όμιλος)", "📈 P&L (Group)") }, { v: "bs", l: t("⚖️ Ισολογισμός", "⚖️ Balance Sheet") }, { v: "budget", l: t("🎯 Budget vs Actual", "🎯 Budget vs Actual") }, { v: "fee", l: t("💰 Fee & COP", "💰 Fee & COP") }, { v: "cash", l: t("💵 Ταμειακές Ροές", "💵 Cash Flow") }].map(o => (
                 <button key={o.v} onClick={() => setTab(o.v)} style={{ background: tab === o.v ? P.em : "transparent", color: tab === o.v ? "#fff" : P.tx, border: "none", padding: "7px 20px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>{o.l}</button>
               ))}
             </div>
@@ -547,6 +588,80 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
               <div style={{ fontSize: 11, color: P.tm, marginTop: 8, lineHeight: 1.6 }}>
                 {t("Mgmt Fee = αμοιβή CBRE επί του κόστους υπεργολάβων (cbre_fee ή κόστος × fee %). Effective % = Fee / κόστος υπεργ. Συμπλήρωσε το «Συμβατικό %» ανά πελάτη (π.χ. 5% cost-plus) — το «Δ» δείχνει fee leakage. COP = GM − κατανεμημένο εταιρικό OPEX (pro-rata εσόδων). Αποθηκεύεται αυτόματα.",
                    "Mgmt Fee = CBRE fee on subcontractor cost (cbre_fee, or cost × fee %). Effective % = Fee / sub cost. Enter the 'Contracted %' per client (e.g. 5% cost-plus) — 'Δ' shows fee leakage. COP = GM − allocated company OPEX (pro-rata by revenue). Saved automatically.")}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ── CASH FLOW (direct monthly forecast + running balance) ── */}
+        {loaded && tab === "cash" && (() => {
+          const s = cashFlowSeries();
+          const by = Object.fromEntries(s.map(r => [r.m, r]));
+          const sum = k => s.reduce((a, r) => a + r[k], 0);
+          const minClose = Math.min(...s.map(r => r.close));
+          const endClose = s.length ? s[s.length - 1].close : 0;
+          const R = [
+            { k: "collIn", l: t("Εισπράξεις πελατών (AR)", "Client collections (AR)"), sign: 1 },
+            { k: "payOut", l: t("Πληρωμές προμηθευτών (AP)", "Supplier payments (AP)"), sign: -1 },
+            { k: "lab", l: t("Μισθοδοσία", "Payroll"), sign: -1 },
+            { k: "opx", l: t("Λειτουργικά (OPEX)", "Operating (OPEX)"), sign: -1 },
+            { k: "cpx", l: t("Επενδύσεις (CAPEX)", "Capex"), sign: -1 },
+            { k: "intr", l: t("Τόκοι", "Interest"), sign: -1 },
+            { k: "tax", l: t("Φόροι", "Taxes"), sign: -1 },
+          ];
+          const thC = { ...thS, textAlign: "right" };
+          const cell = { padding: "6px 6px", textAlign: "right", fontSize: 11, borderBottom: "1px solid " + P.bd, whiteSpace: "nowrap" };
+          return (
+            <div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(170px,1fr))", gap: 12, marginBottom: 14 }}>
+                <div style={{ background: P.wh, border: "1px solid " + P.bd, borderRadius: 10, padding: "12px 14px" }}>
+                  <div style={{ fontSize: 11, color: P.tm }}>{t("Ταμείο έναρξης", "Opening cash")}</div>
+                  <input type="number" step="0.01" value={fin?.cashOpening ?? 0} onChange={e => mutate(n => { n.cashOpening = parseFloat(e.target.value) || 0; })} style={{ width: "100%", marginTop: 5, padding: "6px 8px", border: "1px solid " + P.bd, borderRadius: 6, fontSize: 16, fontWeight: 800, color: P.em, background: P.ip, outline: "none", boxSizing: "border-box" }} />
+                </div>
+                {kpi(t("Ταμείο τέλους έτους", "Year-end cash"), endClose, endClose >= 0 ? P.gn : P.rd)}
+                {kpi(t("Χαμηλότερο ταμείο", "Lowest cash point"), minClose, minClose >= 0 ? P.em : P.rd)}
+                <div style={{ background: minClose < 0 ? "#FDECEA" : P.wh, border: "1px solid " + (minClose < 0 ? P.rd : P.bd), borderRadius: 10, padding: "12px 14px" }}>
+                  <div style={{ fontSize: 11, color: P.tm }}>{t("Όροι πληρωμής (lag)", "Payment terms (lag)")}</div>
+                  <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+                    {[{ v: 0, l: "0" }, { v: 30, l: "30" }, { v: 60, l: "60" }].map(o => (
+                      <button key={o.v} onClick={() => setCashTerms(o.v)} style={{ flex: 1, padding: "5px 0", border: "1px solid " + P.bd, borderRadius: 5, cursor: "pointer", fontSize: 11, fontWeight: cashTerms === o.v ? 700 : 400, background: cashTerms === o.v ? P.em : P.wh, color: cashTerms === o.v ? "#fff" : P.tx }}>{o.l}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {minClose < 0 && (
+                <div style={{ background: "#FDECEA", border: "1px solid " + P.rd, borderRadius: 8, padding: "9px 14px", marginBottom: 12, fontSize: 12, color: P.rd, fontWeight: 600 }}>
+                  ⚠️ {t("Το ταμείο γίνεται αρνητικό σε κάποιον μήνα — κίνδυνος ρευστότητας. Δες τα κόκκινα «Ταμείο τέλους».", "Cash goes negative in some month — liquidity risk. See the red 'Closing cash' cells.")}
+                </div>
+              )}
+              <div style={{ background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", minWidth: 1250 }}>
+                  <colgroup><col style={{ width: 220 }} />{MONTHS.map(m => <col key={m} style={{ width: 72 }} />)}<col style={{ width: 100 }} /></colgroup>
+                  <thead><tr><th style={{ ...thS, textAlign: "left", borderRight: "2px solid #00695C" }}>{t("Γραμμή", "Line")}</th>{MONTHS.map(m => <th key={m} style={thC}>{monthLabel(m)}</th>)}<th style={{ ...thC, background: "#00695C" }}>{t("Σύνολο", "Total")}</th></tr></thead>
+                  <tbody>
+                    {R.map((r, i) => (
+                      <tr key={r.k} style={{ background: i % 2 === 0 ? P.wh : P.al }}>
+                        <td style={{ padding: "6px 10px", fontSize: 12, borderBottom: "1px solid " + P.bd, borderRight: "2px solid " + P.bd, whiteSpace: "nowrap", color: r.sign < 0 ? "#8a5a00" : P.tx }}>{r.l}</td>
+                        {MONTHS.map(m => { const v = r.sign * by[m][r.k]; return <td key={m} style={{ ...cell, color: v < 0 ? P.rd : P.tx }}>{by[m][r.k] ? fmt(v) : "-"}</td>; })}
+                        <td style={{ ...cell, fontWeight: 700, background: "#f5f5f5", borderLeft: "2px solid " + P.bd, color: r.sign < 0 ? "#8a5a00" : P.em }}>{fmt(r.sign * sum(r.k))}</td>
+                      </tr>
+                    ))}
+                    <tr style={{ background: P.ep }}>
+                      <td style={{ padding: "7px 10px", fontSize: 12, fontWeight: 700, color: P.em, borderRight: "2px solid #00695C" }}>{t("Καθαρή ταμειακή ροή", "Net cash flow")}</td>
+                      {MONTHS.map(m => <td key={m} style={{ ...cell, fontWeight: 700, color: by[m].net < 0 ? P.rd : P.em }}>{fmt(by[m].net)}</td>)}
+                      <td style={{ ...cell, fontWeight: 700, background: "#C8E6C9", borderLeft: "2px solid #00695C", color: sum("net") < 0 ? P.rd : P.em }}>{fmt(sum("net"))}</td>
+                    </tr>
+                    <tr style={{ background: "#263238" }}>
+                      <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: "#fff", borderRight: "2px solid #00695C" }}>{t("Ταμείο τέλους μήνα", "Closing cash")}</td>
+                      {MONTHS.map(m => <td key={m} style={{ ...cell, fontWeight: 700, color: by[m].close < 0 ? "#FF8A80" : "#A5D6A7" }}>{fmt(by[m].close)}</td>)}
+                      <td style={{ ...cell, fontWeight: 700, borderLeft: "2px solid #00695C", color: endClose < 0 ? "#FF8A80" : "#A5D6A7" }}>{fmt(endClose)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ fontSize: 11, color: P.tm, marginTop: 8, lineHeight: 1.6 }}>
+                {t("Άμεση μέθοδος. Οι εισπράξεις/πληρωμές χρονίζονται: πληρωμένα τιμολόγια στον μήνα του paid_date· ανοιχτά στον μήνα έκδοσης + καθυστέρηση όρων. Μισθοδοσία/OPEX/CAPEX/τόκοι/φόροι ταμειακά στον μήνα καταχώρησης. Ταμείο τέλους = ταμείο έναρξης + σωρευτική καθαρή ροή. Αποθηκεύεται αυτόματα.",
+                   "Direct method. Collections/payments are timed: paid invoices in their paid_date month; open invoices in issue month + terms lag. Payroll/OPEX/CAPEX/interest/tax are cash in their booked month. Closing cash = opening + cumulative net. Saved automatically.")}
               </div>
             </div>
           );
