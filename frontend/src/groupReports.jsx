@@ -111,6 +111,24 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   // Company OPEX for the year (from the OPEX/CAPEX blob) — allocated to clients pro-rata by revenue to
   // derive Contract Operating Profit (COP = GM − allocated overhead), mirroring CBRE's COP definition.
   const totalOpex = (() => { const cats = fin?.opex?.cats || [], act = fin?.opex?.actual || {}; return cats.reduce((s, c) => s + MONTHS.reduce((s2, m) => s2 + (Number(act[c.id]?.[m]) || 0), 0), 0); })();
+  // Per-client fee/COP rows + portfolio totals — shared by the Fee & COP tab and the Excel export.
+  const feeCopData = () => {
+    const base = Object.entries(allData || {}).map(([name, cd]) => {
+      const a = clientActual(cd), fee = clientFee(cd);
+      const effFee = a.cost > 0 ? (fee / a.cost) * 100 : null;
+      const b = budgetOf(name);
+      const conFee = (b.feePct === undefined || b.feePct === "") ? null : Number(b.feePct);
+      return { name, ...a, fee, effFee, conFee };
+    }).filter(r => r.rev !== 0 || r.cost !== 0 || r.fee !== 0 || r.conFee != null);
+    const totRev = base.reduce((s, r) => s + r.rev, 0);
+    const rows = base.map(r => {
+      const alloc = totRev > 0 ? totalOpex * (r.rev / totRev) : 0;
+      const cop = r.gm - alloc;
+      return { ...r, alloc, cop, copPct: r.rev ? (cop / r.rev) * 100 : null, feeGap: (r.effFee != null && r.conFee != null) ? r.effFee - r.conFee : null };
+    }).sort((x, y) => y.fee - x.fee);
+    const T = { fee: rows.reduce((s, r) => s + r.fee, 0), cost: rows.reduce((s, r) => s + r.cost, 0), gm: rows.reduce((s, r) => s + r.gm, 0), cop: rows.reduce((s, r) => s + r.cop, 0), rev: totRev };
+    return { rows, T };
+  };
 
   // ── Balance-sheet derived lines (read-only) ──
   const nbvByMonth = {}, arByMonth = {}, apByMonth = {}, cumNet = {}, vatNetByMonth = {};
@@ -251,7 +269,12 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
     bsAoa.push([t("Σ Ενεργητικό", "Σ Assets"), ...MONTHS.map(m => totalAssets(m)), totalAssets(last)]);
     bsAoa.push([t("Σ Υποχρ. + Ίδια Κεφ.", "Σ Liab. + Equity"), ...MONTHS.map(m => totalLE(m)), totalLE(last)]);
     bsAoa.push([t("Έλεγχος", "Check"), ...MONTHS.map(m => check(m)), ""]);
-    exportWorkbook(`CBRE_Group_${year}.xlsx`, [{ name: "P&L", aoa: pnlAoa }, { name: "Balance Sheet", aoa: bsAoa }]);
+    // Fee & COP sheet
+    const { rows: fcRows, T: fcT } = feeCopData();
+    const feeAoa = [["Client", "Revenue", "Sub cost", "Mgmt Fee", "Effective %", "Contracted %", "Fee gap", "GM", "Alloc. OPEX", "COP", "COP %"],
+      ...fcRows.map(r => [r.name, r.rev, r.cost, r.fee, r.effFee == null ? "" : +r.effFee.toFixed(1), r.conFee == null ? "" : r.conFee, r.feeGap == null ? "" : +r.feeGap.toFixed(1), r.gm, r.alloc, r.cop, r.copPct == null ? "" : +r.copPct.toFixed(1)]),
+      ["TOTAL", fcT.rev, fcT.cost, fcT.fee, fcT.cost ? +(fcT.fee / fcT.cost * 100).toFixed(1) : "", "", "", fcT.gm, totalOpex, fcT.cop, fcT.rev ? +(fcT.cop / fcT.rev * 100).toFixed(1) : ""]];
+    exportWorkbook(`CBRE_Group_${year}.xlsx`, [{ name: "P&L", aoa: pnlAoa }, { name: "Balance Sheet", aoa: bsAoa }, { name: "Fee & COP", aoa: feeAoa }]);
   };
 
   // Data-quality guard: rows whose category isn't one of the canonical REV/COST buckets are counted in
@@ -469,21 +492,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
 
         {/* ── FEE & COP (management fee realization + Contract Operating Profit) ── */}
         {loaded && tab === "fee" && (() => {
-          const base = Object.entries(allData || {}).map(([name, cd]) => {
-            const a = clientActual(cd), fee = clientFee(cd);
-            const effFee = a.cost > 0 ? (fee / a.cost) * 100 : null;   // fee as % of managed sub cost
-            const b = budgetOf(name);
-            const conFee = (b.feePct === undefined || b.feePct === "") ? null : Number(b.feePct);
-            return { name, ...a, fee, effFee, conFee };
-          }).filter(r => r.rev !== 0 || r.cost !== 0 || r.fee !== 0 || r.conFee != null);
-          const totRev = base.reduce((s, r) => s + r.rev, 0);
-          // Allocate company OPEX pro-rata by revenue → COP per client.
-          const rows = base.map(r => {
-            const alloc = totRev > 0 ? totalOpex * (r.rev / totRev) : 0;
-            const cop = r.gm - alloc;
-            return { ...r, alloc, cop, copPct: r.rev ? (cop / r.rev) * 100 : null, feeGap: (r.effFee != null && r.conFee != null) ? r.effFee - r.conFee : null };
-          }).sort((x, y) => y.fee - x.fee);
-          const T = { fee: rows.reduce((s, r) => s + r.fee, 0), cost: rows.reduce((s, r) => s + r.cost, 0), gm: rows.reduce((s, r) => s + r.gm, 0), cop: rows.reduce((s, r) => s + r.cop, 0), rev: totRev };
+          const { rows, T } = feeCopData();
           const underFee = rows.filter(r => r.feeGap != null && r.feeGap < -0.05).length;
           const tdS = { padding: "6px 9px", borderBottom: "1px solid " + P.bd, fontSize: 12, textAlign: "right", whiteSpace: "nowrap" };
           const inp = { width: 62, padding: "3px 5px", border: "1px solid " + P.bd, borderRadius: 4, fontSize: 12, textAlign: "right", background: P.ip, outline: "none" };
