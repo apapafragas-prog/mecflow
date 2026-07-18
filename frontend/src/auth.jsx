@@ -10,8 +10,21 @@ import { P } from "./constants.js";
 import { PwField, LangToggle } from "./ui.jsx";
 import { useT } from "./i18n.jsx";
 
-const ACCENT = "#17E88F";            // CBRE mint accent — pops on the dark-green background
+// CBRE 2026 brand palette (never the old #006A4E): CBRE Green #003F2D, Accent Green #17E88F
+// (sparingly), Dark Green #012A2D.
+const ACCENT = "#17E88F";
 const DARK = "#003F2D";
+const DARKER = "#012A2D";
+
+// Official CBRE logo — white version, for dark/green backgrounds. Brand rules forbid typing "CBRE"
+// in any font, so the proprietary letterforms are embedded from the official SVG.
+function CbreLogo({ height = 34 }) {
+  return (
+    <svg viewBox="0 0 81 20.13" height={height} width={height * (81 / 20.13)} role="img" aria-label="CBRE" style={{ display: "block" }}>
+      <path fill="#fff" d="M33.57,15.41h-6.68v-3.36h6.83h0.02l0.02,0c0.85,0.1,1.5,0.81,1.5,1.65C35.24,14.61,34.48,15.4,33.57,15.41 M26.89,4.37h6.99h0.03l0.02,0c0.79,0.14,1.37,0.81,1.37,1.6c0,0.81-0.62,1.57-1.44,1.68l-6.98,0.01L26.89,4.37z M36.83,9.74c2.56-0.85,3.02-3,3.02-4.75c0-2.68-1.89-4.99-7.48-4.99L21.94,0v20.09h10.4c5.62,0,7.69-2.88,7.69-5.78C40.02,10.82,36.83,9.74,36.83,9.74 M63.38,0v20.13H81l0-4.59H68.28v-3.51h11.46V7.63H68.28l-0.01-3.24h12.71L81,0H63.38z M55.79,6.26c-0.09,0.66-0.75,1.38-1.57,1.38l-6.88,0V4.43h6.88c0.82,0,1.47,0.6,1.57,1.4V6.26z M53.12,0.03H42.47v20.1h4.89V12l5.39,0c1.54,0.02,2.74,1.29,2.74,2.85v5.27l4.79,0l-0.01-6.49c0-3.01-2.9-3.89-2.9-3.89s2.97-0.89,2.97-4.44C60.34,0.94,56.6,0.03,53.12,0.03 M18.76,15.27c-0.07,0-6.69,0.13-8.97-0.09c-3.68-0.36-4.98-3.09-4.98-5.31c0-2.77,1.89-4.82,4.82-5.2c1.39-0.18,9.01-0.1,9.1-0.1l0.16,0L18.9,0h-0.16l-8.63,0.02C9.15,0.08,7.56,0.17,5.93,0.84C4.36,1.56,3,2.66,1.98,4.03C0.69,5.78,0,7.85,0,10.02c0,0.68,0.05,1.36,0.16,2.01c0.62,3.05,2.62,5.57,5.48,6.92c0.97,0.43,2.46,0.94,5.47,1.11c0.01,0,1.62,0.03,1.62,0.03c0,0,6.01,0.01,6.01,0.01h0.16l0.02-4.84L18.76,15.27z" />
+    </svg>
+  );
+}
 
 // Decorative constellation + triangle motif behind the card (deterministic — no randomness).
 function AuthBgSvg() {
@@ -34,7 +47,7 @@ function AuthBgSvg() {
 function AuthShell({ children }) {
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: "Segoe UI,Tahoma,sans-serif", position: "relative", overflow: "hidden",
-      background: "radial-gradient(1100px 620px at 14% 8%, #00563C 0%, rgba(0,86,60,0) 60%), radial-gradient(1000px 720px at 92% 96%, #00301F 0%, rgba(0,48,31,0) 55%), linear-gradient(135deg,#00281C 0%,#003F2D 55%,#00301F 100%)" }}>
+      background: "radial-gradient(1100px 620px at 14% 8%, #005A3E 0%, rgba(0,90,62,0) 60%), radial-gradient(1000px 720px at 92% 96%, #012A2D 0%, rgba(1,42,45,0) 55%), linear-gradient(135deg,#012A2D 0%,#003F2D 55%,#012A2D 100%)" }}>
       <AuthBgSvg />
       <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: 400 }}>{children}</div>
     </div>
@@ -46,10 +59,10 @@ function BrandCard({ subtitle, children }) {
   const { t } = useT();
   return (
     <div style={{ background: "#fff", borderRadius: 16, overflow: "hidden", boxShadow: "0 26px 70px rgba(0,0,0,.45), 0 2px 10px rgba(0,0,0,.25)" }}>
-      <div style={{ background: `linear-gradient(135deg, ${DARK} 0%, #00543B 100%)`, padding: "26px 32px 20px", textAlign: "center", position: "relative", overflow: "hidden" }}>
+      <div style={{ background: `linear-gradient(135deg, ${DARK} 0%, ${DARKER} 100%)`, padding: "28px 32px 22px", textAlign: "center", position: "relative", overflow: "hidden" }}>
         <div style={{ position: "absolute", top: -22, right: -18, width: 90, height: 90, border: `1px solid ${ACCENT}`, opacity: 0.18, transform: "rotate(45deg)", borderRadius: 8 }} />
-        <div style={{ fontSize: 32, fontWeight: 800, letterSpacing: 4, color: "#fff" }}>CBRE</div>
-        <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 2, color: ACCENT, marginTop: 7 }}>{subtitle || t("ΑΝΑΦΟΡΕΣ · P&L · ANALYTICS", "REPORTING · P&L · ANALYTICS")}</div>
+        <div style={{ display: "flex", justifyContent: "center" }}><CbreLogo height={34} /></div>
+        <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 2, color: ACCENT, marginTop: 12 }}>{subtitle || t("ΑΝΑΦΟΡΕΣ · P&L · ANALYTICS", "REPORTING · P&L · ANALYTICS")}</div>
       </div>
       <div style={{ padding: "20px 32px 26px", position: "relative" }}>{children}</div>
     </div>
