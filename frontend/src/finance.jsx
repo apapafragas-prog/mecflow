@@ -25,7 +25,7 @@ const ANOM_COLOR = { high: "#C62828", med: "#F57F17", low: "#78909C" };
 // getYearData returns RAW stored blobs; heal each client's months/keys onto the active FY (same as
 // the per-client screens) so the finance aggregates match the client P&L and are self-consistent.
 const normYear = (d) => Object.fromEntries(Object.entries(d || {}).map(([c, cd]) => [c, normalizeClientData(cd)]));
-import { Inp, Sel, LangToggle } from "./ui.jsx";
+import { Inp, Sel, LangToggle, Skeleton } from "./ui.jsx";
 import { AiCard } from "./insights.jsx";
 import { useT, monthLabel } from "./i18n.jsx";
 
@@ -136,7 +136,7 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
           {!loading && <button onClick={exportDashboard} style={{padding:"6px 14px",border:"1px solid "+P.em,borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,background:P.wh,color:P.em}}>⬇ {t("Εξαγωγή Excel","Export Excel")}</button>}
         </div>
 
-        {loading ? <div style={{padding:40,textAlign:"center",color:P.tm}}>{t("Φόρτωση…","Loading…")}</div> : (
+        {loading ? <Skeleton kpis={6} rows={6} /> : (
         <>
           {/* KPIs */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:12,marginBottom:20}}>
@@ -395,7 +395,7 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
           {!loading && <button onClick={exportLedger} style={{marginLeft:"auto",padding:"6px 14px",border:"1px solid "+P.em,borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,background:P.wh,color:P.em}}>⬇ {t("Εξαγωγή Excel","Export Excel")}</button>}
         </div>
 
-        {loading ? <div style={{padding:40,textAlign:"center",color:P.tm}}>{t("Φόρτωση…","Loading…")}</div> : (
+        {loading ? <Skeleton kpis={6} rows={6} /> : (
         <>
           {/* KPIs + aging buckets */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:12,marginBottom:18}}>

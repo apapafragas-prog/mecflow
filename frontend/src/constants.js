@@ -124,7 +124,16 @@ export function mkLab() { const o = {}; MONTHS.forEach(m => { o[m] = {}; LAB_ALL
 export function mkAlloc() { const o = {}; MONTHS.forEach(m => { o[m] = {core:100,ew:0,pjm:0}; }); return o; }
 
 export const P = { em:"#003F2D",ep:"#E8F5E9",wh:"#fff",of:"#F7F9F8",bd:"#D5DDD8",tx:"#1A2E23",tm:"#5F7567",rd:"#C62828",gn:"#2E7D32",al:"#F0F5F2",ip:"#FFFFF0" };
-export const fmt = n => (n == null || isNaN(n)) ? "-" : n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+// Money formatter — accounting style: negatives in parentheses. `compact` rounds to whole units
+// (no decimals) for scanning large consolidated tables.
+export const fmt = (n, compact) => {
+  if (n == null || isNaN(n)) return "-";
+  const a = Math.abs(n);
+  const s = compact
+    ? Math.round(a).toLocaleString("en-US")
+    : a.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+  return n < 0 ? `(${s})` : s;
+};
 export const fPct = n => (n == null || isNaN(n) || !isFinite(n)) ? "-" : (n*100).toFixed(1)+"%";
 
 // Small badge describing a contract's expiry state (null when no/unparseable date or far out).

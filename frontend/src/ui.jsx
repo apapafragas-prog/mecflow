@@ -3,6 +3,24 @@ import { useState } from "react";
 import { P, fmt, logoUrl, logoUrl2 } from "./constants.js";
 import { useT } from "./i18n.jsx";
 
+// Loading skeleton — pulsing placeholder KPI cards + table rows, shown while a screen's data loads.
+export function Skeleton({ kpis = 4, rows = 6 }) {
+  const bar = (w, h, key) => <div key={key} style={{ width: w, height: h, background: "#E6ECE9", borderRadius: 6, animation: "mfpulse 1.2s ease-in-out infinite" }} />;
+  return (
+    <div style={{ padding: "8px 0" }}>
+      <style>{"@keyframes mfpulse{0%,100%{opacity:1}50%{opacity:.45}}"}</style>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fill,minmax(160px,1fr))`, gap: 12, marginBottom: 16 }}>
+        {Array.from({ length: kpis }).map((_, i) => (
+          <div key={i} style={{ background: "#fff", border: "1px solid #E6ECE9", borderRadius: 10, padding: 14 }}>{bar("55%", 9, "a")}<div style={{ height: 8 }} />{bar("80%", 20, "b")}</div>
+        ))}
+      </div>
+      <div style={{ background: "#fff", border: "1px solid #E6ECE9", borderRadius: 8, padding: 16, display: "flex", flexDirection: "column", gap: 11 }}>
+        {Array.from({ length: rows }).map((_, i) => bar(`${92 - i * 5}%`, 12, i))}
+      </div>
+    </div>
+  );
+}
+
 // EL/EN language switch. `dark` variant for the emerald headers, light for the login card.
 export function LangToggle({ dark }) {
   const { lang, setLang } = useT();

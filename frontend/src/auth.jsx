@@ -62,7 +62,7 @@ function BrandCard({ subtitle, children }) {
       <div style={{ background: `linear-gradient(135deg, ${DARK} 0%, ${DARKER} 100%)`, padding: "28px 32px 22px", textAlign: "center", position: "relative", overflow: "hidden" }}>
         <div style={{ position: "absolute", top: -22, right: -18, width: 90, height: 90, border: `1px solid ${ACCENT}`, opacity: 0.18, transform: "rotate(45deg)", borderRadius: 8 }} />
         <div style={{ display: "flex", justifyContent: "center" }}><CbreLogo height={34} /></div>
-        <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 2, color: ACCENT, marginTop: 12 }}>{subtitle || t("ΑΝΑΦΟΡΕΣ · P&L · ANALYTICS", "REPORTING · P&L · ANALYTICS")}</div>
+        <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 2, color: ACCENT, marginTop: 12 }}>{subtitle || t("ΑΝΑΦΟΡΕΣ · P&L · ΑΝΑΛΥΤΙΚΑ", "REPORTING · P&L · ANALYTICS")}</div>
       </div>
       <div style={{ padding: "20px 32px 26px", position: "relative" }}>{children}</div>
     </div>

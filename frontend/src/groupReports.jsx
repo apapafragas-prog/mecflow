@@ -11,7 +11,7 @@ import { groupPnLSeries, nbvAtMonth, monthIdx } from "./calc.js";
 import { exportWorkbook } from "./exportXlsx.js";
 
 const normYear = (d) => Object.fromEntries(Object.entries(d || {}).map(([c, cd]) => [c, normalizeClientData(cd)]));
-import { LangToggle } from "./ui.jsx";
+import { LangToggle, Skeleton } from "./ui.jsx";
 import { useT, monthLabel } from "./i18n.jsx";
 
 const grossAmt = r => Number(r.total) || ((Number(r.amt) || 0) + (Number(r.vat) || 0)) || Number(r.amt) || 0;
@@ -41,12 +41,13 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   const [allData, setAllData] = useState({});
   const [fin, setFin] = useState(null);
   const [loaded, setLoaded] = useState(false);
-  const [tab, setTab] = useState("pnl");       // pnl | bs
+  const [tab, setTab] = useState(() => { try { return localStorage.getItem("mf_group_tab") || "pnl"; } catch { return "pnl"; } }); // pnl | bs | budget | fee | cash | mec — persisted
   const [saveState, setSaveState] = useState("idle");
   const [na, setNa] = useState({ label: "", section: "asset" });
   const [drill, setDrill] = useState(null);    // { k, m } → per-client breakdown modal for a P&L cell
   const [cashTerms, setCashTerms] = useState(30); // payment-terms lag (days) for the cash-flow forecast
   const [closeMonth, setCloseMonth] = useState(null); // MEC: which month is being closed (null → default last active)
+  const [compact, setCompact] = useState(false);       // number format: false = full (2dp), true = whole units
   const verRef = useRef(0);
   const dirtyRef = useRef(false);
 
@@ -88,6 +89,8 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   }, [fin, loaded, year]);
 
   const mutate = (fn) => { dirtyRef.current = true; setFin(p => { const n = JSON.parse(JSON.stringify(p)); fn(n); return n; }); };
+  const F = (n) => fmt(n, compact);   // money formatter honoring the compact (whole-units) toggle
+  useEffect(() => { try { localStorage.setItem("mf_group_tab", tab); } catch { /* ignore */ } }, [tab]);
 
   const series = loaded ? groupPnLSeries(allData, fin, MONTHS) : MONTHS.map(m => ({ m, rev: 0, sub: 0, labour: 0, gm: 0, opex: 0, ebitda: 0, da: 0, ebit: 0, interest: 0, tax: 0, net: 0 }));
   const byMonth = Object.fromEntries(series.map(r => [r.m, r]));
@@ -264,7 +267,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   const check = m => totalAssets(m) - totalLE(m);
   const acctTotal = id => MONTHS.reduce((s, m) => s + (Number(fin?.bs?.values?.[id]?.[m]) || 0), 0);
 
-  const thS = { padding: "6px 8px", textAlign: "center", fontSize: 10, fontWeight: 700, color: "#fff", background: P.em, whiteSpace: "nowrap" };
+  const thS = { padding: "6px 8px", textAlign: "center", fontSize: 10, fontWeight: 700, color: "#fff", background: P.em, whiteSpace: "nowrap", position: "sticky", top: 0, zIndex: 2 };
   const inpS = { width: "100%", padding: "4px 5px", border: "1px solid " + P.bd, borderRadius: 3, fontSize: 11, textAlign: "right", background: P.ip, outline: "none", boxSizing: "border-box" };
   const saveLbl = saveState === "saving" ? t("💾 Αποθήκευση…", "💾 Saving…") : saveState === "saved" ? t("✓ Αποθηκεύτηκε", "✓ Saved") : saveState === "error" ? t("⚠ Αποτυχία", "⚠ Save failed") : "";
 
@@ -291,7 +294,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
     return row[r.k] || 0;
   };
   const ytdNum = (r) => { if (r.pct) { const d = ytd(r.den); return d ? ytd(r.num) / d : null; } return ytd(r.k); };
-  const showCell = (r, v) => r.pct ? fPct(v) : fmt(v);
+  const showCell = (r, v) => r.pct ? fPct(v) : F(v);
 
   // Which P&L lines can be broken down per client (the rest are company-level: opex/D&A/interest/tax).
   const DRILLABLE = { rev: 1, sub: 1, labour: 1, gm: 1 };
@@ -360,7 +363,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   const kpi = (l, v, c, pct) => (
     <div style={{ background: P.wh, border: "1px solid " + P.bd, borderRadius: 10, padding: "12px 14px" }}>
       <div style={{ fontSize: 11, color: P.tm }}>{l}</div>
-      <div style={{ fontSize: 20, fontWeight: 800, color: c, marginTop: 4 }}>{pct ? fPct(v) : "€" + fmt(v)}</div>
+      <div style={{ fontSize: 20, fontWeight: 800, color: c, marginTop: 4 }}>{pct ? fPct(v) : "€" + F(v)}</div>
     </div>
   );
 
@@ -386,6 +389,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
             {YEARS.map(y => (<button key={y} onClick={() => setYear(y)} style={{ padding: "6px 16px", border: year === y ? "2px solid " + P.em : "1px solid " + P.bd, borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: year === y ? 700 : 400, background: year === y ? P.em : P.wh, color: year === y ? "#fff" : P.tx }}>{y}</button>))}
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            {loaded && <button onClick={() => setCompact(c => !c)} title={t("Εναλλαγή δεκαδικών / ακεραίων", "Toggle decimals / whole units")} style={{ padding: "6px 12px", border: "1px solid " + P.bd, borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600, background: compact ? P.em : P.wh, color: compact ? "#fff" : P.tx }}>{compact ? "€0" : "€.00"}</button>}
             {loaded && <button onClick={exportGroup} style={{ padding: "6px 14px", border: "1px solid " + P.em, borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600, background: P.wh, color: P.em }}>⬇ {t("Εξαγωγή Excel", "Export Excel")}</button>}
             <div style={{ display: "flex", gap: 0, background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, padding: 4, overflowX: "auto", maxWidth: "100%" }}>
               {[{ v: "pnl", l: t("📈 P&L", "📈 P&L") }, { v: "bs", l: t("⚖️ Ισολογισμός", "⚖️ Balance Sheet") }, { v: "budget", l: t("🎯 Budget", "🎯 Budget") }, { v: "fee", l: t("💰 Fee & COP", "💰 Fee & COP") }, { v: "cash", l: t("💵 Ταμειακές", "💵 Cash Flow") }, { v: "mec", l: t("✅ Κλείσιμο", "✅ Close (MEC)") }].map(o => (
@@ -395,7 +399,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
           </div>
         </div>
 
-        {!loaded && <div style={{ padding: 40, textAlign: "center", color: P.tm }}>{t("Φόρτωση…", "Loading…")}</div>}
+        {!loaded && <Skeleton kpis={5} rows={8} />}
 
         {loaded && miscatTotal > 0 && (
           <div style={{ background: "#FFF8E1", border: "1px solid #F5D76E", borderRadius: 8, padding: "10px 16px", marginBottom: 14, fontSize: 12, color: "#7A5B00" }}>
@@ -474,24 +478,24 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
                   {SECTIONS.map(sec => (
                     <SectionBlock key={sec.k} sec={sec} secLabel={t(sec.el, sec.en)} secShort={t("Σύνολο " + sec.short_el, "Total " + sec.short_en)} autoTag={t("auto", "auto")} derived={derivedIn(sec.k)} manual={manualIn(sec.k)}
                       bsVal={bsVal} setBsVal={setBsVal} renameAcct={renameAcct} delAcct={delAcct} acctTotal={acctTotal}
-                      sectionTotal={sectionTotal} inpS={inpS} />
+                      sectionTotal={sectionTotal} inpS={inpS} F={F} />
                   ))}
                   {/* Balance check */}
                   <tr style={{ background: "#263238" }}>
                     <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: "#fff", borderRight: "2px solid #00695C" }}>{t("Σ Ενεργητικό", "Σ Assets")}</td>
-                    {MONTHS.map(m => <td key={m} style={{ padding: "6px 6px", textAlign: "right", fontSize: 11, fontWeight: 700, color: "#A5D6A7" }}>{fmt(totalAssets(m))}</td>)}
-                    <td style={{ padding: "6px 8px", textAlign: "right", fontSize: 12, fontWeight: 700, color: "#A5D6A7", borderLeft: "2px solid #00695C" }}>{fmt(totalAssets(MONTHS[MONTHS.length - 1]))}</td>
+                    {MONTHS.map(m => <td key={m} style={{ padding: "6px 6px", textAlign: "right", fontSize: 11, fontWeight: 700, color: "#A5D6A7" }}>{F(totalAssets(m))}</td>)}
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontSize: 12, fontWeight: 700, color: "#A5D6A7", borderLeft: "2px solid #00695C" }}>{F(totalAssets(MONTHS[MONTHS.length - 1]))}</td>
                     <td style={{ background: "#263238" }}></td>
                   </tr>
                   <tr style={{ background: "#37474F" }}>
                     <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: "#fff", borderRight: "2px solid #00695C" }}>{t("Σ Υποχρ. + Ίδια Κεφ.", "Σ Liab. + Equity")}</td>
-                    {MONTHS.map(m => <td key={m} style={{ padding: "6px 6px", textAlign: "right", fontSize: 11, fontWeight: 700, color: "#90CAF9" }}>{fmt(totalLE(m))}</td>)}
-                    <td style={{ padding: "6px 8px", textAlign: "right", fontSize: 12, fontWeight: 700, color: "#90CAF9", borderLeft: "2px solid #00695C" }}>{fmt(totalLE(MONTHS[MONTHS.length - 1]))}</td>
+                    {MONTHS.map(m => <td key={m} style={{ padding: "6px 6px", textAlign: "right", fontSize: 11, fontWeight: 700, color: "#90CAF9" }}>{F(totalLE(m))}</td>)}
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontSize: 12, fontWeight: 700, color: "#90CAF9", borderLeft: "2px solid #00695C" }}>{F(totalLE(MONTHS[MONTHS.length - 1]))}</td>
                     <td style={{ background: "#37474F" }}></td>
                   </tr>
                   <tr style={{ background: P.ep }}>
                     <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: P.em, borderRight: "2px solid #00695C" }}>{t("Έλεγχος (πρέπει = 0)", "Check (must = 0)")}</td>
-                    {MONTHS.map(m => { const c = check(m); const ok = Math.abs(c) < 1; return <td key={m} style={{ padding: "6px 6px", textAlign: "right", fontSize: 11, fontWeight: 700, color: ok ? P.gn : P.rd }} title={ok ? t("Ισοσκελισμένο", "Balanced") : t("Διαφορά — συμπλήρωσε ταμείο/opening balances", "Difference — fill cash/opening balances")}>{ok ? "✓" : fmt(c)}</td>; })}
+                    {MONTHS.map(m => { const c = check(m); const ok = Math.abs(c) < 1; return <td key={m} style={{ padding: "6px 6px", textAlign: "right", fontSize: 11, fontWeight: 700, color: ok ? P.gn : P.rd }} title={ok ? t("Ισοσκελισμένο", "Balanced") : t("Διαφορά — συμπλήρωσε ταμείο/opening balances", "Difference — fill cash/opening balances")}>{ok ? "✓" : F(c)}</td>; })}
                     <td style={{ borderLeft: "2px solid #00695C", background: P.ep }}></td>
                     <td style={{ background: P.ep }}></td>
                   </tr>
@@ -524,17 +528,17 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
           const pctColor = (p) => p == null ? P.tm : p >= 100 ? P.gn : p >= 85 ? "#F57F17" : P.rd;
           return (
             <div>
-              <div style={{ background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, overflowX: "auto" }}>
+              <div style={{ background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, overflow: "auto", maxHeight: 560 }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
                   <thead><tr>{[t("Πελάτης", "Client"), t("Στόχος Εσόδων €", "Revenue Target €"), t("Πραγμ. Έσοδα €", "Actual Revenue €"), t("Επίτευξη", "Achieved"), t("Στόχος GM %", "Target GM %"), t("Πραγμ. GM %", "Actual GM %"), t("Διαφορά", "Variance")].map((h, i) => (
-                    <th key={i} style={{ padding: "7px 10px", fontSize: 11, fontWeight: 700, color: "#fff", background: P.em, textAlign: i === 0 ? "left" : "right", whiteSpace: "nowrap" }}>{h}</th>
+                    <th key={i} style={{ padding: "7px 10px", fontSize: 11, fontWeight: 700, color: "#fff", background: P.em, textAlign: i === 0 ? "left" : "right", whiteSpace: "nowrap", position: "sticky", top: 0, zIndex: i === 0 ? 3 : 2, ...(i === 0 ? { left: 0 } : {}) }}>{h}</th>
                   ))}</tr></thead>
                   <tbody>
                     {rows.map((r, i) => (
                       <tr key={r.name} style={{ background: i % 2 === 0 ? P.wh : P.al }}>
-                        <td style={{ ...tdS, fontWeight: 600, color: P.em }}>{r.name}</td>
+                        <td style={{ ...tdS, fontWeight: 600, color: P.em, position: "sticky", left: 0, background: i % 2 === 0 ? P.wh : P.al, zIndex: 1 }}>{r.name}</td>
                         <td style={{ ...tdS, textAlign: "right" }}><input type="number" step="0.01" value={budgetOf(r.name).rev ?? ""} onChange={e => setBudget(r.name, "rev", e.target.value)} style={inp} /></td>
-                        <td style={{ ...tdS, textAlign: "right" }}>{fmt(r.rev)}</td>
+                        <td style={{ ...tdS, textAlign: "right" }}>{F(r.rev)}</td>
                         <td style={{ ...tdS, textAlign: "right", fontWeight: 700, color: pctColor(r.revPct) }}>{r.revPct == null ? "—" : Math.round(r.revPct) + "%"}</td>
                         <td style={{ ...tdS, textAlign: "right" }}><input type="number" step="0.1" value={budgetOf(r.name).gmPct ?? ""} onChange={e => setBudget(r.name, "gmPct", e.target.value)} style={{ ...inp, width: 70 }} /></td>
                         <td style={{ ...tdS, textAlign: "right", color: r.gmPct != null && r.gmPct < 0 ? P.rd : P.tx }}>{r.gmPct == null ? "—" : r.gmPct.toFixed(1) + "%"}</td>
@@ -542,9 +546,9 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
                       </tr>
                     ))}
                     <tr style={{ background: P.ep, fontWeight: 700 }}>
-                      <td style={{ ...tdS, color: P.em }}>{t("Σύνολο", "Total")}</td>
-                      <td style={{ ...tdS, textAlign: "right", color: P.em }}>{fmt(totRevT)}</td>
-                      <td style={{ ...tdS, textAlign: "right", color: P.em }}>{fmt(totRevA)}</td>
+                      <td style={{ ...tdS, color: P.em, position: "sticky", left: 0, background: P.ep, zIndex: 1 }}>{t("Σύνολο", "Total")}</td>
+                      <td style={{ ...tdS, textAlign: "right", color: P.em }}>{F(totRevT)}</td>
+                      <td style={{ ...tdS, textAlign: "right", color: P.em }}>{F(totRevA)}</td>
                       <td style={{ ...tdS, textAlign: "right", color: pctColor(totRevT > 0 ? totRevA / totRevT * 100 : null) }}>{totRevT > 0 ? Math.round(totRevA / totRevT * 100) + "%" : "—"}</td>
                       <td colSpan={3}></td>
                     </tr>
@@ -580,35 +584,35 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
                   ⚠️ {underFee} {t("πελάτες με realized fee κάτω από το συμβατικό — έλεγξε fee leakage.", "clients realizing a fee below the contracted rate — check for fee leakage.")}
                 </div>
               )}
-              <div style={{ background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, overflowX: "auto" }}>
+              <div style={{ background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, overflow: "auto", maxHeight: 560 }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1050 }}>
-                  <thead><tr>{H.map((h, i) => (<th key={i} style={{ padding: "7px 9px", fontSize: 10.5, fontWeight: 700, color: "#fff", background: P.em, textAlign: i === 0 ? "left" : "right", whiteSpace: "nowrap" }}>{t(h.split("|")[0], h.split("|")[1])}</th>))}</tr></thead>
+                  <thead><tr>{H.map((h, i) => (<th key={i} style={{ padding: "7px 9px", fontSize: 10.5, fontWeight: 700, color: "#fff", background: P.em, textAlign: i === 0 ? "left" : "right", whiteSpace: "nowrap", position: "sticky", top: 0, zIndex: i === 0 ? 3 : 2, ...(i === 0 ? { left: 0 } : {}) }}>{t(h.split("|")[0], h.split("|")[1])}</th>))}</tr></thead>
                   <tbody>
                     {rows.map((r, i) => (
                       <tr key={r.name} style={{ background: i % 2 === 0 ? P.wh : P.al }}>
-                        <td style={{ ...tdS, textAlign: "left", fontWeight: 600, color: P.em }}>{r.name}</td>
-                        <td style={tdS}>{fmt(r.rev)}</td>
-                        <td style={tdS}>{fmt(r.cost)}</td>
-                        <td style={{ ...tdS, fontWeight: 600, color: P.em }}>{fmt(r.fee)}</td>
+                        <td style={{ ...tdS, textAlign: "left", fontWeight: 600, color: P.em, position: "sticky", left: 0, background: i % 2 === 0 ? P.wh : P.al, zIndex: 1 }}>{r.name}</td>
+                        <td style={tdS}>{F(r.rev)}</td>
+                        <td style={tdS}>{F(r.cost)}</td>
+                        <td style={{ ...tdS, fontWeight: 600, color: P.em }}>{F(r.fee)}</td>
                         <td style={tdS}>{r.effFee == null ? "—" : r.effFee.toFixed(1) + "%"}</td>
                         <td style={tdS}><input type="number" step="0.1" value={budgetOf(r.name).feePct ?? ""} onChange={e => setBudget(r.name, "feePct", e.target.value)} placeholder="5" style={inp} /></td>
                         <td style={{ ...tdS, fontWeight: 700, color: r.feeGap == null ? P.tm : r.feeGap >= 0 ? P.gn : P.rd }}>{r.feeGap == null ? "—" : (r.feeGap >= 0 ? "+" : "") + r.feeGap.toFixed(1)}</td>
-                        <td style={{ ...tdS, color: r.gm < 0 ? P.rd : P.tx }}>{fmt(r.gm)}</td>
-                        <td style={{ ...tdS, color: P.tm }}>{fmt(r.alloc)}</td>
-                        <td style={{ ...tdS, fontWeight: 700, color: r.cop >= 0 ? P.em : P.rd }}>{fmt(r.cop)}</td>
+                        <td style={{ ...tdS, color: r.gm < 0 ? P.rd : P.tx }}>{F(r.gm)}</td>
+                        <td style={{ ...tdS, color: P.tm }}>{F(r.alloc)}</td>
+                        <td style={{ ...tdS, fontWeight: 700, color: r.cop >= 0 ? P.em : P.rd }}>{F(r.cop)}</td>
                         <td style={{ ...tdS, color: r.copPct != null && r.copPct < 0 ? P.rd : P.tm }}>{r.copPct == null ? "—" : r.copPct.toFixed(1) + "%"}</td>
                       </tr>
                     ))}
                     <tr style={{ background: P.ep, fontWeight: 700 }}>
-                      <td style={{ ...tdS, textAlign: "left", color: P.em }}>{t("Σύνολο", "Total")}</td>
-                      <td style={{ ...tdS, color: P.em }}>{fmt(T.rev)}</td>
-                      <td style={{ ...tdS, color: P.em }}>{fmt(T.cost)}</td>
-                      <td style={{ ...tdS, color: P.em }}>{fmt(T.fee)}</td>
+                      <td style={{ ...tdS, textAlign: "left", color: P.em, position: "sticky", left: 0, background: P.ep, zIndex: 1 }}>{t("Σύνολο", "Total")}</td>
+                      <td style={{ ...tdS, color: P.em }}>{F(T.rev)}</td>
+                      <td style={{ ...tdS, color: P.em }}>{F(T.cost)}</td>
+                      <td style={{ ...tdS, color: P.em }}>{F(T.fee)}</td>
                       <td style={{ ...tdS, color: P.em }}>{T.cost ? (T.fee / T.cost * 100).toFixed(1) + "%" : "—"}</td>
                       <td colSpan={2}></td>
-                      <td style={{ ...tdS, color: P.em }}>{fmt(T.gm)}</td>
-                      <td style={{ ...tdS, color: P.em }}>{fmt(rows.reduce((s, r) => s + r.alloc, 0))}</td>
-                      <td style={{ ...tdS, color: T.cop >= 0 ? P.em : P.rd }}>{fmt(T.cop)}</td>
+                      <td style={{ ...tdS, color: P.em }}>{F(T.gm)}</td>
+                      <td style={{ ...tdS, color: P.em }}>{F(rows.reduce((s, r) => s + r.alloc, 0))}</td>
+                      <td style={{ ...tdS, color: T.cop >= 0 ? P.em : P.rd }}>{F(T.cop)}</td>
                       <td style={{ ...tdS, color: P.em }}>{T.rev ? (T.cop / T.rev * 100).toFixed(1) + "%" : "—"}</td>
                     </tr>
                   </tbody>
@@ -671,19 +675,19 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
                     {R.map((r, i) => (
                       <tr key={r.k} style={{ background: i % 2 === 0 ? P.wh : P.al }}>
                         <td style={{ padding: "6px 10px", fontSize: 12, borderBottom: "1px solid " + P.bd, borderRight: "2px solid " + P.bd, whiteSpace: "nowrap", color: r.sign < 0 ? "#8a5a00" : P.tx }}>{r.l}</td>
-                        {MONTHS.map(m => { const v = r.sign * by[m][r.k]; return <td key={m} style={{ ...cell, color: v < 0 ? P.rd : P.tx }}>{by[m][r.k] ? fmt(v) : "-"}</td>; })}
-                        <td style={{ ...cell, fontWeight: 700, background: "#f5f5f5", borderLeft: "2px solid " + P.bd, color: r.sign < 0 ? "#8a5a00" : P.em }}>{fmt(r.sign * sum(r.k))}</td>
+                        {MONTHS.map(m => { const v = r.sign * by[m][r.k]; return <td key={m} style={{ ...cell, color: v < 0 ? P.rd : P.tx }}>{by[m][r.k] ? F(v) : "-"}</td>; })}
+                        <td style={{ ...cell, fontWeight: 700, background: "#f5f5f5", borderLeft: "2px solid " + P.bd, color: r.sign < 0 ? "#8a5a00" : P.em }}>{F(r.sign * sum(r.k))}</td>
                       </tr>
                     ))}
                     <tr style={{ background: P.ep }}>
                       <td style={{ padding: "7px 10px", fontSize: 12, fontWeight: 700, color: P.em, borderRight: "2px solid #00695C" }}>{t("Καθαρή ταμειακή ροή", "Net cash flow")}</td>
-                      {MONTHS.map(m => <td key={m} style={{ ...cell, fontWeight: 700, color: by[m].net < 0 ? P.rd : P.em }}>{fmt(by[m].net)}</td>)}
-                      <td style={{ ...cell, fontWeight: 700, background: "#C8E6C9", borderLeft: "2px solid #00695C", color: sum("net") < 0 ? P.rd : P.em }}>{fmt(sum("net"))}</td>
+                      {MONTHS.map(m => <td key={m} style={{ ...cell, fontWeight: 700, color: by[m].net < 0 ? P.rd : P.em }}>{F(by[m].net)}</td>)}
+                      <td style={{ ...cell, fontWeight: 700, background: "#C8E6C9", borderLeft: "2px solid #00695C", color: sum("net") < 0 ? P.rd : P.em }}>{F(sum("net"))}</td>
                     </tr>
                     <tr style={{ background: "#263238" }}>
                       <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: "#fff", borderRight: "2px solid #00695C" }}>{t("Ταμείο τέλους μήνα", "Closing cash")}</td>
-                      {MONTHS.map(m => <td key={m} style={{ ...cell, fontWeight: 700, color: by[m].close < 0 ? "#FF8A80" : "#A5D6A7" }}>{fmt(by[m].close)}</td>)}
-                      <td style={{ ...cell, fontWeight: 700, borderLeft: "2px solid #00695C", color: endClose < 0 ? "#FF8A80" : "#A5D6A7" }}>{fmt(endClose)}</td>
+                      {MONTHS.map(m => <td key={m} style={{ ...cell, fontWeight: 700, color: by[m].close < 0 ? "#FF8A80" : "#A5D6A7" }}>{F(by[m].close)}</td>)}
+                      <td style={{ ...cell, fontWeight: 700, borderLeft: "2px solid #00695C", color: endClose < 0 ? "#FF8A80" : "#A5D6A7" }}>{F(endClose)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -732,15 +736,15 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
                 <div style={{ height: 10, background: "#eef2ef", borderRadius: 5, overflow: "hidden" }}><div style={{ width: pct + "%", height: "100%", background: pct === 100 ? P.gn : P.em }} /></div>
               </div>
               {/* Per-client table */}
-              <div style={{ background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, overflowX: "auto" }}>
+              <div style={{ background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, overflow: "auto", maxHeight: 560 }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
                   <thead><tr>{[t("Πελάτης", "Client"), "AR", "AP", t("Εργ.", "Lab"), t("Συμφων.", "Recon."), t("Έλεγχος", "Reviewed"), t("Κατάσταση", "Status"), t("Από", "By")].map((h, i) => (
-                    <th key={i} style={{ padding: "7px 9px", fontSize: 10.5, fontWeight: 700, color: "#fff", background: P.em, textAlign: i === 0 || i >= 6 ? "left" : "center", whiteSpace: "nowrap" }}>{h}</th>
+                    <th key={i} style={{ padding: "7px 9px", fontSize: 10.5, fontWeight: 700, color: "#fff", background: P.em, textAlign: i === 0 || i >= 6 ? "left" : "center", whiteSpace: "nowrap", position: "sticky", top: 0, zIndex: i === 0 ? 3 : 2, ...(i === 0 ? { left: 0 } : {}) }}>{h}</th>
                   ))}</tr></thead>
                   <tbody>
-                    {clients.map((c, i) => { const sig = closeSignals(allData[c], selM); const cl = closeOf(c, selM); const st = cl.status || "draft"; const locked = st === "closed"; return (
-                      <tr key={c} style={{ background: locked ? "#F1F8E9" : i % 2 === 0 ? P.wh : P.al }}>
-                        <td style={{ ...tdS, fontWeight: 600, color: P.em, whiteSpace: "nowrap" }}>{c}</td>
+                    {clients.map((c, i) => { const sig = closeSignals(allData[c], selM); const cl = closeOf(c, selM); const st = cl.status || "draft"; const locked = st === "closed"; const rowBg = locked ? "#F1F8E9" : i % 2 === 0 ? P.wh : P.al; return (
+                      <tr key={c} style={{ background: rowBg }}>
+                        <td style={{ ...tdS, fontWeight: 600, color: P.em, whiteSpace: "nowrap", position: "sticky", left: 0, background: rowBg, zIndex: 1 }}>{c}</td>
                         <td style={{ ...tdS, textAlign: "center" }}>{dot(sig.ar)}</td>
                         <td style={{ ...tdS, textAlign: "center" }}>{dot(sig.ap)}</td>
                         <td style={{ ...tdS, textAlign: "center" }}>{dot(sig.lab)}</td>
@@ -812,7 +816,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
                               <div style={{ width: (Math.abs(r.val) / maxAbs * 100) + "%", height: "100%", background: neg ? P.rd : P.em }} />
                             </div>
                           </td>
-                          <td style={{ padding: "7px 6px", textAlign: "right", fontWeight: 600, color: neg ? P.rd : P.tx, whiteSpace: "nowrap" }}>{fmt(r.val)}</td>
+                          <td style={{ padding: "7px 6px", textAlign: "right", fontWeight: 600, color: neg ? P.rd : P.tx, whiteSpace: "nowrap" }}>{F(r.val)}</td>
                           <td style={{ padding: "7px 6px", textAlign: "right", color: P.tm, width: 52, whiteSpace: "nowrap" }}>{total ? Math.round(r.val / total * 100) + "%" : "-"}</td>
                         </tr>
                       ); })}
@@ -821,7 +825,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
                       <tr style={{ background: P.ep }}>
                         <td style={{ padding: "8px 6px", fontWeight: 700, color: P.em }}>{t("Σύνολο", "Total")}</td>
                         <td></td>
-                        <td style={{ padding: "8px 6px", textAlign: "right", fontWeight: 700, color: total < 0 ? P.rd : P.em, whiteSpace: "nowrap" }}>{fmt(total)}</td>
+                        <td style={{ padding: "8px 6px", textAlign: "right", fontWeight: 700, color: total < 0 ? P.rd : P.em, whiteSpace: "nowrap" }}>{F(total)}</td>
                         <td></td>
                       </tr>
                     </tfoot>
@@ -838,7 +842,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
 
 // One balance-sheet section (Assets / Liabilities / Equity): heading, auto-derived rows,
 // editable manual rows, then the section subtotal.
-function SectionBlock({ sec, secLabel, secShort, autoTag, derived, manual, bsVal, setBsVal, renameAcct, delAcct, acctTotal, sectionTotal, inpS }) {
+function SectionBlock({ sec, secLabel, secShort, autoTag, derived, manual, bsVal, setBsVal, renameAcct, delAcct, acctTotal, sectionTotal, inpS, F }) {
   return (
     <>
       <tr style={{ background: "#00695C" }}>
@@ -847,8 +851,8 @@ function SectionBlock({ sec, secLabel, secShort, autoTag, derived, manual, bsVal
       {derived.map((d, i) => (
         <tr key={"d" + i} style={{ background: "#F1F5F3" }}>
           <td style={{ padding: "5px 10px", fontSize: 11.5, fontStyle: "italic", color: P.tm, borderBottom: "1px solid " + P.bd, borderRight: "2px solid " + P.bd, whiteSpace: "nowrap" }}>{d.label} <span style={{ fontSize: 9, background: P.ep, color: P.em, padding: "0 5px", borderRadius: 6, fontStyle: "normal", fontWeight: 700 }}>{autoTag}</span></td>
-          {MONTHS.map(m => { const v = d.fn(m); return <td key={m} style={{ padding: "5px 6px", textAlign: "right", fontSize: 11, color: v ? P.tx : P.tm, borderBottom: "1px solid " + P.bd }}>{v ? fmt(v) : "-"}</td>; })}
-          <td style={{ padding: "5px 8px", textAlign: "right", fontSize: 11, fontWeight: 600, color: P.em, background: "#f5f5f5", borderLeft: "2px solid " + P.bd, borderBottom: "1px solid " + P.bd }}>{fmt(d.fn(MONTHS[MONTHS.length - 1]))}</td>
+          {MONTHS.map(m => { const v = d.fn(m); return <td key={m} style={{ padding: "5px 6px", textAlign: "right", fontSize: 11, color: v ? P.tx : P.tm, borderBottom: "1px solid " + P.bd }}>{v ? F(v) : "-"}</td>; })}
+          <td style={{ padding: "5px 8px", textAlign: "right", fontSize: 11, fontWeight: 600, color: P.em, background: "#f5f5f5", borderLeft: "2px solid " + P.bd, borderBottom: "1px solid " + P.bd }}>{F(d.fn(MONTHS[MONTHS.length - 1]))}</td>
           <td style={{ borderBottom: "1px solid " + P.bd }}></td>
         </tr>
       ))}
@@ -862,14 +866,14 @@ function SectionBlock({ sec, secLabel, secShort, autoTag, derived, manual, bsVal
               <input type="number" step="0.01" value={bsVal(a.id, m)} onChange={e => setBsVal(a.id, m, e.target.value)} style={inpS} />
             </td>
           ))}
-          <td style={{ padding: "5px 8px", textAlign: "right", fontSize: 11, fontWeight: 600, color: P.em, background: "#f5f5f5", borderLeft: "2px solid " + P.bd, borderBottom: "1px solid " + P.bd }}>{fmt(acctTotal(a.id))}</td>
+          <td style={{ padding: "5px 8px", textAlign: "right", fontSize: 11, fontWeight: 600, color: P.em, background: "#f5f5f5", borderLeft: "2px solid " + P.bd, borderBottom: "1px solid " + P.bd }}>{F(acctTotal(a.id))}</td>
           <td style={{ textAlign: "center", borderBottom: "1px solid " + P.bd }}><button onClick={() => delAcct(a.id)} style={{ background: "none", border: "none", color: P.rd, cursor: "pointer", fontSize: 14 }}>×</button></td>
         </tr>
       ))}
       <tr style={{ background: P.ep }}>
         <td style={{ padding: "6px 10px", fontSize: 11.5, fontWeight: 700, color: P.em, borderRight: "2px solid #00695C" }}>{secShort}</td>
-        {MONTHS.map(m => <td key={m} style={{ padding: "5px 6px", textAlign: "right", fontSize: 11, fontWeight: 700, color: P.em }}>{fmt(sectionTotal(sec.k, m))}</td>)}
-        <td style={{ padding: "5px 8px", textAlign: "right", fontSize: 11, fontWeight: 700, color: P.em, background: "#C8E6C9", borderLeft: "2px solid #00695C" }}>{fmt(sectionTotal(sec.k, MONTHS[MONTHS.length - 1]))}</td>
+        {MONTHS.map(m => <td key={m} style={{ padding: "5px 6px", textAlign: "right", fontSize: 11, fontWeight: 700, color: P.em }}>{F(sectionTotal(sec.k, m))}</td>)}
+        <td style={{ padding: "5px 8px", textAlign: "right", fontSize: 11, fontWeight: 700, color: P.em, background: "#C8E6C9", borderLeft: "2px solid #00695C" }}>{F(sectionTotal(sec.k, MONTHS[MONTHS.length - 1]))}</td>
         <td style={{ background: P.ep }}></td>
       </tr>
     </>
