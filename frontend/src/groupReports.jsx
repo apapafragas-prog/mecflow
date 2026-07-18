@@ -101,6 +101,17 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   const budgetOf = (client) => fin?.budgets?.[client] || {};
   const setBudget = (client, field, v) => mutate(n => { if (!n.budgets[client]) n.budgets[client] = {}; n.budgets[client][field] = parseFloat(v) || 0; });
 
+  // ── Fee & COP (CBRE cost-plus core) ──
+  // Management fee earned on subcontractor cost: prefer the stored cbre_fee, else amt × fee_pct (default 5%).
+  const clientFee = (cd) => (cd?.sub || []).reduce((s, i) => {
+    const amt = Number(i.amt) || 0;
+    const fee = (i.cbre_fee != null && i.cbre_fee !== "") ? Number(i.cbre_fee) : (Number(i.fee_pct) || 5) * amt / 100;
+    return s + (Number(fee) || 0);
+  }, 0);
+  // Company OPEX for the year (from the OPEX/CAPEX blob) — allocated to clients pro-rata by revenue to
+  // derive Contract Operating Profit (COP = GM − allocated overhead), mirroring CBRE's COP definition.
+  const totalOpex = (() => { const cats = fin?.opex?.cats || [], act = fin?.opex?.actual || {}; return cats.reduce((s, c) => s + MONTHS.reduce((s2, m) => s2 + (Number(act[c.id]?.[m]) || 0), 0), 0); })();
+
   // ── Balance-sheet derived lines (read-only) ──
   const nbvByMonth = {}, arByMonth = {}, apByMonth = {}, cumNet = {}, vatNetByMonth = {};
   const accrIncByMonth = {}, accrCostByMonth = {};
@@ -286,7 +297,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             {loaded && <button onClick={exportGroup} style={{ padding: "6px 14px", border: "1px solid " + P.em, borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600, background: P.wh, color: P.em }}>⬇ {t("Εξαγωγή Excel", "Export Excel")}</button>}
             <div style={{ display: "flex", gap: 0, background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, padding: 4 }}>
-              {[{ v: "pnl", l: t("📈 P&L (Όμιλος)", "📈 P&L (Group)") }, { v: "bs", l: t("⚖️ Ισολογισμός", "⚖️ Balance Sheet") }, { v: "budget", l: t("🎯 Budget vs Actual", "🎯 Budget vs Actual") }].map(o => (
+              {[{ v: "pnl", l: t("📈 P&L (Όμιλος)", "📈 P&L (Group)") }, { v: "bs", l: t("⚖️ Ισολογισμός", "⚖️ Balance Sheet") }, { v: "budget", l: t("🎯 Budget vs Actual", "🎯 Budget vs Actual") }, { v: "fee", l: t("💰 Fee & COP", "💰 Fee & COP") }].map(o => (
                 <button key={o.v} onClick={() => setTab(o.v)} style={{ background: tab === o.v ? P.em : "transparent", color: tab === o.v ? "#fff" : P.tx, border: "none", padding: "7px 20px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>{o.l}</button>
               ))}
             </div>
@@ -451,6 +462,82 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
               <div style={{ fontSize: 11, color: P.tm, marginTop: 8, lineHeight: 1.6 }}>
                 {t("Καταχώρησε ετήσιους στόχους εσόδων (€) και μικτού περιθωρίου (GM %) ανά πελάτη. Η «Επίτευξη» = πραγματικά έσοδα / στόχος. Η «Διαφορά» = πραγματικό GM% − στόχος (σε μονάδες). Αποθηκεύεται αυτόματα.",
                    "Enter annual revenue (€) and gross-margin (GM %) targets per client. 'Achieved' = actual revenue / target. 'Variance' = actual GM% − target (in points). Saved automatically.")}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ── FEE & COP (management fee realization + Contract Operating Profit) ── */}
+        {loaded && tab === "fee" && (() => {
+          const base = Object.entries(allData || {}).map(([name, cd]) => {
+            const a = clientActual(cd), fee = clientFee(cd);
+            const effFee = a.cost > 0 ? (fee / a.cost) * 100 : null;   // fee as % of managed sub cost
+            const b = budgetOf(name);
+            const conFee = (b.feePct === undefined || b.feePct === "") ? null : Number(b.feePct);
+            return { name, ...a, fee, effFee, conFee };
+          }).filter(r => r.rev !== 0 || r.cost !== 0 || r.fee !== 0 || r.conFee != null);
+          const totRev = base.reduce((s, r) => s + r.rev, 0);
+          // Allocate company OPEX pro-rata by revenue → COP per client.
+          const rows = base.map(r => {
+            const alloc = totRev > 0 ? totalOpex * (r.rev / totRev) : 0;
+            const cop = r.gm - alloc;
+            return { ...r, alloc, cop, copPct: r.rev ? (cop / r.rev) * 100 : null, feeGap: (r.effFee != null && r.conFee != null) ? r.effFee - r.conFee : null };
+          }).sort((x, y) => y.fee - x.fee);
+          const T = { fee: rows.reduce((s, r) => s + r.fee, 0), cost: rows.reduce((s, r) => s + r.cost, 0), gm: rows.reduce((s, r) => s + r.gm, 0), cop: rows.reduce((s, r) => s + r.cop, 0), rev: totRev };
+          const underFee = rows.filter(r => r.feeGap != null && r.feeGap < -0.05).length;
+          const tdS = { padding: "6px 9px", borderBottom: "1px solid " + P.bd, fontSize: 12, textAlign: "right", whiteSpace: "nowrap" };
+          const inp = { width: 62, padding: "3px 5px", border: "1px solid " + P.bd, borderRadius: 4, fontSize: 12, textAlign: "right", background: P.ip, outline: "none" };
+          const H = ["Πελάτης|Client", "Έσοδα €|Revenue €", "Υπεργ. κόστος €|Sub cost €", "Mgmt Fee €|Mgmt Fee €", "Effective %|Effective %", "Συμβατικό %|Contracted %", "Δ|Δ", "GM €|GM €", "Κατ. OPEX €|Alloc. OPEX €", "COP €|COP €", "COP %|COP %"];
+          return (
+            <div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 12, marginBottom: 14 }}>
+                {kpi(t("Σύνολο Mgmt Fee", "Total Mgmt Fee"), T.fee, P.em)}
+                {kpi(t("Effective Fee %", "Effective Fee %"), T.cost ? T.fee / T.cost : null, P.em, true)}
+                {kpi(t("Σύνολο COP", "Total COP"), T.cop, T.cop >= 0 ? P.gn : P.rd)}
+                {kpi("COP %", T.rev ? T.cop / T.rev : null, P.em, true)}
+              </div>
+              {underFee > 0 && (
+                <div style={{ background: "#FFF8E1", border: "1px solid #F5D76E", borderRadius: 8, padding: "9px 14px", marginBottom: 12, fontSize: 12, color: "#7A5B00" }}>
+                  ⚠️ {underFee} {t("πελάτες με realized fee κάτω από το συμβατικό — έλεγξε fee leakage.", "clients realizing a fee below the contracted rate — check for fee leakage.")}
+                </div>
+              )}
+              <div style={{ background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1050 }}>
+                  <thead><tr>{H.map((h, i) => (<th key={i} style={{ padding: "7px 9px", fontSize: 10.5, fontWeight: 700, color: "#fff", background: P.em, textAlign: i === 0 ? "left" : "right", whiteSpace: "nowrap" }}>{t(h.split("|")[0], h.split("|")[1])}</th>))}</tr></thead>
+                  <tbody>
+                    {rows.map((r, i) => (
+                      <tr key={r.name} style={{ background: i % 2 === 0 ? P.wh : P.al }}>
+                        <td style={{ ...tdS, textAlign: "left", fontWeight: 600, color: P.em }}>{r.name}</td>
+                        <td style={tdS}>{fmt(r.rev)}</td>
+                        <td style={tdS}>{fmt(r.cost)}</td>
+                        <td style={{ ...tdS, fontWeight: 600, color: P.em }}>{fmt(r.fee)}</td>
+                        <td style={tdS}>{r.effFee == null ? "—" : r.effFee.toFixed(1) + "%"}</td>
+                        <td style={tdS}><input type="number" step="0.1" value={budgetOf(r.name).feePct ?? ""} onChange={e => setBudget(r.name, "feePct", e.target.value)} placeholder="5" style={inp} /></td>
+                        <td style={{ ...tdS, fontWeight: 700, color: r.feeGap == null ? P.tm : r.feeGap >= 0 ? P.gn : P.rd }}>{r.feeGap == null ? "—" : (r.feeGap >= 0 ? "+" : "") + r.feeGap.toFixed(1)}</td>
+                        <td style={{ ...tdS, color: r.gm < 0 ? P.rd : P.tx }}>{fmt(r.gm)}</td>
+                        <td style={{ ...tdS, color: P.tm }}>{fmt(r.alloc)}</td>
+                        <td style={{ ...tdS, fontWeight: 700, color: r.cop >= 0 ? P.em : P.rd }}>{fmt(r.cop)}</td>
+                        <td style={{ ...tdS, color: r.copPct != null && r.copPct < 0 ? P.rd : P.tm }}>{r.copPct == null ? "—" : r.copPct.toFixed(1) + "%"}</td>
+                      </tr>
+                    ))}
+                    <tr style={{ background: P.ep, fontWeight: 700 }}>
+                      <td style={{ ...tdS, textAlign: "left", color: P.em }}>{t("Σύνολο", "Total")}</td>
+                      <td style={{ ...tdS, color: P.em }}>{fmt(T.rev)}</td>
+                      <td style={{ ...tdS, color: P.em }}>{fmt(T.cost)}</td>
+                      <td style={{ ...tdS, color: P.em }}>{fmt(T.fee)}</td>
+                      <td style={{ ...tdS, color: P.em }}>{T.cost ? (T.fee / T.cost * 100).toFixed(1) + "%" : "—"}</td>
+                      <td colSpan={2}></td>
+                      <td style={{ ...tdS, color: P.em }}>{fmt(T.gm)}</td>
+                      <td style={{ ...tdS, color: P.em }}>{fmt(totalOpex)}</td>
+                      <td style={{ ...tdS, color: T.cop >= 0 ? P.em : P.rd }}>{fmt(T.cop)}</td>
+                      <td style={{ ...tdS, color: P.em }}>{T.rev ? (T.cop / T.rev * 100).toFixed(1) + "%" : "—"}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ fontSize: 11, color: P.tm, marginTop: 8, lineHeight: 1.6 }}>
+                {t("Mgmt Fee = αμοιβή CBRE επί του κόστους υπεργολάβων (cbre_fee ή κόστος × fee %). Effective % = Fee / κόστος υπεργ. Συμπλήρωσε το «Συμβατικό %» ανά πελάτη (π.χ. 5% cost-plus) — το «Δ» δείχνει fee leakage. COP = GM − κατανεμημένο εταιρικό OPEX (pro-rata εσόδων). Αποθηκεύεται αυτόματα.",
+                   "Mgmt Fee = CBRE fee on subcontractor cost (cbre_fee, or cost × fee %). Effective % = Fee / sub cost. Enter the 'Contracted %' per client (e.g. 5% cost-plus) — 'Δ' shows fee leakage. COP = GM − allocated company OPEX (pro-rata by revenue). Saved automatically.")}
               </div>
             </div>
           );
