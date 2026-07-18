@@ -46,6 +46,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   const [na, setNa] = useState({ label: "", section: "asset" });
   const [drill, setDrill] = useState(null);    // { k, m } → per-client breakdown modal for a P&L cell
   const [cashTerms, setCashTerms] = useState(30); // payment-terms lag (days) for the cash-flow forecast
+  const [closeMonth, setCloseMonth] = useState(null); // MEC: which month is being closed (null → default last active)
   const verRef = useRef(0);
   const dirtyRef = useRef(false);
 
@@ -67,6 +68,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
       if (!d.bs.values) d.bs.values = {};
       if (!d.budgets || typeof d.budgets !== "object") d.budgets = {}; // { [client]: { rev, gmPct } } annual targets
       if (d.cashOpening == null) d.cashOpening = 0; // opening cash balance for the cash-flow forecast
+      if (!d.close || typeof d.close !== "object") d.close = {}; // MEC: { [client]: { [month]: {status,reconciled,reviewed,by,at} } }
       setFin(d); dirtyRef.current = false; setSaveState("idle"); setLoaded(true);
     })();
     return () => { cancelled = true; };
@@ -158,6 +160,24 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
       return { m, open, collIn: collIn[m], payOut: payOut[m], lab: lab[m], opx: opx[m], cpx: cpx[m], intr: intr[m], tax: tax[m], net, close: run };
     });
   };
+
+  // ── Month-end close (MEC) ──
+  const CLOSE_STATES = { draft: { el: "Draft", en: "Draft", c: "#78909C", bg: "#ECEFF1" }, reconciled: { el: "Συμφωνημένο", en: "Reconciled", c: "#F57F17", bg: "#FFF8E1" }, closed: { el: "Κλεισμένο", en: "Closed", c: "#2E7D32", bg: "#E8F5E9" } };
+  const closeOf = (client, m) => fin?.close?.[client]?.[m] || {};
+  const setClose = (client, m, patch) => mutate(n => {
+    if (!n.close[client]) n.close[client] = {};
+    const cur = n.close[client][m] || { status: "draft" };
+    const next = { ...cur, ...patch };
+    if (patch.status === "closed" && cur.status !== "closed") { next.by = user?.name || user?.user || ""; next.at = new Date().toISOString().slice(0, 10); }
+    if (patch.status && patch.status !== "closed") { next.by = ""; next.at = ""; }
+    n.close[client][m] = next;
+  });
+  // Auto data-presence signals for a client in a month (helps the reviewer verify completeness).
+  const closeSignals = (cd, m) => ({
+    ar: (cd?.inv || []).some(i => i.month === m),
+    ap: (cd?.sub || []).some(i => i.month === m),
+    lab: cd?.lab?.[m] && Object.values(cd.lab[m]).some(v => Number(v)),
+  });
 
   // ── Balance-sheet derived lines (read-only) ──
   const nbvByMonth = {}, arByMonth = {}, apByMonth = {}, cumNet = {}, vatNetByMonth = {};
@@ -361,7 +381,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             {loaded && <button onClick={exportGroup} style={{ padding: "6px 14px", border: "1px solid " + P.em, borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600, background: P.wh, color: P.em }}>⬇ {t("Εξαγωγή Excel", "Export Excel")}</button>}
             <div style={{ display: "flex", gap: 0, background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, padding: 4 }}>
-              {[{ v: "pnl", l: t("📈 P&L (Όμιλος)", "📈 P&L (Group)") }, { v: "bs", l: t("⚖️ Ισολογισμός", "⚖️ Balance Sheet") }, { v: "budget", l: t("🎯 Budget vs Actual", "🎯 Budget vs Actual") }, { v: "fee", l: t("💰 Fee & COP", "💰 Fee & COP") }, { v: "cash", l: t("💵 Ταμειακές Ροές", "💵 Cash Flow") }].map(o => (
+              {[{ v: "pnl", l: t("📈 P&L (Όμιλος)", "📈 P&L (Group)") }, { v: "bs", l: t("⚖️ Ισολογισμός", "⚖️ Balance Sheet") }, { v: "budget", l: t("🎯 Budget vs Actual", "🎯 Budget vs Actual") }, { v: "fee", l: t("💰 Fee & COP", "💰 Fee & COP") }, { v: "cash", l: t("💵 Ταμειακές Ροές", "💵 Cash Flow") }, { v: "mec", l: t("✅ Κλείσιμο (MEC)", "✅ Close (MEC)") }].map(o => (
                 <button key={o.v} onClick={() => setTab(o.v)} style={{ background: tab === o.v ? P.em : "transparent", color: tab === o.v ? "#fff" : P.tx, border: "none", padding: "7px 20px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>{o.l}</button>
               ))}
             </div>
@@ -662,6 +682,89 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
               <div style={{ fontSize: 11, color: P.tm, marginTop: 8, lineHeight: 1.6 }}>
                 {t("Άμεση μέθοδος. Οι εισπράξεις/πληρωμές χρονίζονται: πληρωμένα τιμολόγια στον μήνα του paid_date· ανοιχτά στον μήνα έκδοσης + καθυστέρηση όρων. Μισθοδοσία/OPEX/CAPEX/τόκοι/φόροι ταμειακά στον μήνα καταχώρησης. Ταμείο τέλους = ταμείο έναρξης + σωρευτική καθαρή ροή. Αποθηκεύεται αυτόματα.",
                    "Direct method. Collections/payments are timed: paid invoices in their paid_date month; open invoices in issue month + terms lag. Payroll/OPEX/CAPEX/interest/tax are cash in their booked month. Closing cash = opening + cumulative net. Saved automatically.")}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ── MONTH-END CLOSE (MEC) ── */}
+        {loaded && tab === "mec" && (() => {
+          const clients = Object.keys(allData || {}).filter(c => { const cd = allData[c]; return (cd?.inv || []).length || (cd?.sub || []).length || Object.values(cd?.lab || {}).some(mo => Object.values(mo || {}).some(v => Number(v))); }).sort();
+          // Default the working month to the last month that has any activity across the portfolio.
+          const activeMonths = MONTHS.filter(m => clients.some(c => { const s = closeSignals(allData[c], m); return s.ar || s.ap || s.lab; }));
+          const selM = closeMonth && MONTHS.includes(closeMonth) ? closeMonth : (activeMonths[activeMonths.length - 1] || MONTHS[0]);
+          const statusOf = c => closeOf(c, selM).status || "draft";
+          const counts = { draft: 0, reconciled: 0, closed: 0 };
+          clients.forEach(c => { counts[statusOf(c)] = (counts[statusOf(c)] || 0) + 1; });
+          const total = clients.length || 1;
+          const pct = Math.round(counts.closed / total * 100);
+          const dot = (on) => <span style={{ display: "inline-block", width: 9, height: 9, borderRadius: "50%", background: on ? P.gn : "#E0E0E0" }} title={on ? t("υπάρχουν δεδομένα", "has data") : t("κανένα δεδομένο", "no data")} />;
+          const sBtn = (c, val) => { const cs = CLOSE_STATES[val]; const active = statusOf(c) === val; return (
+            <button key={val} onClick={() => setClose(c, selM, { status: val })} style={{ padding: "3px 8px", border: "1px solid " + (active ? cs.c : P.bd), borderRadius: 5, cursor: "pointer", fontSize: 10.5, fontWeight: active ? 700 : 400, background: active ? cs.bg : P.wh, color: active ? cs.c : P.tm }}>{t(cs.el, cs.en)}</button>
+          ); };
+          const tdS = { padding: "6px 9px", borderBottom: "1px solid " + P.bd, fontSize: 12 };
+          return (
+            <div>
+              {/* Month selector */}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
+                <span style={{ fontSize: 12, color: P.tm, marginRight: 4 }}>{t("Μήνας κλεισίματος:", "Closing month:")}</span>
+                {MONTHS.map(m => { const isA = activeMonths.includes(m); return (
+                  <button key={m} onClick={() => setCloseMonth(m)} style={{ padding: "5px 10px", border: (m === selM ? "2px solid " + P.em : "1px solid " + P.bd), borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: m === selM ? 700 : 400, background: m === selM ? P.em : P.wh, color: m === selM ? "#fff" : (isA ? P.tx : "#B0BEC5") }}>{monthLabel(m)}</button>
+                ); })}
+              </div>
+              {/* Progress */}
+              <div style={{ background: P.wh, border: "1px solid " + P.bd, borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: P.em }}>{monthLabel(selM)} — {t("Πρόοδος κλεισίματος", "Close progress")}: {counts.closed}/{total} <span style={{ color: pct === 100 ? P.gn : P.tm }}>({pct}%)</span></div>
+                  <div style={{ fontSize: 12, color: P.tm }}>
+                    <span style={{ color: CLOSE_STATES.closed.c, fontWeight: 700 }}>● {counts.closed} {t("κλεισμένα", "closed")}</span> · <span style={{ color: CLOSE_STATES.reconciled.c, fontWeight: 700 }}>● {counts.reconciled} {t("συμφ.", "recon.")}</span> · <span style={{ color: CLOSE_STATES.draft.c, fontWeight: 700 }}>● {counts.draft} draft</span>
+                  </div>
+                </div>
+                <div style={{ height: 10, background: "#eef2ef", borderRadius: 5, overflow: "hidden" }}><div style={{ width: pct + "%", height: "100%", background: pct === 100 ? P.gn : P.em }} /></div>
+              </div>
+              {/* Per-client table */}
+              <div style={{ background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+                  <thead><tr>{[t("Πελάτης", "Client"), "AR", "AP", t("Εργ.", "Lab"), t("Συμφων.", "Recon."), t("Έλεγχος", "Reviewed"), t("Κατάσταση", "Status"), t("Από", "By")].map((h, i) => (
+                    <th key={i} style={{ padding: "7px 9px", fontSize: 10.5, fontWeight: 700, color: "#fff", background: P.em, textAlign: i === 0 || i >= 6 ? "left" : "center", whiteSpace: "nowrap" }}>{h}</th>
+                  ))}</tr></thead>
+                  <tbody>
+                    {clients.map((c, i) => { const sig = closeSignals(allData[c], selM); const cl = closeOf(c, selM); const st = cl.status || "draft"; const locked = st === "closed"; return (
+                      <tr key={c} style={{ background: locked ? "#F1F8E9" : i % 2 === 0 ? P.wh : P.al }}>
+                        <td style={{ ...tdS, fontWeight: 600, color: P.em, whiteSpace: "nowrap" }}>{c}</td>
+                        <td style={{ ...tdS, textAlign: "center" }}>{dot(sig.ar)}</td>
+                        <td style={{ ...tdS, textAlign: "center" }}>{dot(sig.ap)}</td>
+                        <td style={{ ...tdS, textAlign: "center" }}>{dot(sig.lab)}</td>
+                        <td style={{ ...tdS, textAlign: "center" }}><input type="checkbox" checked={!!cl.reconciled} onChange={e => setClose(c, selM, { reconciled: e.target.checked })} style={{ cursor: "pointer" }} /></td>
+                        <td style={{ ...tdS, textAlign: "center" }}><input type="checkbox" checked={!!cl.reviewed} onChange={e => setClose(c, selM, { reviewed: e.target.checked })} style={{ cursor: "pointer" }} /></td>
+                        <td style={{ ...tdS }}><div style={{ display: "flex", gap: 4 }}>{["draft", "reconciled", "closed"].map(v => sBtn(c, v))}</div></td>
+                        <td style={{ ...tdS, fontSize: 11, color: P.tm, whiteSpace: "nowrap" }}>{locked && cl.by ? `${cl.by}${cl.at ? " · " + cl.at : ""}` : "—"}</td>
+                      </tr>
+                    ); })}
+                    {!clients.length && <tr><td colSpan={8} style={{ padding: 26, textAlign: "center", color: P.tm, fontStyle: "italic" }}>{t("Κανένας πελάτης με δεδομένα ακόμη.", "No clients with data yet.")}</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+              {/* Year matrix overview */}
+              <div style={{ background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, overflowX: "auto", marginTop: 16 }}>
+                <div style={{ padding: "10px 14px", fontSize: 12, fontWeight: 700, color: P.em, borderBottom: "1px solid " + P.bd }}>{t("Επισκόπηση έτους (κατάσταση ανά μήνα)", "Year overview (status per month)")}</div>
+                <table style={{ borderCollapse: "collapse", fontSize: 11 }}>
+                  <thead><tr><th style={{ padding: "5px 9px", textAlign: "left", position: "sticky", left: 0, background: P.wh }}></th>{MONTHS.map(m => <th key={m} style={{ padding: "5px 6px", color: P.tm, fontWeight: 600 }}>{monthLabel(m).slice(0, 3)}</th>)}</tr></thead>
+                  <tbody>{clients.map(c => (
+                    <tr key={c}>
+                      <td style={{ padding: "3px 9px", fontWeight: 600, color: P.em, whiteSpace: "nowrap", position: "sticky", left: 0, background: P.wh, borderRight: "1px solid " + P.bd }}>{c}</td>
+                      {MONTHS.map(m => { const st = closeOf(c, m).status || "draft"; const has = (() => { const s = closeSignals(allData[c], m); return s.ar || s.ap || s.lab; })(); const cs = CLOSE_STATES[st]; return (
+                        <td key={m} style={{ padding: 3, textAlign: "center", cursor: "pointer" }} onClick={() => setCloseMonth(m)} title={`${c} ${monthLabel(m)}: ${t(cs.el, cs.en)}`}>
+                          <span style={{ display: "inline-block", width: 14, height: 14, borderRadius: 3, background: st === "draft" ? (has ? "#ECEFF1" : "#F7F9F8") : cs.bg, border: "1px solid " + (st === "draft" ? (has ? "#CFD8DC" : "#ECEFF1") : cs.c) }} />
+                        </td>
+                      ); })}
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+              <div style={{ fontSize: 11, color: P.tm, marginTop: 8, lineHeight: 1.6 }}>
+                {t("Οι κουκκίδες AR/AP/Εργ. δείχνουν αν υπάρχουν δεδομένα για τον μήνα (βοήθεια πληρότητας). Πάτησε Draft→Συμφωνημένο→Κλεισμένο ανά πελάτη· το «Κλεισμένο» καταγράφει ποιος & πότε. Το πλέγμα κάτω δείχνει όλο το έτος — κλικ σε μήνα για μετάβαση. Αποθηκεύεται αυτόματα.",
+                   "The AR/AP/Lab dots show whether data exists for the month (completeness aid). Click Draft→Reconciled→Closed per client; 'Closed' records who & when. The grid below shows the whole year — click a month to jump. Saved automatically.")}
               </div>
             </div>
           );
