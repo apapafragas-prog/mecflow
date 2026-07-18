@@ -380,9 +380,9 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             {loaded && <button onClick={exportGroup} style={{ padding: "6px 14px", border: "1px solid " + P.em, borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600, background: P.wh, color: P.em }}>⬇ {t("Εξαγωγή Excel", "Export Excel")}</button>}
-            <div style={{ display: "flex", gap: 0, background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, padding: 4 }}>
-              {[{ v: "pnl", l: t("📈 P&L (Όμιλος)", "📈 P&L (Group)") }, { v: "bs", l: t("⚖️ Ισολογισμός", "⚖️ Balance Sheet") }, { v: "budget", l: t("🎯 Budget vs Actual", "🎯 Budget vs Actual") }, { v: "fee", l: t("💰 Fee & COP", "💰 Fee & COP") }, { v: "cash", l: t("💵 Ταμειακές Ροές", "💵 Cash Flow") }, { v: "mec", l: t("✅ Κλείσιμο (MEC)", "✅ Close (MEC)") }].map(o => (
-                <button key={o.v} onClick={() => setTab(o.v)} style={{ background: tab === o.v ? P.em : "transparent", color: tab === o.v ? "#fff" : P.tx, border: "none", padding: "7px 20px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>{o.l}</button>
+            <div style={{ display: "flex", gap: 0, background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, padding: 4, overflowX: "auto", maxWidth: "100%" }}>
+              {[{ v: "pnl", l: t("📈 P&L", "📈 P&L") }, { v: "bs", l: t("⚖️ Ισολογισμός", "⚖️ Balance Sheet") }, { v: "budget", l: t("🎯 Budget", "🎯 Budget") }, { v: "fee", l: t("💰 Fee & COP", "💰 Fee & COP") }, { v: "cash", l: t("💵 Ταμειακές", "💵 Cash Flow") }, { v: "mec", l: t("✅ Κλείσιμο", "✅ Close (MEC)") }].map(o => (
+                <button key={o.v} onClick={() => setTab(o.v)} style={{ background: tab === o.v ? P.em : "transparent", color: tab === o.v ? "#fff" : P.tx, border: "none", padding: "7px 15px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>{o.l}</button>
               ))}
             </div>
           </div>
@@ -509,6 +509,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
               gmDelta: (gmPct != null && b.gmPct !== undefined && b.gmPct !== "") ? gmPct - gmT : null };
           }).filter(r => r.rev !== 0 || r.cost !== 0 || r.revT || r.gmT != null)
             .sort((x, y) => (y.revT || y.rev) - (x.revT || x.rev));
+          if (!rows.length) return <div style={{ padding: 40, textAlign: "center", color: P.tm, background: P.wh, borderRadius: 8, border: "1px solid " + P.bd }}>{t("Δεν υπάρχουν ακόμη δεδομένα ή στόχοι πελατών.", "No client data or targets yet.")}</div>;
           const totRevT = rows.reduce((s, r) => s + (r.revT || 0), 0);
           const totRevA = rows.reduce((s, r) => s + r.rev, 0);
           const tdS = { padding: "6px 10px", borderBottom: "1px solid " + P.bd, fontSize: 12 };
@@ -554,6 +555,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
         {/* ── FEE & COP (management fee realization + Contract Operating Profit) ── */}
         {loaded && tab === "fee" && (() => {
           const { rows, T } = feeCopData();
+          if (!rows.length) return <div style={{ padding: 40, textAlign: "center", color: P.tm, background: P.wh, borderRadius: 8, border: "1px solid " + P.bd }}>{t("Δεν υπάρχουν ακόμη δεδομένα πελατών για fee/COP.", "No client data yet for fee/COP.")}</div>;
           const underFee = rows.filter(r => r.feeGap != null && r.feeGap < -0.05).length;
           const tdS = { padding: "6px 9px", borderBottom: "1px solid " + P.bd, fontSize: 12, textAlign: "right", whiteSpace: "nowrap" };
           const inp = { width: 62, padding: "3px 5px", border: "1px solid " + P.bd, borderRadius: 4, fontSize: 12, textAlign: "right", background: P.ip, outline: "none" };
@@ -747,7 +749,14 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
               </div>
               {/* Year matrix overview */}
               <div style={{ background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, overflowX: "auto", marginTop: 16 }}>
-                <div style={{ padding: "10px 14px", fontSize: 12, fontWeight: 700, color: P.em, borderBottom: "1px solid " + P.bd }}>{t("Επισκόπηση έτους (κατάσταση ανά μήνα)", "Year overview (status per month)")}</div>
+                <div style={{ padding: "10px 14px", borderBottom: "1px solid " + P.bd, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: P.em }}>{t("Επισκόπηση έτους (κατάσταση ανά μήνα)", "Year overview (status per month)")}</span>
+                  <span style={{ display: "flex", gap: 12, fontSize: 10.5, color: P.tm, alignItems: "center" }}>
+                    {[["draft", t("Draft", "Draft")], ["reconciled", t("Συμφων.", "Recon.")], ["closed", t("Κλεισμένο", "Closed")]].map(([k, l]) => (
+                      <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: k === "draft" ? "#ECEFF1" : CLOSE_STATES[k].bg, border: "1px solid " + (k === "draft" ? "#CFD8DC" : CLOSE_STATES[k].c) }} />{l}</span>
+                    ))}
+                  </span>
+                </div>
                 <table style={{ borderCollapse: "collapse", fontSize: 11 }}>
                   <thead><tr><th style={{ padding: "5px 9px", textAlign: "left", position: "sticky", left: 0, background: P.wh }}></th>{MONTHS.map(m => <th key={m} style={{ padding: "5px 6px", color: P.tm, fontWeight: 600 }}>{monthLabel(m).slice(0, 3)}</th>)}</tr></thead>
                   <tbody>{clients.map(c => (
