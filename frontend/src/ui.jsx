@@ -34,11 +34,12 @@ export function LogoImg({name,size,radius}) {
 }
 
 // Password input with a show/hide (👁) toggle. Reused on login + change-password screens.
-export function PwField({value,onChange,onEnter,style,autoFocus}) {
+export function PwField({value,onChange,onEnter,style,autoFocus,onFocus,onBlur}) {
   const [show,setShow] = useState(false);
   return (
     <div style={{position:"relative"}}>
       <input type={show?"text":"password"} value={value} onChange={onChange} autoFocus={autoFocus}
+        onFocus={onFocus} onBlur={onBlur}
         onKeyDown={onEnter?e=>{if(e.key==="Enter")onEnter();}:undefined}
         style={{...style, paddingRight:40}} />
       <button type="button" tabIndex={-1} onMouseDown={e=>e.preventDefault()} onClick={()=>setShow(s=>!s)}
