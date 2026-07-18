@@ -109,7 +109,9 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   // Management fee earned on subcontractor cost: prefer the stored cbre_fee, else amt × fee_pct (default 5%).
   const clientFee = (cd) => (cd?.sub || []).reduce((s, i) => {
     const amt = Number(i.amt) || 0;
-    const fee = (i.cbre_fee != null && i.cbre_fee !== "") ? Number(i.cbre_fee) : (Number(i.fee_pct) || 5) * amt / 100;
+    // Honour an explicit 0% fee (pure pass-through) — only default to 5% when fee_pct is truly absent.
+    const fp = (i.fee_pct === undefined || i.fee_pct === null || i.fee_pct === "") ? 5 : Number(i.fee_pct);
+    const fee = (i.cbre_fee != null && i.cbre_fee !== "") ? Number(i.cbre_fee) : fp * amt / 100;
     return s + (Number(fee) || 0);
   }, 0);
   // Company OPEX for the year (from the OPEX/CAPEX blob) — allocated to clients pro-rata by revenue to
@@ -140,13 +142,18 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   // cash-out in their booked month. Running balance = opening cash + cumulative net.
   const cashFlowSeries = () => {
     const termsM = Math.max(0, Math.round((Number(cashTerms) || 0) / 30));
-    const shift = (m, n) => { const i = MONTHS.indexOf(m); return (i >= 0 && i + n < MONTHS.length) ? MONTHS[i + n] : null; };
+    // Expected settlement month, clamped INTO the fiscal year: an invoice whose due month falls past
+    // December lands its cash in the last month rather than silently vanishing from the forecast.
+    const shift = (m, n) => { const i = MONTHS.indexOf(m); return i < 0 ? null : MONTHS[Math.min(i + n, MONTHS.length - 1)]; };
     const paidMonthOf = (i) => { const pm = i.paid_date ? String(i.paid_date).slice(0, 7) : null; return (pm && MONTHS.includes(pm)) ? pm : null; };
+    // Settlement month: paid WITH an in-year date → that month; otherwise (open, or paid without a
+    // usable date) → the terms-based expected month. Never drop a cash movement silently.
+    const settleM = (i) => (isPaid(i) && paidMonthOf(i)) || shift(i.month, termsM);
     const z = () => { const o = {}; MONTHS.forEach(m => o[m] = 0); return o; };
     const collIn = z(), payOut = z(), lab = z(), opx = z(), cpx = z(), intr = z(), tax = z();
     Object.values(allData || {}).forEach(cd => {
-      (cd?.inv || []).forEach(i => { if (!isActual(i)) return; const tm = isPaid(i) ? paidMonthOf(i) : shift(i.month, termsM); if (tm) collIn[tm] += grossAmt(i); });
-      (cd?.sub || []).forEach(i => { if (!isActual(i)) return; const tm = isPaid(i) ? paidMonthOf(i) : shift(i.month, termsM); if (tm) payOut[tm] += grossAmt(i); });
+      (cd?.inv || []).forEach(i => { if (!isActual(i)) return; const tm = settleM(i); if (tm) collIn[tm] += grossAmt(i); });
+      (cd?.sub || []).forEach(i => { if (!isActual(i)) return; const tm = settleM(i); if (tm) payOut[tm] += grossAmt(i); });
       MONTHS.forEach(m => { if (cd?.lab?.[m]) lab[m] += Object.values(cd.lab[m]).reduce((s, v) => s + (Number(v) || 0), 0); });
     });
     const cats = fin?.opex?.cats || [], act = fin?.opex?.actual || {};
@@ -322,7 +329,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
     const { rows: fcRows, T: fcT } = feeCopData();
     const feeAoa = [["Client", "Revenue", "Sub cost", "Mgmt Fee", "Effective %", "Contracted %", "Fee gap", "GM", "Alloc. OPEX", "COP", "COP %"],
       ...fcRows.map(r => [r.name, r.rev, r.cost, r.fee, r.effFee == null ? "" : +r.effFee.toFixed(1), r.conFee == null ? "" : r.conFee, r.feeGap == null ? "" : +r.feeGap.toFixed(1), r.gm, r.alloc, r.cop, r.copPct == null ? "" : +r.copPct.toFixed(1)]),
-      ["TOTAL", fcT.rev, fcT.cost, fcT.fee, fcT.cost ? +(fcT.fee / fcT.cost * 100).toFixed(1) : "", "", "", fcT.gm, totalOpex, fcT.cop, fcT.rev ? +(fcT.cop / fcT.rev * 100).toFixed(1) : ""]];
+      ["TOTAL", fcT.rev, fcT.cost, fcT.fee, fcT.cost ? +(fcT.fee / fcT.cost * 100).toFixed(1) : "", "", "", fcT.gm, fcRows.reduce((s, r) => s + r.alloc, 0), fcT.cop, fcT.rev ? +(fcT.cop / fcT.rev * 100).toFixed(1) : ""]];
     // Cash Flow sheet (rows = lines, columns = months)
     const cf = cashFlowSeries(), cfBy = Object.fromEntries(cf.map(r => [r.m, r]));
     const cfLine = (label, k, sign = 1) => [label, ...MONTHS.map(m => sign * cfBy[m][k]), cf.reduce((a, r) => a + sign * r[k], 0)];
@@ -600,7 +607,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
                       <td style={{ ...tdS, color: P.em }}>{T.cost ? (T.fee / T.cost * 100).toFixed(1) + "%" : "—"}</td>
                       <td colSpan={2}></td>
                       <td style={{ ...tdS, color: P.em }}>{fmt(T.gm)}</td>
-                      <td style={{ ...tdS, color: P.em }}>{fmt(totalOpex)}</td>
+                      <td style={{ ...tdS, color: P.em }}>{fmt(rows.reduce((s, r) => s + r.alloc, 0))}</td>
                       <td style={{ ...tdS, color: T.cop >= 0 ? P.em : P.rd }}>{fmt(T.cop)}</td>
                       <td style={{ ...tdS, color: P.em }}>{T.rev ? (T.cop / T.rev * 100).toFixed(1) + "%" : "—"}</td>
                     </tr>

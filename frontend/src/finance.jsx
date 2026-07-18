@@ -349,7 +349,9 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
       // and the month the invoice leaves AR/AP on the balance sheet. Falls back to today if cleared.
       row.paid = nowPaid ? "paid" : ""; row.paid_date = nowPaid ? (payDate || new Date().toISOString().slice(0,10)) : "";
       await api.saveClientData(year, e.client, cd, r.version);
-      setData(p=>({ ...p, [e.client]: cd }));
+      // Store the NORMALIZED blob so this client's months stay consistent with the rest of `data`
+      // (which was loaded via normYear); otherwise this one entry keeps raw, un-remapped month keys.
+      setData(p=>({ ...p, [e.client]: normalizeClientData(cd) }));
     } catch(err){ alert(t("Δεν αποθηκεύτηκε: ","Not saved: ")+(err.message||t("σφάλμα","error"))); }
     finally{ setBusy(""); }
   };
