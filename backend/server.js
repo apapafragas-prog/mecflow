@@ -154,7 +154,11 @@ app.set('trust proxy', 1);
 const CORS_ORIGINS = (process.env.CORS_ORIGIN || "").split(",").map(s => s.trim()).filter(s => s && s !== "*");
 // Bearer-token auth (localStorage), not cookies → no credentials needed on CORS.
 app.use(cors(CORS_ORIGINS.length ? { origin: CORS_ORIGINS } : { origin: false }));
-app.use(express.json({ limit: "20mb" }));
+app.use(express.json({ limit: "12mb" }));
+// A single client/year (or finance) blob should never be huge; reject oversized payloads so one
+// account can't inflate a blob and OOM the /api/data/:year fetch that materializes every client's blob.
+const MAX_BLOB_BYTES = 6 * 1024 * 1024;
+const tooBig = (payload) => { try { return Buffer.byteLength(JSON.stringify(payload)) > MAX_BLOB_BYTES; } catch { return false; } };
 
 // Rate limit on login — keyed by username+IP (not bare IP) so the whole office,
 // which shares one NAT IP, cannot lock each other out. A looser IP-only cap guards brute force.
@@ -369,6 +373,7 @@ app.put("/api/data/:year/:client", auth, (req, res) => {
   if (!canAccess(req.user, client)) return res.status(403).json({ error: "Access denied" });
   const hasEnvelope = req.body && typeof req.body === "object" && req.body.data !== undefined && ("baseVersion" in req.body);
   const payload = hasEnvelope ? req.body.data : req.body;
+  if (tooBig(payload)) return res.status(413).json({ error: "Πολύ μεγάλος όγκος δεδομένων για αποθήκευση" });
   const baseVersion = hasEnvelope ? Number(req.body.baseVersion) : undefined;
   const row = db.prepare("SELECT version, data FROM client_data WHERE year = ? AND client = ?").get(year, client);
   const currentVersion = row ? (row.version || 0) : 0;
@@ -416,6 +421,7 @@ app.put("/api/finance/:year", auth, requireRole("finance", "admin"), (req, res) 
   const { year } = req.params;
   const hasEnvelope = req.body && typeof req.body === "object" && req.body.data !== undefined && ("baseVersion" in req.body);
   const payload = hasEnvelope ? req.body.data : req.body;
+  if (tooBig(payload)) return res.status(413).json({ error: "Πολύ μεγάλος όγκος δεδομένων για αποθήκευση" });
   const baseVersion = hasEnvelope ? Number(req.body.baseVersion) : undefined;
   const row = db.prepare("SELECT version FROM finance_data WHERE year = ?").get(year);
   const currentVersion = row ? (row.version || 0) : 0;
@@ -582,6 +588,7 @@ app.patch("/api/files/:year/:client/:id", auth, (req, res) => {
   if (contract_ref !== undefined) db.prepare("UPDATE documents SET contract_ref = ? WHERE id = ?").run(String(contract_ref), id);
   if (type !== undefined) db.prepare("UPDATE documents SET type = ? WHERE id = ?").run(String(type), id);
   res.json({ ok: true });
+  try { audit(req.user.username, "file_update", `${year}/${client}: ${id}`, req); } catch (e) { console.error("audit error:", e.message); }
 });
 
 // ── Audit log (admin only) ──
@@ -855,8 +862,9 @@ ${JSON.stringify(context, null, 2)}`;
 });
 
 // ── AI Chat assistant: single-shot, client-supplied snapshot (no live DB tool-calling) ──
-const CHAT_DAILY_CAP = parseInt(process.env.CHAT_DAILY_CAP || "2000", 10);
-let chatDay = "", chatCount = 0; // in-memory daily circuit-breaker
+const CHAT_DAILY_CAP = parseInt(process.env.CHAT_DAILY_CAP || "2000", 10);          // global cap/day
+const CHAT_USER_DAILY_CAP = parseInt(process.env.CHAT_USER_DAILY_CAP || "200", 10); // per-user cap/day
+let chatDay = "", chatCount = 0; const chatByUser = new Map(); // in-memory daily circuit-breaker (global + per-user)
 const chatLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 40, message: { error: "Πολλά αιτήματα — δοκίμασε σε λίγο." } });
 const CHAT_SYSTEM = `Είσαι ο AI βοηθός της πλατφόρμας αναφορών CBRE Hellas (Mecflow) — facility management, όλα σε EUR.
 Απάντα στα Ελληνικά, σύντομα και πρακτικά. Χρησιμοποίησε ΑΠΟΚΛΕΙΣΤΙΚΑ τα δεδομένα του SNAPSHOT που δίνει ο χρήστης — ΜΗΝ επινοείς νούμερα, πελάτες ή γεγονότα εκτός snapshot. Αν κάτι δεν υπάρχει, πες το και πρότεινε πού να κοιτάξει.
@@ -873,8 +881,11 @@ const CHAT_SYSTEM = `Είσαι ο AI βοηθός της πλατφόρμας �
 app.post("/api/chat", auth, chatLimiter, async (req, res) => {
   if (!anthropic) return res.status(503).json({ error: "AI δεν έχει ρυθμιστεί (λείπει ANTHROPIC_API_KEY)" });
   const d = new Date().toISOString().slice(0, 10);
-  if (d !== chatDay) { chatDay = d; chatCount = 0; }
+  if (d !== chatDay) { chatDay = d; chatCount = 0; chatByUser.clear(); }
   if (chatCount >= CHAT_DAILY_CAP) return res.status(429).json({ error: "Εξαντλήθηκε το ημερήσιο όριο AI. Δοκίμασε ξανά αύριο." });
+  // Per-user cap so one user can't drain the whole day's AI budget and deny everyone else.
+  const uc = chatByUser.get(req.user.id) || 0;
+  if (uc >= CHAT_USER_DAILY_CAP) return res.status(429).json({ error: "Εξάντλησες το προσωπικό ημερήσιο όριο AI. Δοκίμασε ξανά αύριο." });
   const { question, history, snapshot, lang } = req.body || {};
   if (!question || typeof question !== "string") return res.status(400).json({ error: "Λείπει η ερώτηση" });
   const hist = Array.isArray(history)
@@ -885,7 +896,7 @@ app.post("/api/chat", auth, chatLimiter, async (req, res) => {
     ? CHAT_SYSTEM + `\n\nIMPORTANT: The user's interface is in ENGLISH — write the "text" field in ENGLISH (keep the same JSON schema and view values).`
     : CHAT_SYSTEM;
   const userMsg = `${String(question).slice(0, 2000)}\n\nΔΕΔΟΜΕΝΑ (snapshot — μόνο αυτά ισχύουν):\n${JSON.stringify(snapshot || {}).slice(0, 12000)}`;
-  chatCount++;
+  chatCount++; chatByUser.set(req.user.id, uc + 1);
   try {
     const resp = await anthropic.messages.create({
       model: "claude-sonnet-4-6", max_tokens: 1000, system: sys,
