@@ -136,7 +136,7 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
         </div>
       </div>
 
-      <div style={{maxWidth:1300,margin:"0 auto",padding:"18px 24px"}}>
+      <div style={{maxWidth:1300,margin:"0 auto",padding:"18px clamp(12px,4vw,24px)"}}>
         <div style={{display:"flex",gap:8,marginBottom:16,justifyContent:"space-between",alignItems:"center",flexWrap:"wrap"}}>
           <div style={{display:"flex",gap:8}}>
             {YEARS.map(y=>(<button key={y} onClick={()=>setYear(y)} style={{padding:"6px 16px",border:year===y?"2px solid "+P.em:"1px solid "+P.bd,borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:year===y?700:400,background:year===y?P.em:P.wh,color:year===y?"#fff":P.tx}}>{y}</button>))}
@@ -428,7 +428,7 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
         </div>
       </div>
 
-      <div style={{maxWidth:1300,margin:"0 auto",padding:"18px 24px"}}>
+      <div style={{maxWidth:1300,margin:"0 auto",padding:"18px clamp(12px,4vw,24px)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:12}}>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
             {YEARS.map(y=>(<button key={y} onClick={()=>setYear(y)} style={{padding:"6px 14px",border:year===y?"2px solid "+P.em:"1px solid "+P.bd,borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:year===y?700:400,background:year===y?P.em:P.wh,color:year===y?"#fff":P.tx}}>{y}</button>))}
@@ -636,7 +636,7 @@ export function OpexCapex({year,setYear,user,onBack,onLogout}) {
         </div>
       </div>
 
-      <div style={{maxWidth:1400,margin:"0 auto",padding:"18px 24px"}}>
+      <div style={{maxWidth:1400,margin:"0 auto",padding:"18px clamp(12px,4vw,24px)"}}>
         {/* Year + sub-tabs */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:12}}>
           <div style={{display:"flex",gap:8}}>
