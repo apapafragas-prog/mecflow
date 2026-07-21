@@ -270,13 +270,14 @@ export function PnL({inv,sub,lab,client,year,user}) {
   );
 }
 
-export function InvTab({data,set,contracts,year,client,onDupCheck}) {
+export function InvTab({data,set,contracts,year,client,onDupCheck,locked}) {
   const { t } = useT();
+  const isLocked = (m) => !!(locked && locked.has(m));
   const poList = (contracts||[]).filter(c=>c.type==="PO"&&c.po).map(c=>c.po);
   const poOpts = [{v:"",l:t("— Κανένα —","— None —")},...poList.map(p=>({v:p,l:p}))];
   const [f,sF] = useState({client:"",site:SITES[0],month:MONTHS[0],cat:REV_CATS[0],amt:"",vat:"",inv_no:"",date:"",comments:"",act_acc:"ACTUAL",po_no:""});
   // Blank VAT → default 24%; an explicitly typed 0 stays 0 (zero-rated / reverse-charge invoices).
-  const add = () => { if(!f.amt) return; const a=parseFloat(f.amt); const pv=parseFloat(f.vat); const v=Number.isNaN(pv)?a*.24:pv; set(p=>[...p,{...f,id:uid(),amt:a,vat:v,total:a+v}]); sF(x=>({...x,amt:"",vat:"",inv_no:"",date:"",comments:"",po_no:""})); };
+  const add = () => { if(!f.amt) return; if(isLocked(f.month)){ alert(t("Ο μήνας είναι κλειδωμένος (κλεισμένη περίοδος) — δεν επιτρέπονται νέες εγγραφές.","This month is locked (closed period) — new entries are not allowed.")); return; } const a=parseFloat(f.amt); const pv=parseFloat(f.vat); const v=Number.isNaN(pv)?a*.24:pv; set(p=>[...p,{...f,id:uid(),amt:a,vat:v,total:a+v}]); sF(x=>({...x,amt:"",vat:"",inv_no:"",date:"",comments:"",po_no:""})); };
   return (
     <div>
       <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 16px"}}>{t("Τιμολόγια CBRE — Έσοδα","CBRE Invoices — Revenue")}</h2>
@@ -315,17 +316,18 @@ export function InvTab({data,set,contracts,year,client,onDupCheck}) {
         // Stamp/clear the payment date so open-AR aging & the balance sheet know WHEN it settled.
         if(k==="paid") u.paid_date = v==="paid" ? (r.paid_date || new Date().toISOString().slice(0,10)) : "";
         return u;
-      }))} />
+      }))} locked={r=>isLocked(r.month)} />
     </div>
   );
 }
 
-export function SubTab({data,set,contracts,year,client,onDupCheck}) {
+export function SubTab({data,set,contracts,year,client,onDupCheck,locked}) {
   const { t } = useT();
+  const isLocked = (m) => !!(locked && locked.has(m));
   const activeFee = (contracts||[]).find(c=>c.status==="Active"&&c.type==="MSA")?.fee_pct || 5.5;
   const [f,sF] = useState({site:SITES[0],month:MONTHS[0],cat:COST_CATS[0],gl:"",supplier:"",svc_cat:SVC_CATS[0],svc_desc:"",inv_no:"",date:"",amt:"",vat:"",act_acc:"ACTUAL",comments:"",fee_pct:activeFee});
   // Blank VAT → default 24%; an explicitly typed 0 stays 0 (zero-rated / reverse-charge invoices).
-  const add = () => { if(!f.amt) return; const a=parseFloat(f.amt); const pv=parseFloat(f.vat); const v2=Number.isNaN(pv)?a*.24:pv; const fp=parseFloat(f.fee_pct)||activeFee; const fee=a*fp/100; set(p=>[...p,{...f,id:uid(),amt:a,vat:v2,total:a+v2,fee_pct:fp,cbre_fee:Math.round(fee*100)/100,cbre_bill:Math.round((a+fee)*100)/100}]); sF(x=>({...x,gl:"",supplier:"",svc_desc:"",inv_no:"",date:"",amt:"",vat:"",comments:""})); };
+  const add = () => { if(!f.amt) return; if(isLocked(f.month)){ alert(t("Ο μήνας είναι κλειδωμένος (κλεισμένη περίοδος) — δεν επιτρέπονται νέες εγγραφές.","This month is locked (closed period) — new entries are not allowed.")); return; } const a=parseFloat(f.amt); const pv=parseFloat(f.vat); const v2=Number.isNaN(pv)?a*.24:pv; const fp=parseFloat(f.fee_pct)||activeFee; const fee=a*fp/100; set(p=>[...p,{...f,id:uid(),amt:a,vat:v2,total:a+v2,fee_pct:fp,cbre_fee:Math.round(fee*100)/100,cbre_bill:Math.round((a+fee)*100)/100}]); sF(x=>({...x,gl:"",supplier:"",svc_desc:"",inv_no:"",date:"",amt:"",vat:"",comments:""})); };
   const edit = (id,k,v) => set(p=>p.map(r=>{
     if(r.id!==id) return r;
     const u={...r,[k]:v}; const amt=k==="amt"?(parseFloat(v)||0):r.amt; const vat=k==="vat"?(parseFloat(v)||0):r.vat;
@@ -372,12 +374,13 @@ export function SubTab({data,set,contracts,year,client,onDupCheck}) {
         {k:"comments",l:t("Σχόλια","Comments"),edit:true,mw:100},
         {k:"paid",l:t("Πληρωμή","Payment"),opts:[{v:"",l:t("Απλήρωτο","Unpaid")},{v:"paid",l:t("Πληρωμένο","Paid")}],mw:80},
         {k:"docId",l:t("Αρχείο","File"),mw:80,r:(v,row)=>row&&row.docId?(<span style={{whiteSpace:"nowrap"}}><a href="#" onClick={async e=>{e.preventDefault();try{window.open(await api.getFileLink(year,client,row.docId),"_blank");}catch{alert(t("Αδυναμία ανοίγματος αρχείου","Could not open file"));}}} title={t("Προεπισκόπηση","Preview")} style={{textDecoration:"none",marginRight:8,fontSize:15}}>👁</a><a href="#" onClick={async e=>{e.preventDefault();try{window.location.assign(await api.getFileLink(year,client,row.docId,true));}catch{alert(t("Αδυναμία λήψης αρχείου","Could not download file"));}}} title={t("Λήψη","Download")} style={{textDecoration:"none",fontSize:15}}>⬇</a></span>):<span style={{color:P.tm}}>—</span>}
-      ]} data={data} del={id=>{const row=(data||[]).find(x=>x.id===id); if(row&&row.docId) api.deleteFile(year,client,row.docId).catch(()=>{}); set(p=>p.filter(x=>x.id!==id));}} onEdit={edit} />
+      ]} data={data} del={id=>{const row=(data||[]).find(x=>x.id===id); if(row&&row.docId) api.deleteFile(year,client,row.docId).catch(()=>{}); set(p=>p.filter(x=>x.id!==id));}} onEdit={edit} locked={r=>isLocked(r.month)} />
     </div>
   );
 }
 
-export function AccTab({inv,sub,data,set}) {
+export function AccTab({inv,sub,data,set,locked}) {
+  const isLocked = (m) => !!(locked && locked.has(m));
   const { t } = useT();
   const costCats = ["CORE","EXTRA","PJM"];
   const cats = ["FM Core","FM Extra Works","PJMs"];
@@ -441,7 +444,7 @@ export function AccTab({inv,sub,data,set}) {
                         return (
                           <td key={m} style={{padding:"2px 4px",borderBottom:"1px solid "+P.bd,textAlign:"center"}}>
                             {der!==0 && <div title={t("auto από τιμολόγια ACCRUAL","auto from ACCRUAL invoices")} style={{fontSize:9,color:der<0?P.rd:P.tm,textAlign:"right",lineHeight:1.1}}>{fmt(der)}</div>}
-                            <input type="number" step="0.01" value={M[sec.key][g][m]||""} onChange={e=>setMan(sec.key,g,m,e.target.value)} style={inpS} />
+                            <input type="number" step="0.01" value={M[sec.key][g][m]||""} disabled={isLocked(m)} onChange={e=>{ if(!isLocked(m)) setMan(sec.key,g,m,e.target.value); }} style={{...inpS,...(isLocked(m)?{background:"#F2F4F3",cursor:"not-allowed"}:{})}} title={isLocked(m)?t("Κλειδωμένος μήνας","Locked month"):""} />
                           </td>
                         );
                       })}
@@ -468,9 +471,10 @@ export function AccTab({inv,sub,data,set}) {
   );
 }
 
-export function LabTab({data,set}) {
+export function LabTab({data,set,locked}) {
   const { t } = useT();
-  const up = (m,k,v) => set(p => ({...p,[m]:{...p[m],[k]:parseFloat(v)||0}}));
+  const isLocked = (m) => !!(locked && locked.has(m));
+  const up = (m,k,v) => { if(isLocked(m)) return; set(p => ({...p,[m]:{...p[m],[k]:parseFloat(v)||0}})); };
   const rowTot = k => MONTHS.reduce((s,m)=>s+(Number(data[m]?.[k])||0),0);
   const coreMonth = m => LAB_ROWS.reduce((s,r)=>s+(Number(data[m]?.[r.k])||0),0);
   const totalMonth = m => LAB_ALL_ROWS.reduce((s,r)=>s+(Number(data[m]?.[r.k])||0),0);
@@ -481,7 +485,7 @@ export function LabTab({data,set}) {
       <td style={{padding:"6px 10px",fontSize:12,fontWeight:500,borderBottom:"1px solid "+P.bd,borderRight:"2px solid "+P.bd,whiteSpace:"nowrap"}}>{r.l}</td>
       {MONTHS.map(m => (
         <td key={m} style={{padding:"3px 4px",borderBottom:"1px solid "+P.bd,textAlign:"center"}}>
-          <input type="number" step="0.01" value={data[m]?.[r.k]||""} onChange={e=>up(m,r.k,e.target.value)} style={inpS} />
+          <input type="number" step="0.01" value={data[m]?.[r.k]||""} disabled={isLocked(m)} onChange={e=>up(m,r.k,e.target.value)} style={{...inpS,...(isLocked(m)?{background:"#F2F4F3",cursor:"not-allowed"}:{})}} title={isLocked(m)?t("Κλειδωμένος μήνας","Locked month"):""} />
         </td>
       ))}
       <td style={{padding:"5px 8px",textAlign:"right",fontSize:12,fontWeight:700,color:P.em,borderBottom:"1px solid "+P.bd,background:"#f5f5f5",borderLeft:"2px solid "+P.bd}}>

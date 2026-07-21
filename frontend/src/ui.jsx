@@ -106,7 +106,7 @@ export function Sel({l,v,set,opts,w}) {
 }
 
 // Editable data grid with Excel-like cell selection (Sum/Avg/Min/Max on numeric selections).
-export function Tbl({cols,data,del,onEdit}) {
+export function Tbl({cols,data,del,onEdit,locked}) {
   const [fl,sF] = useState("");
   const [sel,setSel] = useState(new Set());
   const [anchor,setAnchor] = useState(null);
@@ -131,11 +131,13 @@ export function Tbl({cols,data,del,onEdit}) {
       <div style={{overflowX:"auto",userSelect:"none"}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
           <thead><tr>{cols.map(c=><th key={c.k} style={{padding:"7px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:c.a||"left",whiteSpace:"nowrap",position:"sticky",top:0,zIndex:2}}>{c.l}</th>)}<th style={{padding:7,fontSize:11,color:"#fff",background:P.em,width:30,position:"sticky",top:0,zIndex:2}}></th></tr></thead>
-          <tbody>{rows.map((r,ri)=><tr key={r.id||ri}>{cols.map((c,ci)=>{const v=r[c.k];const isSel=sel.has(ck(ri,ci));const bg=isSel?"#E3F2FD":ri%2===0?P.wh:P.al;const bd=isSel?"2px solid #1565C0":"1px solid "+P.bd;const td={padding:"4px 6px",fontSize:12,border:bd,background:bg,textAlign:c.a||"left",minWidth:c.mw||undefined,cursor:"cell"};const h={onMouseDown:e=>md(ri,ci,e),onMouseEnter:()=>me(ri,ci)};
-            if(c.opts&&onEdit) return <td key={c.k} style={td} {...h}><select value={v||""} onChange={e=>up(r.id,c.k,e.target.value)} style={{...cs,textAlign:"left"}}>{c.opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}</select></td>;
-            if(c.edit&&onEdit) return <td key={c.k} style={td} {...h}><input type="text" inputMode={c.t==="number"?"decimal":"text"} value={v??""} onChange={e=>up(r.id,c.k,c.t==="number"?e.target.value:e.target.value)} onBlur={c.t==="number"?e=>{const n=parseFloat(String(e.target.value).replace(",","."));up(r.id,c.k,isNaN(n)?0:n);}:undefined} style={{...cs,textAlign:c.a||"left"}} /></td>;
-            return <td key={c.k} style={{...td,padding:"5px 10px"}} {...h}>{c.r?c.r(v,r):String(v??"")}</td>;
-          })}<td style={{padding:4,textAlign:"center",border:"1px solid "+P.bd,background:ri%2===0?P.wh:P.al}}><button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.rd,cursor:"pointer",fontSize:15}}>×</button></td></tr>)}</tbody>
+          <tbody>{rows.map((r,ri)=>{const rl=locked?locked(r):false;return <tr key={r.id||ri}>{cols.map((c,ci)=>{const v=r[c.k];const isSel=sel.has(ck(ri,ci));const bg=isSel?"#E3F2FD":rl?"#F2F4F3":ri%2===0?P.wh:P.al;const bd=isSel?"2px solid #1565C0":"1px solid "+P.bd;const td={padding:"4px 6px",fontSize:12,border:bd,background:bg,textAlign:c.a||"left",minWidth:c.mw||undefined,cursor:"cell"};const h={onMouseDown:e=>md(ri,ci,e),onMouseEnter:()=>me(ri,ci)};
+            // Locked (closed-period) rows are read-only: render the display value, never the editors.
+            if(c.opts&&onEdit&&!rl) return <td key={c.k} style={td} {...h}><select value={v||""} onChange={e=>up(r.id,c.k,e.target.value)} style={{...cs,textAlign:"left"}}>{c.opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}</select></td>;
+            if(c.edit&&onEdit&&!rl) return <td key={c.k} style={td} {...h}><input type="text" inputMode={c.t==="number"?"decimal":"text"} value={v??""} onChange={e=>up(r.id,c.k,c.t==="number"?e.target.value:e.target.value)} onBlur={c.t==="number"?e=>{const n=parseFloat(String(e.target.value).replace(",","."));up(r.id,c.k,isNaN(n)?0:n);}:undefined} style={{...cs,textAlign:c.a||"left"}} /></td>;
+            const disp = c.opts?((c.opts.find(o=>o.v===v)||{}).l??String(v??"")):c.r?c.r(v,r):String(v??"");
+            return <td key={c.k} style={{...td,padding:"5px 10px"}} {...h}>{disp}</td>;
+          })}<td style={{padding:4,textAlign:"center",border:"1px solid "+P.bd,background:rl?"#F2F4F3":ri%2===0?P.wh:P.al}}>{rl?<span title="Κλειδωμένος μήνας" style={{fontSize:13,opacity:.6}}>🔒</span>:<button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.rd,cursor:"pointer",fontSize:15}}>×</button>}</td></tr>;})}</tbody>
         </table>
       </div>
       <div style={{background:"#263238",color:"#fff",padding:"6px 16px",display:"flex",gap:20,fontSize:12,fontFamily:"'Consolas','Courier New',monospace",minHeight:28,alignItems:"center"}}>

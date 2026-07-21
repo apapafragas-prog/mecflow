@@ -106,6 +106,12 @@ export const normalizeClientData = (c) => {
     }
     out.manualAccruals = fixed;
   }
+  // Period-lock map { month: {by,at} } — remap month keys onto the active FY like everything else.
+  if (out.locked && typeof out.locked === "object") {
+    const nl = {};
+    for (const [m, v] of Object.entries(out.locked)) nl[remapMonth(m)] = v;
+    out.locked = nl;
+  }
   return out;
 };
 export const SITES = ["Site 1","Site 2","Site 3","Site 4","Site 5"];

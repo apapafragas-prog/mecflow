@@ -82,6 +82,7 @@ export default function App() {
   const [dragTab,setDragTab] = useState(null);
   const [overTab,setOverTab] = useState(null);
   const [menuOpen,setMenuOpen] = useState(false);
+  const [lockOpen,setLockOpen] = useState(false);
   const [reconcile,setReconcile] = useState(null);   // { parsed } — open Import & Reconcile modal
   const [reconciling,setReconciling] = useState(false);
   const [dupOpen,setDupOpen] = useState(false);      // duplicate-check modal
@@ -113,7 +114,7 @@ export default function App() {
     const d = {};
     YEARS.forEach(y => {
       d[y] = {};
-      CLIENTS.forEach(c => { d[y][c] = {inv:[],sub:[],lab:mkLab(),labAlloc:mkAlloc(),manualAccruals:[],contracts:[],docs:[],status:"draft",submittedBy:"",submittedAt:""}; });
+      CLIENTS.forEach(c => { d[y][c] = {inv:[],sub:[],lab:mkLab(),labAlloc:mkAlloc(),manualAccruals:[],contracts:[],docs:[],locked:{},status:"draft",submittedBy:"",submittedAt:""}; });
     });
     return d;
   });
@@ -332,6 +333,11 @@ export default function App() {
 
   const inv=cd.inv; const sub=cd.sub; const lab=cd.lab; const contracts=cd.contracts; const docs=cd.docs||[];
   const manualAccruals=cd.manualAccruals||[];
+  // Period lock: months a finance/admin has closed. Data-entry in these months is read-only for everyone.
+  const lockedMap = cd.locked||{};
+  const lockedSet = new Set(Object.keys(lockedMap));
+  const canLock = user.role==="finance"||user.role==="admin";
+  const toggleLock = (m) => { const next={...lockedMap}; if(next[m]) delete next[m]; else next[m]={by:user.name||user.user,at:new Date().toISOString().slice(0,10)}; upClient("locked",next); };
   const setInv=v=>upClient("inv",v);
   const setSub=v=>upClient("sub",v);
   const setLab=v=>upClient("lab",v);
@@ -561,6 +567,28 @@ export default function App() {
           <span style={{fontSize:14,fontWeight:600,borderLeft:"1px solid rgba(255,255,255,.3)",paddingLeft:12}}>{client} — {year}</span>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8,fontSize:13,position:"relative"}}>
+          {/* Period lock (finance/admin): close a month so its invoices/sub become read-only for everyone */}
+          {canLock && (
+            <div style={{position:"relative"}}>
+              <button onClick={()=>setLockOpen(!lockOpen)} title={t("Κλείδωμα/άνοιγμα μηνών","Lock/unlock months")} style={{background:lockedSet.size?"#B71C1C":"rgba(255,255,255,.2)",border:"none",color:"#fff",padding:"7px 14px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
+                🔒 {t("Κλείσιμο","Lock")}{lockedSet.size?` (${lockedSet.size})`:""} <span style={{fontSize:9}}>{lockOpen?"▲":"▼"}</span>
+              </button>
+              {lockOpen && (<>
+                <div onClick={()=>setLockOpen(false)} style={{position:"fixed",inset:0,zIndex:99}} />
+                <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,background:"#fff",borderRadius:8,boxShadow:"0 8px 24px rgba(0,0,0,.18)",width:230,zIndex:100,overflow:"hidden",border:"1px solid "+P.bd}}>
+                  <div style={{padding:"9px 14px",fontSize:11,color:P.tm,borderBottom:"1px solid "+P.bd,lineHeight:1.4}}>{t("Κλείδωσε κλεισμένους μήνες — τα τιμολόγια γίνονται read-only.","Lock closed months — invoices become read-only.")}</div>
+                  <div style={{maxHeight:320,overflowY:"auto"}}>
+                    {MONTHS.map(m=>{ const on=lockedSet.has(m); const info=lockedMap[m]; return (
+                      <button key={m} onClick={()=>toggleLock(m)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",padding:"8px 14px",border:"none",borderBottom:"1px solid "+P.al,background:on?"#FDECEA":"#fff",cursor:"pointer",fontSize:12.5,textAlign:"left",color:P.tx}}>
+                        <span style={{fontWeight:600,color:on?"#B71C1C":P.tx}}>{on?"🔒":"🔓"} {ML[m]||m}</span>
+                        <span style={{fontSize:9.5,color:P.tm}}>{on?(info?.at||t("κλειδ.","locked")):t("ανοιχτό","open")}</span>
+                      </button>
+                    ); })}
+                  </div>
+                </div>
+              </>)}
+            </div>
+          )}
           {/* Actions dropdown */}
           <div style={{position:"relative"}}>
             <button onClick={()=>setMenuOpen(!menuOpen)} style={{background:"#00897B",border:"none",color:"#fff",padding:"7px 16px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
@@ -642,10 +670,10 @@ export default function App() {
         {tab==="scan" && <Scan session={scanSession} scanApi={scanApi} goTo={setTab} year={year} client={client} onAdd={items => setSub(p => [...p,...items.map(x => { const a=Number(x.amt)||0, v=Number(x.vat)||0; const fp=Number(x.fee_pct)|| (contracts||[]).find(c=>c.status==="Active"&&c.type==="MSA")?.fee_pct || 5.5; const fee=Math.round(a*fp/100*100)/100; return {...x,id:uid(),total:x.total!=null?x.total:Math.round((a+v)*100)/100,fee_pct:fp,cbre_fee:fee,cbre_bill:Math.round((a+fee)*100)/100}; })])} onAddAR={items => setInv(p => [...p,...items.map(x => ({...x,id:uid()}))])} />}
         {tab==="pnl" && <PnL inv={inv} sub={sub} lab={lab} client={client} year={year} user={user} />}
         {tab==="insights" && <Insights inv={inv} sub={sub} lab={lab} contracts={contracts} client={client} year={year} />}
-        {tab==="inv" && <InvTab data={inv} set={setInv} contracts={contracts} year={year} client={client} onDupCheck={()=>setDupOpen(true)} />}
-        {tab==="sub" && <SubTab data={sub} set={setSub} contracts={contracts} year={year} client={client} onDupCheck={()=>setDupOpen(true)} />}
-        {tab==="acc" && <AccTab inv={inv} sub={sub} data={manualAccruals} set={setManualAccruals} />}
-        {tab==="lab" && <LabTab data={lab} set={setLab} />}
+        {tab==="inv" && <InvTab data={inv} set={setInv} contracts={contracts} year={year} client={client} onDupCheck={()=>setDupOpen(true)} locked={lockedSet} />}
+        {tab==="sub" && <SubTab data={sub} set={setSub} contracts={contracts} year={year} client={client} onDupCheck={()=>setDupOpen(true)} locked={lockedSet} />}
+        {tab==="acc" && <AccTab inv={inv} sub={sub} data={manualAccruals} set={setManualAccruals} locked={lockedSet} />}
+        {tab==="lab" && <LabTab data={lab} set={setLab} locked={lockedSet} />}
       </div>
       {reconcile && (
         <ReconcileModal

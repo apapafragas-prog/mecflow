@@ -787,9 +787,9 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
                   <tbody>{clients.map(c => (
                     <tr key={c}>
                       <td style={{ padding: "3px 9px", fontWeight: 600, color: P.em, whiteSpace: "nowrap", position: "sticky", left: 0, background: P.wh, borderRight: "1px solid " + P.bd }}>{c}</td>
-                      {MONTHS.map(m => { const st = closeOf(c, m).status || "draft"; const has = (() => { const s = closeSignals(allData[c], m); return s.ar || s.ap || s.lab; })(); const cs = CLOSE_STATES[st]; return (
-                        <td key={m} style={{ padding: 3, textAlign: "center", cursor: "pointer" }} onClick={() => setCloseMonth(m)} title={`${c} ${monthLabel(m)}: ${t(cs.el, cs.en)}`}>
-                          <span style={{ display: "inline-block", width: 14, height: 14, borderRadius: 3, background: st === "draft" ? (has ? "#ECEFF1" : "#F7F9F8") : cs.bg, border: "1px solid " + (st === "draft" ? (has ? "#CFD8DC" : "#ECEFF1") : cs.c) }} />
+                      {MONTHS.map(m => { const st = closeOf(c, m).status || "draft"; const has = (() => { const s = closeSignals(allData[c], m); return s.ar || s.ap || s.lab; })(); const cs = CLOSE_STATES[st]; const isLk = !!(allData[c]?.locked && allData[c].locked[m]); return (
+                        <td key={m} style={{ padding: 3, textAlign: "center", cursor: "pointer" }} onClick={() => setCloseMonth(m)} title={`${c} ${monthLabel(m)}: ${t(cs.el, cs.en)}${isLk ? " · " + t("κλειδωμένο 🔒", "locked 🔒") : ""}`}>
+                          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 14, height: 14, borderRadius: 3, fontSize: 9, background: st === "draft" ? (has ? "#ECEFF1" : "#F7F9F8") : cs.bg, border: "1px solid " + (isLk ? "#B71C1C" : st === "draft" ? (has ? "#CFD8DC" : "#ECEFF1") : cs.c) }}>{isLk ? "🔒" : ""}</span>
                         </td>
                       ); })}
                     </tr>
