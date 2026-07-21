@@ -382,6 +382,9 @@ export function SubTab({data,set,contracts,year,client,onDupCheck,locked}) {
 export function AccTab({inv,sub,data,set,locked}) {
   const isLocked = (m) => !!(locked && locked.has(m));
   const { t } = useT();
+  // Auto-reversal: a manual accrual booked in month M is automatically reversed (negated) in month M+1,
+  // so each accrual nets to zero across the two periods — the standard month-end accrual/reversal pair.
+  const [autoRev,setAutoRev] = useState(false);
   const costCats = ["CORE","EXTRA","PJM"];
   const cats = ["FM Core","FM Extra Works","PJMs"];
   const catLabels = ["FM Core","FM Extra Works","FM PJMs"];
@@ -403,7 +406,10 @@ export function AccTab({inv,sub,data,set,locked}) {
   const revAcc = (cat,m,sign) => inv.filter(i=>i.month===m&&(i.act_acc||"").toUpperCase()==="ACCRUAL"&&(i.cat||"").includes(cat)&&(sign==="+"?(Number(i.amt)||0)>0:(Number(i.amt)||0)<0)).reduce((s,i)=>s+(Number(i.amt)||0),0);
   const costAcc = (cat,m) => sub.filter(i=>i.month===m&&(i.act_acc||"").toUpperCase()==="ACCRUAL"&&(i.cat||"").toUpperCase().includes(cat)).reduce((s,i)=>s+(Number(i.amt)||0),0);
   const derived = (sk,g,m) => sk==="UBR" ? revAcc(cats[g],m,"+") : sk==="UER" ? revAcc(cats[g],m,"-") : costAcc(costCats[g],m);
-  const cell = (sk,g,m) => derived(sk,g,m) + manVal(sk,g,m);
+  // Reversal contribution: this month carries the negation of the PREVIOUS month's manual accrual.
+  const prevMonth = m => { const i=MONTHS.indexOf(m); return i>0?MONTHS[i-1]:null; };
+  const revOf = (s,g,m) => { const pm=autoRev?prevMonth(m):null; return pm?-manVal(s,g,pm):0; };
+  const cell = (sk,g,m) => derived(sk,g,m) + manVal(sk,g,m) + revOf(sk,g,m);
 
   const thS = {padding:"6px 8px",textAlign:"center",fontSize:10,fontWeight:700,color:"#fff",background:P.em,whiteSpace:"nowrap"};
   const inpS = {width:"100%",padding:"3px 4px",border:"1px solid "+P.bd,borderRadius:3,fontSize:11,textAlign:"right",background:P.ip,outline:"none",boxSizing:"border-box"};
@@ -417,7 +423,10 @@ export function AccTab({inv,sub,data,set,locked}) {
   return (
     <div>
       <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 6px"}}>{t("Δουλευμένα (Accruals)","Accruals")}</h2>
-      <p style={{fontSize:12,color:P.tm,margin:"0 0 16px",lineHeight:1.5}}>{t("Γράψε τα accruals χειροκίνητα ανά μήνα (όπως το Labour). Ο μικρός γκρι αριθμός πάνω από ένα κελί είναι όσα προκύπτουν αυτόματα από τιμολόγια ACCRUAL — προστίθεται στα σύνολα.","Type accruals manually per month (like Labour). The small grey number above a cell is the amount auto-derived from ACCRUAL invoices — it is added into the totals.")}</p>
+      <p style={{fontSize:12,color:P.tm,margin:"0 0 12px",lineHeight:1.5}}>{t("Γράψε τα accruals χειροκίνητα ανά μήνα (όπως το Labour). Ο μικρός γκρι αριθμός πάνω από ένα κελί είναι όσα προκύπτουν αυτόματα από τιμολόγια ACCRUAL — προστίθεται στα σύνολα.","Type accruals manually per month (like Labour). The small grey number above a cell is the amount auto-derived from ACCRUAL invoices — it is added into the totals.")}</p>
+      <label style={{display:"inline-flex",alignItems:"center",gap:8,fontSize:12,color:P.tx,margin:"0 0 16px",cursor:"pointer",background:autoRev?"#E8F5E9":P.wh,border:"1px solid "+(autoRev?P.em:P.bd),borderRadius:6,padding:"6px 12px"}} title={t("Ένα χειροκίνητο accrual του μήνα Μ αντιστρέφεται αυτόματα (−) τον μήνα Μ+1.","A manual accrual in month M is automatically reversed (−) in month M+1.")}>
+        <input type="checkbox" checked={autoRev} onChange={e=>setAutoRev(e.target.checked)} /> ↺ {t("Αυτόματη αντιστροφή χειροκίνητων accruals (Μ+1)","Auto-reverse manual accruals (M+1)")}
+      </label>
       {sections.map(sec => (
         <div key={sec.key} style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,marginBottom:16}}>
           <div style={{background:P.ep,padding:"10px 16px",fontWeight:700,fontSize:13,color:P.em}}>{sec.t}</div>
@@ -441,9 +450,11 @@ export function AccTab({inv,sub,data,set,locked}) {
                       <td style={{padding:"6px 10px",fontSize:12,fontWeight:500,borderBottom:"1px solid "+P.bd,borderRight:"2px solid "+P.bd}}>{catLabels[g]}</td>
                       {MONTHS.map(m => {
                         const der = derived(sec.key,g,m);
+                        const rev = revOf(sec.key,g,m);
                         return (
                           <td key={m} style={{padding:"2px 4px",borderBottom:"1px solid "+P.bd,textAlign:"center"}}>
                             {der!==0 && <div title={t("auto από τιμολόγια ACCRUAL","auto from ACCRUAL invoices")} style={{fontSize:9,color:der<0?P.rd:P.tm,textAlign:"right",lineHeight:1.1}}>{fmt(der)}</div>}
+                            {rev!==0 && <div title={t("αντιστροφή προηγ. μήνα","prior-month reversal")} style={{fontSize:9,color:P.rd,textAlign:"right",lineHeight:1.1}}>↺ {fmt(rev)}</div>}
                             <input type="number" step="0.01" value={M[sec.key][g][m]||""} disabled={isLocked(m)} onChange={e=>{ if(!isLocked(m)) setMan(sec.key,g,m,e.target.value); }} style={{...inpS,...(isLocked(m)?{background:"#F2F4F3",cursor:"not-allowed"}:{})}} title={isLocked(m)?t("Κλειδωμένος μήνας","Locked month"):""} />
                           </td>
                         );
@@ -475,6 +486,14 @@ export function LabTab({data,set,locked}) {
   const { t } = useT();
   const isLocked = (m) => !!(locked && locked.has(m));
   const up = (m,k,v) => { if(isLocked(m)) return; set(p => ({...p,[m]:{...p[m],[k]:parseFloat(v)||0}})); };
+  // FTE × rate planner — a client-side helper to populate the monthly grid from headcount × monthly cost.
+  // Not persisted (a budgeting aid); "Apply" writes the computed cost into every unlocked month.
+  const [planOpen,setPlanOpen] = useState(false);
+  const [plan,setPlan] = useState({});   // {rowKey:{fte, rate}}
+  const setPlanVal = (k,f,v) => setPlan(p=>({...p,[k]:{...p[k],[f]:v}}));
+  const planMonthly = k => (Number(plan[k]?.fte)||0)*(Number(plan[k]?.rate)||0);
+  const applyRow = k => { const c=planMonthly(k); MONTHS.forEach(m=>{ if(!isLocked(m)) up(m,k,c); }); };
+  const applyAll = () => LAB_ROWS.forEach(r=>{ if(plan[r.k]&&(Number(plan[r.k].fte)||Number(plan[r.k].rate))) applyRow(r.k); });
   const rowTot = k => MONTHS.reduce((s,m)=>s+(Number(data[m]?.[k])||0),0);
   const coreMonth = m => LAB_ROWS.reduce((s,r)=>s+(Number(data[m]?.[r.k])||0),0);
   const totalMonth = m => LAB_ALL_ROWS.reduce((s,r)=>s+(Number(data[m]?.[r.k])||0),0);
@@ -497,6 +516,34 @@ export function LabTab({data,set,locked}) {
     <div>
       <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 8px"}}>{t("Κόστος Εργασίας","Labour Cost")}</h2>
       <div style={{fontSize:11.5,color:P.tm,margin:"0 0 12px",lineHeight:1.5}}>{t("Οι κατηγορίες αθροίζουν στο FM Core Labour. Οι γραμμές Extra Works & PJM δέχονται πραγματικά ποσά και μεταφέρονται αυτούσιες στο P&L (Labour Cost - FM Extra Works / PJMs).","The categories sum into FM Core Labour. The Extra Works & PJM lines take actual amounts and flow verbatim into the P&L (Labour Cost - FM Extra Works / PJMs).")}</div>
+
+      <div style={{marginBottom:12}}>
+        <button onClick={()=>setPlanOpen(o=>!o)} style={{background:planOpen?P.em:P.wh,color:planOpen?"#fff":P.em,border:"1px solid "+P.em,borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>🧮 {t("Υπολογισμός FTE × Ρυθμός","FTE × Rate planner")} {planOpen?"▲":"▼"}</button>
+        {planOpen && (
+          <div style={{background:"#F7FBF9",border:"1px solid "+P.bd,borderRadius:8,padding:14,marginTop:8}}>
+            <div style={{fontSize:11.5,color:P.tm,marginBottom:10,lineHeight:1.5}}>{t("Όρισε FTE και μηνιαίο κόστος ανά FTE για κάθε κατηγορία Core. Το «Εφαρμογή» συμπληρώνει το μηνιαίο κόστος (FTE × Ρυθμός) σε όλους τους ξεκλείδωτους μήνες.","Set FTE and monthly cost per FTE for each Core category. 'Apply' fills the monthly cost (FTE × Rate) into every unlocked month.")}</div>
+            <div style={{overflowX:"auto"}}>
+              <table style={{borderCollapse:"collapse",fontSize:12,minWidth:560}}>
+                <thead><tr>{[t("Κατηγορία","Category"),"FTE",t("Μην. Ρυθμός €","Monthly Rate €"),t("= Μηνιαίο €","= Monthly €"),t("Ετήσιο €","Annual €"),""].map((h,i)=>(<th key={i} style={{padding:"5px 10px",fontSize:11,fontWeight:700,color:P.em,textAlign:i===0?"left":i===5?"center":"right",borderBottom:"1px solid "+P.bd}}>{h}</th>))}</tr></thead>
+                <tbody>
+                  {LAB_ROWS.map(r=>(
+                    <tr key={r.k}>
+                      <td style={{padding:"4px 10px",whiteSpace:"nowrap"}}>{r.l}</td>
+                      <td style={{padding:"3px 6px"}}><input type="number" step="0.1" value={plan[r.k]?.fte??""} onChange={e=>setPlanVal(r.k,"fte",e.target.value)} style={{width:64,padding:"4px 6px",border:"1px solid "+P.bd,borderRadius:4,fontSize:12,textAlign:"right",outline:"none"}} /></td>
+                      <td style={{padding:"3px 6px"}}><input type="number" step="1" value={plan[r.k]?.rate??""} onChange={e=>setPlanVal(r.k,"rate",e.target.value)} style={{width:90,padding:"4px 6px",border:"1px solid "+P.bd,borderRadius:4,fontSize:12,textAlign:"right",outline:"none"}} /></td>
+                      <td style={{padding:"4px 10px",textAlign:"right",fontWeight:600,color:P.em}}>{planMonthly(r.k)?fmt(planMonthly(r.k)):"-"}</td>
+                      <td style={{padding:"4px 10px",textAlign:"right",color:P.tm}}>{planMonthly(r.k)?fmt(planMonthly(r.k)*MONTHS.length):"-"}</td>
+                      <td style={{padding:"3px 8px",textAlign:"center"}}><button onClick={()=>applyRow(r.k)} disabled={!planMonthly(r.k)} style={{background:P.wh,color:P.em,border:"1px solid "+P.bd,borderRadius:4,padding:"3px 10px",fontSize:11,fontWeight:600,cursor:planMonthly(r.k)?"pointer":"not-allowed",opacity:planMonthly(r.k)?1:.4}}>→ {t("Εφαρμογή","Apply")}</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <button onClick={applyAll} style={{marginTop:10,background:P.em,color:"#fff",border:"none",borderRadius:6,padding:"7px 16px",fontSize:12,fontWeight:600,cursor:"pointer"}}>→ {t("Εφαρμογή όλων στους μήνες","Apply all to months")}</button>
+          </div>
+        )}
+      </div>
+
       <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd}}>
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed",minWidth:1100}}>
