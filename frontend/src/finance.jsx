@@ -310,32 +310,50 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
   const [data,setData] = useState(null);
   const [loading,setLoading] = useState(true);
   const [view,setView] = useState("AR");        // AR | AP
-  const [terms,setTerms] = useState(30);          // payment terms in days (0 = from invoice date)
+  const [terms,setTerms] = useState(30);          // default payment terms in days (0 = from invoice date)
   const [showPaid,setShowPaid] = useState(false);
   const [busy,setBusy] = useState("");
   const [payDate,setPayDate] = useState(new Date().toISOString().slice(0,10)); // value date stamped when marking Paid
+  const [payModal,setPayModal] = useState(null);  // {e, amount, date} — record-a-partial-payment dialog
+  // Per-counterparty payment-term overrides (days). Persisted per user/view in localStorage so collections
+  // teams can encode "Client X is Net 45" without touching the finance blob. Falls back to the global terms.
+  const [cpTerms,setCpTerms] = useState(()=>{ try { return JSON.parse(localStorage.getItem("mf_apar_terms")||"{}"); } catch { return {}; } });
+  const setCpTerm = (cp,v) => setCpTerms(p=>{ const n={...p}; if(v===""||v==null){ delete n[cp]; } else { n[cp]=Number(v); } try{ localStorage.setItem("mf_apar_terms",JSON.stringify(n)); }catch{ /* ignore */ } return n; });
+  const termsFor = cp => (cpTerms[cp]!=null && cpTerms[cp]!=="") ? Number(cpTerms[cp]) : terms;
 
   const load = () => { setLoading(true); api.getYearData(year).then(d=>{ setData(normYear(d)); setLoading(false); }).catch(()=>{ setData({}); setLoading(false); }); };
   useEffect(()=>{ load(); /* eslint-disable-next-line */ },[year]);
 
   const amt = r => Number(r.total) || (Number(r.amt)||0)+(Number(r.vat)||0) || Number(r.amt) || 0;
+  // Settlement model: a row is "closed" when the paid flag is set (full settle); until then any recorded
+  // partial payments accumulate and the open exposure is the remaining balance.
+  const settleInfo = r => {
+    const total = amt(r);
+    const paidFlag = r.paid==="paid" || r.paid===true;
+    const pays = Array.isArray(r.payments) ? r.payments : [];
+    const paySum = pays.reduce((s,p)=>s+(Number(p.amount)||0),0);
+    const settled = paidFlag ? total : Math.min(paySum, total);
+    return { total, settled, balance: Math.max(0, total-settled), paidFlag, paySum };
+  };
   // Build ledger entries for the current view across all clients.
   const entries = [];
   Object.entries(data||{}).forEach(([client,cd])=>{
     const list = view==="AR" ? (cd?.inv||[]) : (cd?.sub||[]);
     list.forEach(r=>{
-      const paid = r.paid==="paid" || r.paid===true;
-      entries.push({ client, id:r.id, counterparty: view==="AR" ? client : (r.supplier||"—"), invNo:r.inv_no||"", date:r.date||"", amount:amt(r), paid, bucket: agingBucket(r.date, terms) });
+      const cp = view==="AR" ? client : (r.supplier||"—");
+      const si = settleInfo(r);
+      const closed = si.balance <= 0.005;
+      entries.push({ client, id:r.id, counterparty: cp, invNo:r.inv_no||"", date:r.date||"", amount:si.total, settled:si.settled, balance:si.balance, paid:closed, partial: si.settled>0.005 && !closed, bucket: agingBucket(r.date, termsFor(cp)) });
     });
   });
   const open = entries.filter(e=>!e.paid);
   const visible = (showPaid ? entries : open).slice().sort((a,b)=>(parseDate(b.date)?.getTime()||0)-(parseDate(a.date)?.getTime()||0));
-  const totalOpen = open.reduce((s,e)=>s+e.amount,0);
-  const overdue = open.filter(e=>e.bucket!=="current"&&e.bucket!=="unknown").reduce((s,e)=>s+e.amount,0);
-  const bucketTotal = b => open.filter(e=>e.bucket===b).reduce((s,e)=>s+e.amount,0);
-  // Per-counterparty aging
+  const totalOpen = open.reduce((s,e)=>s+e.balance,0);
+  const overdue = open.filter(e=>e.bucket!=="current"&&e.bucket!=="unknown").reduce((s,e)=>s+e.balance,0);
+  const bucketTotal = b => open.filter(e=>e.bucket===b).reduce((s,e)=>s+e.balance,0);
+  // Per-counterparty aging (exposure = remaining balance)
   const byCp = {};
-  open.forEach(e=>{ const k=e.counterparty; if(!byCp[k]) byCp[k]={cp:k,total:0,client:e.client}; byCp[k][e.bucket]=(byCp[k][e.bucket]||0)+e.amount; byCp[k].total+=e.amount; });
+  open.forEach(e=>{ const k=e.counterparty; if(!byCp[k]) byCp[k]={cp:k,total:0,client:e.client}; byCp[k][e.bucket]=(byCp[k][e.bucket]||0)+e.balance; byCp[k].total+=e.balance; });
   const cpRows = Object.values(byCp).sort((a,b)=>b.total-a.total);
 
   const exportLedger = () => {
@@ -345,23 +363,21 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
       ["TOTAL", ...AGING_BUCKETS.map(b=>bucketTotal(b)), totalOpen]];
     // The item sheet always includes every document (paid + open) regardless of the on-screen filter,
     // so an exported ledger is a complete record; a Paid/Status column carries the state.
-    const itemsAoa = [["Date",cpLabel,"Client","Invoice No","Amount","Aging","Status"],
+    const itemsAoa = [["Date",cpLabel,"Client","Invoice No","Amount","Settled","Balance","Aging","Status"],
       ...entries.slice().sort((a,b)=>(parseDate(b.date)?.getTime()||0)-(parseDate(a.date)?.getTime()||0))
-        .map(e=>[e.date||"", e.counterparty, e.client, e.invNo, e.amount, e.bucket, e.paid?"Paid":"Open"])];
+        .map(e=>[e.date||"", e.counterparty, e.client, e.invNo, e.amount, e.settled, e.balance, e.bucket, e.paid?"Paid":e.partial?"Partial":"Open"])];
     exportWorkbook(`CBRE_${view}_Ledger_${year}.xlsx`, [{name:`Aging ${view}`,aoa:agingAoa},{name:"Items",aoa:itemsAoa}]);
   };
 
-  const markPaid = async (e) => {
+  // Generic optimistic-locked mutate of a single AR/AP document, then persist the normalized blob.
+  const persistRow = async (e, mutate) => {
     const list = view==="AR" ? "inv" : "sub";
     setBusy(e.client+e.id);
     try {
       const r = await api.getClientData(year, e.client);
-      const cd = r?.data; if(!cd || !Array.isArray(cd[list])) throw new Error("Δεν βρέθηκαν δεδομένα");
-      const row = cd[list].find(x=>x.id===e.id); if(!row) throw new Error("Δεν βρέθηκε το τιμολόγιο");
-      const nowPaid = !(row.paid==="paid"||row.paid===true);
-      // Stamp the actual settlement date the user set (value date), not "today" — this drives aging
-      // and the month the invoice leaves AR/AP on the balance sheet. Falls back to today if cleared.
-      row.paid = nowPaid ? "paid" : ""; row.paid_date = nowPaid ? (payDate || new Date().toISOString().slice(0,10)) : "";
+      const cd = r?.data; if(!cd || !Array.isArray(cd[list])) throw new Error(t("Δεν βρέθηκαν δεδομένα","No data found"));
+      const row = cd[list].find(x=>x.id===e.id); if(!row) throw new Error(t("Δεν βρέθηκε το τιμολόγιο","Document not found"));
+      mutate(row);
       // Normalize once and persist THAT (not the raw blob), so the server and local state agree on
       // month keys — matching what every other load path stores via normYear.
       const norm = normalizeClientData(cd);
@@ -369,6 +385,29 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
       setData(p=>({ ...p, [e.client]: norm }));
     } catch(err){ alert(t("Δεν αποθηκεύτηκε: ","Not saved: ")+(err.message||t("σφάλμα","error"))); }
     finally{ setBusy(""); }
+  };
+
+  // Full settle / un-settle. Stamp the actual value date the user set (drives aging + the month the
+  // invoice leaves AR/AP on the balance sheet). Falls back to today if cleared.
+  const markPaid = (e) => persistRow(e, row => {
+    const nowPaid = !(row.paid==="paid"||row.paid===true);
+    row.paid = nowPaid ? "paid" : ""; row.paid_date = nowPaid ? (payDate || new Date().toISOString().slice(0,10)) : "";
+    if(!nowPaid) row.payments = [];   // reopening clears the payment history
+  });
+
+  // Record a partial payment; auto-close the document once payments cover the full amount.
+  const recordPayment = () => {
+    const m = payModal; if(!m) return;
+    const val = Number(m.amount)||0; if(val<=0){ setPayModal(null); return; }
+    setPayModal(null);
+    persistRow(m.e, row => {
+      const pays = Array.isArray(row.payments) ? row.payments.slice() : [];
+      pays.push({ date: m.date || new Date().toISOString().slice(0,10), amount: val });
+      row.payments = pays;
+      const total = amt(row);
+      const paySum = pays.reduce((s,p)=>s+(Number(p.amount)||0),0);
+      if(paySum >= total-0.005){ row.paid = "paid"; row.paid_date = m.date || new Date().toISOString().slice(0,10); }
+    });
   };
 
   const bucketColor = {current:P.gn,"1-30":"#9E9D24","31-60":"#F57F17","61-90":"#EF6C00","90+":P.rd,unknown:P.tm};
@@ -427,17 +466,20 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
           {/* Per-counterparty aging */}
           <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,marginBottom:16,overflowX:"auto"}}>
             <div style={{padding:"10px 16px",fontSize:13,fontWeight:700,color:P.em,borderBottom:"1px solid "+P.bd}}>{t("Aging ανά","Aging by")} {view==="AR"?t("πελάτη","client"):t("προμηθευτή","supplier")} ({termLabel})</div>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:820}}>
-              <thead><tr>{[view==="AR"?t("Πελάτης","Client"):t("Προμηθευτής","Supplier"),t("Τρέχον","Current"),"1-30","31-60","61-90","90+",t("Σύνολο","Total")].map((h,i)=>(<th key={i} style={{padding:"7px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:i===0?"left":"right"}}>{h}</th>))}</tr></thead>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:900}}>
+              <thead><tr>{[view==="AR"?t("Πελάτης","Client"):t("Προμηθευτής","Supplier"),t("Όροι","Terms"),t("Τρέχον","Current"),"1-30","31-60","61-90","90+",t("Σύνολο","Total")].map((h,i)=>(<th key={i} style={{padding:"7px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:i===0?"left":i===1?"center":"right"}}>{h}</th>))}</tr></thead>
               <tbody>
                 {cpRows.map((r,i)=>(
-                  <tr key={r.cp} onClick={()=>view==="AR"&&onSelectClient&&onSelectClient(r.cp)} style={{background:i%2===0?P.wh:P.al,cursor:view==="AR"?"pointer":"default"}}>
-                    <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,fontWeight:600,color:P.em}}>{r.cp}</td>
+                  <tr key={r.cp} style={{background:i%2===0?P.wh:P.al}}>
+                    <td onClick={()=>view==="AR"&&onSelectClient&&onSelectClient(r.cp)} style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,fontWeight:600,color:P.em,cursor:view==="AR"?"pointer":"default"}}>{r.cp}</td>
+                    <td style={{padding:"4px 6px",borderBottom:"1px solid "+P.bd,textAlign:"center"}} title={t("Όροι πληρωμής (ημέρες) για αυτόν — υπερισχύει του γενικού","Payment terms (days) for this one — overrides the global default")}>
+                      <input value={cpTerms[r.cp]??""} onChange={ev=>setCpTerm(r.cp, ev.target.value.replace(/[^\d]/g,""))} placeholder={String(terms)} style={{width:44,padding:"3px 5px",border:"1px solid "+P.bd,borderRadius:5,fontSize:11,textAlign:"center",outline:"none",color:cpTerms[r.cp]!=null&&cpTerms[r.cp]!==""?P.em:P.tm}} />
+                    </td>
                     {AGING_BUCKETS.map(b=><td key={b} style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",color:(r[b]&&b!=="current")?bucketColor[b]:P.tx}}>{r[b]?fmt(r[b]):"-"}</td>)}
                     <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",fontWeight:700,color:P.em}}>{fmt(r.total)}</td>
                   </tr>
                 ))}
-                {!cpRows.length && <tr><td colSpan={7} style={{padding:24,textAlign:"center",color:P.tm,fontStyle:"italic"}}>{t("Κανένα ανοιχτό υπόλοιπο 🎉","No open balance 🎉")}</td></tr>}
+                {!cpRows.length && <tr><td colSpan={8} style={{padding:24,textAlign:"center",color:P.tm,fontStyle:"italic"}}>{t("Κανένα ανοιχτό υπόλοιπο 🎉","No open balance 🎉")}</td></tr>}
               </tbody>
             </table>
           </div>
@@ -445,17 +487,19 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
           {/* Open items */}
           <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,overflowX:"auto"}}>
             <div style={{padding:"10px 16px",fontSize:13,fontWeight:700,color:P.em,borderBottom:"1px solid "+P.bd}}>{showPaid?t("Όλα τα παραστατικά","All documents"):t("Ανοιχτά παραστατικά","Open documents")} ({visible.length})</div>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:820}}>
-              <thead><tr>{[[t("Ημ/νία","Date"),"l"],[view==="AR"?t("Πελάτης","Client"):t("Προμηθευτής","Supplier"),"l"],[t("Αρ. Τιμ.","Inv No"),"l"],[t("Ποσό €","Amount €"),"r"],["Aging","l"],["",""]].map(([h,al],i)=>(<th key={i} style={{padding:"7px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:al==="r"?"right":"left"}}>{h}</th>))}</tr></thead>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:960}}>
+              <thead><tr>{[[t("Ημ/νία","Date"),"l"],[view==="AR"?t("Πελάτης","Client"):t("Προμηθευτής","Supplier"),"l"],[t("Αρ. Τιμ.","Inv No"),"l"],[t("Ποσό €","Amount €"),"r"],[t("Υπόλοιπο €","Balance €"),"r"],["Aging","l"],["",""]].map(([h,al],i)=>(<th key={i} style={{padding:"7px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:al==="r"?"right":"left"}}>{h}</th>))}</tr></thead>
               <tbody>
                 {visible.map((e,i)=>(
-                  <tr key={e.client+e.id+i} style={{background:e.paid?"#F1F8E9":i%2===0?P.wh:P.al}}>
+                  <tr key={e.client+e.id+i} style={{background:e.paid?"#F1F8E9":e.partial?"#FFFDE7":i%2===0?P.wh:P.al}}>
                     <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd}}>{e.date||"—"}</td>
                     <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,fontWeight:600,color:P.em}}>{e.counterparty}{view==="AP"&&<span style={{fontSize:10,color:P.tm}}> ({e.client})</span>}</td>
                     <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd}}>{e.invNo||"—"}</td>
                     <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",fontWeight:600}}>{fmt(e.amount)}</td>
-                    <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd}}>{e.paid?<span style={{color:P.gn,fontWeight:600}}>✓ {t("Πληρωμένο","Paid")}</span>:<span style={{color:bucketColor[e.bucket],fontWeight:600}}>{e.bucket==="current"?t("Τρέχον","Current"):e.bucket}</span>}</td>
-                    <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right"}}>
+                    <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",fontWeight:700,color:e.balance>0.005?P.tx:P.gn}}>{e.paid?"—":fmt(e.balance)}</td>
+                    <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd}}>{e.paid?<span style={{color:P.gn,fontWeight:600}}>✓ {t("Πληρωμένο","Paid")}</span>:<span style={{color:bucketColor[e.bucket],fontWeight:600}}>{e.bucket==="current"?t("Τρέχον","Current"):e.bucket}{e.partial&&<span style={{color:"#E65100",fontWeight:600,marginLeft:6}}>· {t("μερικώς","partial")}</span>}</span>}</td>
+                    <td style={{padding:"6px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",whiteSpace:"nowrap"}}>
+                      {!e.paid && <button onClick={()=>setPayModal({e, amount:String(Math.round(e.balance*100)/100), date:payDate})} disabled={busy===e.client+e.id} style={{background:P.wh,color:P.em,border:"1px solid "+P.bd,padding:"3px 8px",borderRadius:4,fontSize:11,fontWeight:600,cursor:busy?"wait":"pointer",marginRight:6}}>€ {t("Μερική","Part")}</button>}
                       <button onClick={()=>markPaid(e)} disabled={busy===e.client+e.id} style={{background:e.paid?"#FFF3E0":P.ep,color:e.paid?"#E65100":P.em,border:"none",padding:"3px 10px",borderRadius:4,fontSize:11,fontWeight:600,cursor:busy?"wait":"pointer"}}>{busy===e.client+e.id?"…":e.paid?t("↩ Ακύρωση","↩ Unpay"):t("✓ Πληρώθηκε","✓ Paid")}</button>
                     </td>
                   </tr>
@@ -463,10 +507,28 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
               </tbody>
             </table>
           </div>
-          <div style={{fontSize:11,color:P.tm,marginTop:8}}>{t("Aging βάσει","Aging based on")} {termLabel}. {t("Το «Paid» ενημερώνει το τιμολόγιο στον αντίστοιχο πελάτη (με έλεγχο έκδοσης).","'Paid' updates the invoice on the corresponding client (with version check).")}</div>
+          <div style={{fontSize:11,color:P.tm,marginTop:8}}>{t("Aging βάσει","Aging based on")} {termLabel} ({t("ανά αντισυμβαλλόμενο όπου έχει οριστεί","per counterparty where set")}). {t("Το «Μερική» καταχωρεί τμηματική πληρωμή· όταν καλυφθεί το σύνολο, το παραστατικό κλείνει αυτόματα.","'Part' records a partial payment; once the full amount is covered the document closes automatically.")}</div>
         </>
         )}
       </div>
+
+      {payModal && (
+        <div onClick={()=>setPayModal(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:50}}>
+          <div onClick={ev=>ev.stopPropagation()} style={{background:P.wh,borderRadius:12,padding:22,width:340,boxShadow:"0 12px 40px rgba(0,0,0,.25)"}}>
+            <div style={{fontSize:15,fontWeight:700,color:P.em,marginBottom:4}}>{t("Καταχώρηση πληρωμής","Record payment")}</div>
+            <div style={{fontSize:12,color:P.tm,marginBottom:14}}>{payModal.e.counterparty} · {payModal.e.invNo||t("χωρίς αρ.","no no.")} · {t("υπόλοιπο","balance")} €{fmt(payModal.e.balance)}</div>
+            <label style={{display:"block",fontSize:12,color:P.tm,marginBottom:4}}>{t("Ποσό €","Amount €")}</label>
+            <input type="number" step="0.01" autoFocus value={payModal.amount} onChange={ev=>setPayModal(m=>({...m,amount:ev.target.value}))} onKeyDown={ev=>ev.key==="Enter"&&recordPayment()} style={{width:"100%",padding:"8px 10px",border:"1px solid "+P.bd,borderRadius:8,fontSize:14,outline:"none",marginBottom:12,boxSizing:"border-box"}} />
+            <label style={{display:"block",fontSize:12,color:P.tm,marginBottom:4}}>{t("Ημ/νία","Date")}</label>
+            <input type="date" value={payModal.date} onChange={ev=>setPayModal(m=>({...m,date:ev.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid "+P.bd,borderRadius:8,fontSize:14,outline:"none",marginBottom:8,boxSizing:"border-box"}} />
+            {Number(payModal.amount)>payModal.e.balance+0.005 && <div style={{fontSize:11,color:"#E65100",marginBottom:8}}>{t("Το ποσό υπερβαίνει το υπόλοιπο — θα κλείσει πλήρως.","Amount exceeds the balance — will fully close it.")}</div>}
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:6}}>
+              <button onClick={()=>setPayModal(null)} style={{padding:"8px 14px",border:"1px solid "+P.bd,borderRadius:8,background:P.wh,color:P.tx,fontSize:13,cursor:"pointer"}}>{t("Άκυρο","Cancel")}</button>
+              <button onClick={recordPayment} disabled={!(Number(payModal.amount)>0)} style={{padding:"8px 16px",border:"none",borderRadius:8,background:P.em,color:"#fff",fontSize:13,fontWeight:600,cursor:Number(payModal.amount)>0?"pointer":"not-allowed",opacity:Number(payModal.amount)>0?1:.5}}>{t("Καταχώρηση","Record")}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
