@@ -93,6 +93,18 @@ const sendEmail = async (to, subject, html) => {
   if (!mailer) throw new Error("SMTP not configured");
   await mailer.sendMail({ from: SMTP_FROM, to, subject, html });
 };
+// HTML-escape any value interpolated into an email body (prevents stored-HTML / link injection).
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+// Base URL for links in emails. NEVER trust the Host header blindly (host-header injection would let an
+// attacker point a genuine reset link at their own domain). Prefer APP_BASE_URL; otherwise only accept a
+// Host that is on the allowlist, else fall back to the first allowed host.
+const APP_HOSTS = (process.env.APP_HOSTS || "mecflow.cbrehellas.online,cbre.mecflow.gr").split(",").map(s => s.trim()).filter(Boolean);
+const safeBaseUrl = (req) => {
+  if (APP_BASE_URL) return APP_BASE_URL;
+  const host = String(req.headers.host || "").toLowerCase();
+  if (APP_HOSTS.includes(host)) return `${req.protocol}://${host}`;
+  return APP_HOSTS.length ? `https://${APP_HOSTS[0]}` : "";
+};
 const resetEmailHtml = (name, link) => `
   <div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;margin:0 auto;color:#1A2E23">
     <div style="background:#003F2D;color:#fff;padding:20px 24px;border-radius:10px 10px 0 0;font-size:20px;font-weight:700">CBRE Reporting</div>
@@ -120,16 +132,18 @@ const emailForName = (nm) => db.prepare("SELECT email FROM users WHERE name = ? 
 // Fire report-status notifications (best-effort — never blocks the save).
 const notifyStatusChange = (year, client, newStatus, payload, req) => {
   if (!EMAIL_ENABLED) return;
-  const base = (APP_BASE_URL || `${req.protocol}://${req.headers.host}`).replace(/\/$/, "");
-  const send = (to, subj, body) => sendEmail(to, subj, notifyHtml(subj, body, base)).catch(e => console.error("notify email failed:", e.message));
+  const base = safeBaseUrl(req);
+  // Escape every user-controlled field before it enters the email HTML (structural <b> tags stay).
+  const c = esc(client), y = esc(year);
+  const send = (to, subj, body) => sendEmail(to, subj, notifyHtml(esc(subj), body, base)).catch(e => console.error("notify email failed:", e.message));
   if (newStatus === "submitted") {
-    const who = payload.submittedBy || req.user.name || "χρήστης";
-    for (const r of emailsForRoles(["finance", "admin"])) send(r.email, `Report προς έγκριση — ${client} ${year}`, `Ο/Η <b>${who}</b> υπέβαλε το report για <b>${client}</b> (${year}) προς έγκριση.`);
+    const who = esc(payload.submittedBy || req.user.name || "χρήστης");
+    for (const r of emailsForRoles(["finance", "admin"])) send(r.email, `Report προς έγκριση — ${client} ${year}`, `Ο/Η <b>${who}</b> υπέβαλε το report για <b>${c}</b> (${y}) προς έγκριση.`);
   } else if (newStatus === "approved" || newStatus === "rejected") {
     const sub = payload.submittedBy && emailForName(payload.submittedBy);
     if (sub && sub.email) {
-      if (newStatus === "approved") send(sub.email, `✓ Εγκρίθηκε — ${client} ${year}`, `Το report σου για <b>${client}</b> (${year}) <b>εγκρίθηκε</b> από το Finance.`);
-      else send(sub.email, `Χρειάζεται διόρθωση — ${client} ${year}`, `Το report σου για <b>${client}</b> (${year}) <b>απορρίφθηκε</b> και χρειάζεται διόρθωση.${payload.rejectNote ? `<br><br><b>Λόγος:</b> ${payload.rejectNote}` : ""}`);
+      if (newStatus === "approved") send(sub.email, `✓ Εγκρίθηκε — ${client} ${year}`, `Το report σου για <b>${c}</b> (${y}) <b>εγκρίθηκε</b> από το Finance.`);
+      else send(sub.email, `Χρειάζεται διόρθωση — ${client} ${year}`, `Το report σου για <b>${c}</b> (${y}) <b>απορρίφθηκε</b> και χρειάζεται διόρθωση.${payload.rejectNote ? `<br><br><b>Λόγος:</b> ${esc(payload.rejectNote)}` : ""}`);
     }
   }
 };
@@ -228,10 +242,10 @@ app.post("/api/auth/forgot", forgotLimiter, async (req, res) => {
   const tokenHash = createHmac("sha256", JWT_SECRET).update(token).digest("hex");
   const exp = Math.floor(Date.now() / 1000) + 30 * 60; // 30 minutes
   db.prepare("INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, ?)").run(tokenHash, u.id, exp);
-  const base = (APP_BASE_URL || `${req.protocol}://${req.headers.host}`).replace(/\/$/, "");
+  const base = safeBaseUrl(req);
   const link = `${base}/reset?token=${token}`;
   try {
-    await sendEmail(u.email, "Επαναφορά κωδικού — CBRE Reporting", resetEmailHtml(u.name || u.username, link));
+    await sendEmail(u.email, "Επαναφορά κωδικού — CBRE Reporting", resetEmailHtml(esc(u.name || u.username), link));
     audit(u.username, "password_reset_requested", null, req);
   } catch (e) {
     console.error("Resend send failed:", e.message);
@@ -420,7 +434,6 @@ app.put("/api/finance/:year", auth, requireRole("finance", "admin"), (req, res) 
 // ── Email a P&L report (finance/admin) ──
 // The frontend sends already-computed, pre-formatted rows so the emailed table matches the on-screen
 // P&L exactly; the server only renders + delivers (every field HTML-escaped — no injection from labels).
-const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const reportEmailHtml = (title, subtitle, tableHtml, link) => `
   <div style="font-family:Segoe UI,Arial,sans-serif;max-width:760px;margin:0 auto;color:#1A2E23">
     <div style="background:#003F2D;color:#fff;padding:18px 24px;border-radius:10px 10px 0 0;font-size:18px;font-weight:700">CBRE Reporting — ${esc(title)}</div>
@@ -432,7 +445,10 @@ const reportEmailHtml = (title, subtitle, tableHtml, link) => `
     </div>
   </div>`;
 
-app.post("/api/reports/email", auth, requireRole("finance", "admin"), async (req, res) => {
+// Rate-limit report emails per session to stop a compromised finance/admin token from relaying spam
+// through CBRE's SMTP (recipients are caller-supplied).
+const reportsLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 40, keyGenerator: (req) => (req.user && req.user.id) || req.ip, message: { error: "Πάρα πολλά emails — δοκίμασε ξανά αργότερα" } });
+app.post("/api/reports/email", auth, requireRole("finance", "admin"), reportsLimiter, async (req, res) => {
   if (!EMAIL_ENABLED) return res.status(503).json({ error: "Η αποστολή email δεν έχει ρυθμιστεί (SMTP)." });
   const { client, year, subtitle, months, rows, recipients, subject } = req.body || {};
   const to = (Array.isArray(recipients) ? recipients : []).map((e) => String(e).trim()).filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
@@ -449,13 +465,13 @@ app.post("/api/reports/email", auth, requireRole("finance", "admin"), async (req
     return `<tr style="${bold}"><td style="${td};text-align:left">${esc(r && r.label)}</td>${vals}<td style="${td};font-weight:700">${esc(r && r.ytd)}</td></tr>`;
   }).join("");
   const table = `<table style="width:100%;border-collapse:collapse;min-width:520px">${header}${body}</table>`;
-  const subj = String(subject || `P&L ${client || ""} — ${year || ""}`).slice(0, 160);
-  const base = (APP_BASE_URL || `${req.protocol}://${req.headers.host}`).replace(/\/$/, "");
+  const subj = String(subject || `P&L ${client || ""} — ${year || ""}`).replace(/[\r\n]+/g, " ").slice(0, 160);
+  const base = safeBaseUrl(req);
   try {
     await sendEmail(to.join(","), subj, reportEmailHtml(subj, subtitle || `${client || ""} · ${year || ""}`, table, base));
     audit(req.user.username, "report_email", `${year}/${client} → ${to.join(", ")}`, req);
     res.json({ ok: true, sent: to.length });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { console.error("report email failed:", e.message); res.status(500).json({ error: "Αποτυχία αποστολής email" }); }
 });
 
 // ── File uploads ──

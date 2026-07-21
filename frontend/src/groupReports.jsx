@@ -51,6 +51,21 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   const verRef = useRef(0);
   const dirtyRef = useRef(false);
 
+  // Normalize a getFinanceData response into state + record the server version (shared by load + 409 reload).
+  const hydrateFin = (fr) => {
+    verRef.current = (fr && fr.version) || 0;
+    const d = (fr && fr.data) || {};
+    if (!d.pnl) d.pnl = {};
+    if (!d.pnl.interest) d.pnl.interest = {};
+    if (!d.pnl.tax) d.pnl.tax = {};
+    if (!d.bs || !Array.isArray(d.bs.accounts) || !d.bs.accounts.length) d.bs = mkDefaultBS();
+    if (!d.bs.values) d.bs.values = {};
+    if (!d.budgets || typeof d.budgets !== "object") d.budgets = {}; // { [client]: { rev, gmPct } } annual targets
+    if (d.cashOpening == null) d.cashOpening = 0; // opening cash balance for the cash-flow forecast
+    if (!d.close || typeof d.close !== "object") d.close = {}; // MEC: { [client]: { [month]: {status,reconciled,reviewed,by,at} } }
+    setFin(d); dirtyRef.current = false;
+  };
+
   useEffect(() => {
     let cancelled = false; setLoaded(false);
     (async () => {
@@ -60,17 +75,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
       ]);
       if (cancelled) return;
       setAllData(normYear(cd));
-      verRef.current = (fr && fr.version) || 0;
-      const d = (fr && fr.data) || {};
-      if (!d.pnl) d.pnl = {};
-      if (!d.pnl.interest) d.pnl.interest = {};
-      if (!d.pnl.tax) d.pnl.tax = {};
-      if (!d.bs || !Array.isArray(d.bs.accounts) || !d.bs.accounts.length) d.bs = mkDefaultBS();
-      if (!d.bs.values) d.bs.values = {};
-      if (!d.budgets || typeof d.budgets !== "object") d.budgets = {}; // { [client]: { rev, gmPct } } annual targets
-      if (d.cashOpening == null) d.cashOpening = 0; // opening cash balance for the cash-flow forecast
-      if (!d.close || typeof d.close !== "object") d.close = {}; // MEC: { [client]: { [month]: {status,reconciled,reviewed,by,at} } }
-      setFin(d); dirtyRef.current = false; setSaveState("idle"); setLoaded(true);
+      hydrateFin(fr); setSaveState("idle"); setLoaded(true);
     })();
     return () => { cancelled = true; };
   // eslint-disable-next-line
@@ -82,7 +87,16 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
     setSaveState("saving");
     const t = setTimeout(async () => {
       try { const r = await api.saveFinanceData(year, fin, verRef.current); verRef.current = (r && r.version) || verRef.current + 1; dirtyRef.current = false; setSaveState("saved"); }
-      catch (e) { setSaveState("error"); console.warn("group finance save failed", e); }
+      catch (e) {
+        // 409 = another finance/admin user saved this year first (routine at month-end close). Never
+        // silently diverge: reload the latest server copy so the user re-applies onto current data.
+        if (e && e.status === 409) {
+          dirtyRef.current = false; setSaveState("error");
+          alert(t("⚠️ Τα δεδομένα του Ομίλου ενημερώθηκαν από άλλον χρήστη.\n\nΘα φορτωθεί η τελευταία έκδοση — οι πολύ πρόσφατες αλλαγές σου ΔΕΝ αποθηκεύτηκαν, ξαναπέρασέ τες.", "⚠️ The Group data was updated by another user.\n\nThe latest version will load — your most recent edits were NOT saved, please re-apply them."));
+          const fr = await api.getFinanceData(year).catch(() => null);
+          hydrateFin(fr); setSaveState("idle");
+        } else { setSaveState("error"); console.warn("group finance save failed", e); }
+      }
     }, 600);
     return () => clearTimeout(t);
   // eslint-disable-next-line

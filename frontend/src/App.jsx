@@ -263,7 +263,9 @@ export default function App() {
     dirtyRef.current = true;
     setSaveState("saving");
     const {docs, ...rest} = cd;
-    const t = setTimeout(() => { doSave(year, client, rest); }, 500);
+    // Guard with dirtyRef: a beacon flush on tab-hide sets dirtyRef=false, so this pending timer must
+    // NOT fire a second (duplicate) save — which could reorder on the wire and self-inflict a false 409.
+    const t = setTimeout(() => { if(dirtyRef.current) doSave(year, client, rest); }, 500);
     return () => clearTimeout(t);
   // eslint-disable-next-line
   }, [cd&&cd.inv,cd&&cd.sub,cd&&cd.lab,cd&&cd.labAlloc,cd&&cd.manualAccruals,cd&&cd.contracts,cd&&cd.status,cd&&cd.submittedBy,cd&&cd.submittedAt,cd&&cd.rejectNote, client, year]);

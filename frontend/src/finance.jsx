@@ -4,7 +4,7 @@
 //   OpexCapex  — company OPEX budget-vs-actual + CAPEX register with depreciation.
 import { useState, useEffect, useRef } from "react";
 import { api } from "./api.js";
-import { P, MONTHS, ML, YEARS, uid, fmt, fPct, DEFAULT_OPEX_CATS, CAPEX_CATS, CAPEX_STATUS, normalizeClientData } from "./constants.js";
+import { P, MONTHS, ML, YEARS, uid, fmt, fPct, DEFAULT_OPEX_CATS, CAPEX_CATS, CAPEX_STATUS, normalizeClientData, REV_CATS, COST_CATS } from "./constants.js";
 import { agingBucket, AGING_BUCKETS, depreciation, daysUntil, parseDate, runRateFY, clientRisks, detectAnomalies } from "./calc.js";
 import { exportWorkbook } from "./exportXlsx.js";
 
@@ -100,6 +100,14 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
   const anomalies = detectAnomalies(data, MONTHS);
   const anomHigh = anomalies.filter(a=>a.level==="high").length;
 
+  // Data-quality guard (parity with Group P&L): rows with a non-canonical category count in these
+  // portfolio KPIs but are dropped from the per-client P&L, so the numbers can silently disagree.
+  let miscatTotal = 0;
+  Object.values(data||{}).forEach(cd=>{
+    (cd?.inv||[]).forEach(i=>{ if((Number(i.amt)||0)!==0 && !REV_CATS.includes(i.cat)) miscatTotal++; });
+    (cd?.sub||[]).forEach(i=>{ if((Number(i.amt)||0)!==0 && !COST_CATS.includes(i.cat)) miscatTotal++; });
+  });
+
   // Small YoY badge — green ▲ when the metric improved vs prior FY, red ▼ when it worsened.
   const yoyBadge = (d)=> d==null ? null : (
     <span style={{fontSize:11,fontWeight:700,color:d>=0?P.gn:P.rd,marginLeft:6}} title={t("έναντι προηγ. έτους","vs prior year")}>
@@ -150,6 +158,12 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
               <div style={{fontSize:22,fontWeight:800,color:P.em,marginTop:5}}>{active.length}<span style={{fontSize:13,color:P.tm,fontWeight:400}}> / {rows.length}</span></div>
             </div>
           </div>
+
+          {miscatTotal>0 && (
+            <div style={{background:"#FFF8E1",border:"1px solid #F5D76E",borderRadius:8,padding:"10px 16px",marginBottom:16,fontSize:12,color:"#7A5B00"}}>
+              ⚠️ {miscatTotal} {t("γραμμές με μη-κανονική κατηγορία μετρούν σε αυτά τα σύνολα αλλά ΟΧΙ στο P&L του κάθε πελάτη — τα νούμερα μπορεί να διαφέρουν. Διόρθωσε την κατηγορία τους.","rows with a non-canonical category count in these totals but NOT in each client's P&L — the numbers may disagree. Fix their category.")}
+            </div>
+          )}
 
           {/* 🔔 AI Anomaly Alerts — portfolio-wide, severity-ranked, click a row to open the client */}
           {anomalies.length>0 && (
