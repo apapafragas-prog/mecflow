@@ -48,6 +48,8 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   const [cashTerms, setCashTerms] = useState(30); // payment-terms lag (days) for the cash-flow forecast
   const [closeMonth, setCloseMonth] = useState(null); // MEC: which month is being closed (null → default last active)
   const [compact, setCompact] = useState(false);       // number format: false = full (2dp), true = whole units
+  const [pnlView, setPnlView] = useState("months");    // months | board (board = YTD Actual/Budget/Prior comparatives)
+  const [prev, setPrev] = useState(null);              // prior-FY { series } for YoY comparatives
   const verRef = useRef(0);
   const dirtyRef = useRef(false);
 
@@ -67,7 +69,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   };
 
   useEffect(() => {
-    let cancelled = false; setLoaded(false);
+    let cancelled = false; setLoaded(false); setPrev(null);
     (async () => {
       const [cd, fr] = await Promise.all([
         api.getYearData(year).catch(() => ({})),
@@ -77,6 +79,16 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
       setAllData(normYear(cd));
       hydrateFin(fr); setSaveState("idle"); setLoaded(true);
     })();
+    // Prior fiscal year (for the board summary's YoY column) — best-effort, doesn't block the screen.
+    const pn = parseInt(String(year).replace(/\D/g, ""), 10) - 1; const py = `FY${pn}`;
+    if (YEARS.includes(py)) {
+      (async () => {
+        const [pcd, pfr] = await Promise.all([api.getYearData(py).catch(() => ({})), api.getFinanceData(py).catch(() => null)]);
+        if (cancelled) return;
+        // Prior-year amounts are month-independent for a YTD total, so raw data is fine here.
+        setPrev({ series: groupPnLSeries(pcd || {}, (pfr && pfr.data) || {}, MONTHS) });
+      })();
+    }
     return () => { cancelled = true; };
   // eslint-disable-next-line
   }, [year]);
@@ -109,6 +121,33 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   const series = loaded ? groupPnLSeries(allData, fin, MONTHS) : MONTHS.map(m => ({ m, rev: 0, sub: 0, labour: 0, gm: 0, opex: 0, ebitda: 0, da: 0, ebit: 0, interest: 0, tax: 0, net: 0 }));
   const byMonth = Object.fromEntries(series.map(r => [r.m, r]));
   const ytd = k => series.reduce((s, r) => s + (r[k] || 0), 0);
+
+  // Board summary: YTD Actual vs Budget vs Prior-Year per P&L line (for the month-end / board pack).
+  const boardData = () => {
+    const A = k => ytd(k);
+    const Pr = k => prev ? prev.series.reduce((s, r) => s + (r[k] || 0), 0) : null;
+    const budgets = fin?.budgets || {};
+    const revB = Object.values(budgets).reduce((s, b) => s + (Number(b.rev) || 0), 0);
+    const gmB = Object.values(budgets).reduce((s, b) => s + ((Number(b.rev) || 0) * (Number(b.gmPct) || 0) / 100), 0);
+    const cats = fin?.opex?.cats || [], bud = fin?.opex?.budget || {};
+    const opexB = cats.reduce((s, c) => s + MONTHS.reduce((s2, m) => s2 + (Number(bud[c.id]?.[m]) || 0), 0), 0);
+    const hasB = revB > 0;
+    const pr = (k) => prev ? Pr(k) : null;
+    return [
+      { l: t("Έσοδα", "Revenue"), actual: A("rev"), budget: hasB ? revB : null, prior: pr("rev") },
+      { l: t("Κόστος (υπεργ. + εργ.)", "Cost (sub + labour)"), actual: A("sub") + A("labour"), budget: hasB ? revB - gmB : null, prior: prev ? Pr("sub") + Pr("labour") : null, cost: true },
+      { l: t("Μικτό Κέρδος", "Gross Margin"), actual: A("gm"), budget: hasB ? gmB : null, prior: pr("gm"), b: true },
+      { l: "GM %", actual: A("rev") ? A("gm") / A("rev") : null, budget: hasB ? gmB / revB : null, prior: (prev && Pr("rev")) ? Pr("gm") / Pr("rev") : null, pct: true },
+      { l: "OPEX", actual: A("opex"), budget: opexB || null, prior: pr("opex"), cost: true },
+      { l: "EBITDA", actual: A("ebitda"), budget: hasB ? gmB - opexB : null, prior: pr("ebitda"), b: true },
+      { l: "EBITDA %", actual: A("rev") ? A("ebitda") / A("rev") : null, budget: (hasB) ? (gmB - opexB) / revB : null, prior: (prev && Pr("rev")) ? Pr("ebitda") / Pr("rev") : null, pct: true },
+      { l: t("Αποσβέσεις", "D&A"), actual: A("da"), budget: null, prior: pr("da"), cost: true },
+      { l: "EBIT", actual: A("ebit"), budget: null, prior: pr("ebit"), b: true },
+      { l: t("Τόκοι", "Interest"), actual: A("interest"), budget: null, prior: pr("interest"), cost: true },
+      { l: t("Φόροι", "Taxes"), actual: A("tax"), budget: null, prior: pr("tax"), cost: true },
+      { l: t("Καθαρό Αποτέλεσμα", "Net result"), actual: A("net"), budget: null, prior: pr("net"), b: true },
+    ];
+  };
 
   const setPnl = (kind, m, v) => mutate(n => { if (!n.pnl[kind]) n.pnl[kind] = {}; n.pnl[kind][m] = parseFloat(v) || 0; });
 
@@ -362,6 +401,36 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
     exportWorkbook(`CBRE_Group_${year}.xlsx`, [{ name: "P&L", aoa: pnlAoa }, { name: "Balance Sheet", aoa: bsAoa }, { name: "Fee & COP", aoa: feeAoa }, { name: "Cash Flow", aoa: cashAoa }]);
   };
 
+  // Branded PDF of the board summary (print-to-PDF window) — the board-ready month-end one-pager.
+  const exportBoardPdf = () => {
+    const rows = boardData();
+    const escp = s => String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+    const num = (r, v) => v == null ? "—" : r.pct ? fPct(v) : fmt(v);
+    const varE = r => (r.actual != null && r.budget != null) ? r.actual - r.budget : null;
+    const varP = r => (varE(r) != null && r.budget) ? varE(r) / Math.abs(r.budget) : null;
+    const yoy = r => (r.actual != null && r.prior) ? (r.actual - r.prior) / Math.abs(r.prior) : null;
+    const th = "padding:7px 10px;font-size:11px;font-weight:700;color:#fff;background:#003F2D;white-space:nowrap;text-align:right";
+    const head = `<tr><th style="${th};text-align:left">${escp(t("Γραμμή", "Line"))}</th><th style="${th}">${escp(t("Πραγμ. YTD", "Actual YTD"))}</th><th style="${th}">Budget</th><th style="${th}">${escp(t("Διαφ.", "Var"))}</th><th style="${th}">Var %</th><th style="${th}">${escp(t("Πέρσι", "Prior"))}</th><th style="${th}">YoY %</th></tr>`;
+    const body = rows.map(r => {
+      const td = `padding:6px 10px;font-size:11px;border-bottom:1px solid #D5DDD8;text-align:right;white-space:nowrap${r.b ? ";font-weight:700;background:#E8F5E9" : ""}`;
+      const ve = varE(r), vp = varP(r), yy = yoy(r);
+      return `<tr><td style="${td};text-align:left">${escp(r.l)}</td><td style="${td}">${escp(num(r, r.actual))}</td><td style="${td}">${escp(num(r, r.budget))}</td><td style="${td}">${ve == null ? "—" : escp(fmt(ve))}</td><td style="${td}">${vp == null ? "—" : escp(fPct(vp))}</td><td style="${td}">${escp(num(r, r.prior))}</td><td style="${td}">${yy == null ? "—" : escp(fPct(yy))}</td></tr>`;
+    }).join("");
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>CBRE Group P&L — ${escp(year)}</title></head>
+      <body style="font-family:Segoe UI,Arial,sans-serif;color:#1A2E23;padding:26px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div style="font-size:22px;font-weight:800;color:#003F2D">CBRE — Group P&amp;L (${escp(t("Σύνοψη ΔΣ", "Board Summary"))})</div>
+          <div style="font-size:13px;color:#5F7567">${escp(t("Έτος", "FY"))} ${escp(year)} · YTD</div>
+        </div>
+        <table style="width:100%;border-collapse:collapse">${head}${body}</table>
+        <p style="font-size:11px;color:#5F7567;margin-top:16px">${escp(t("Budget: παράγεται από τους στόχους πελατών + OPEX budget. Πέρσι: ενοποιημένο προηγούμενης χρήσης. Δημιουργήθηκε από την πλατφόρμα CBRE Hellas.", "Budget: derived from client targets + OPEX budget. Prior: prior-year consolidated. Generated by the CBRE Hellas platform."))}</p>
+      </body></html>`;
+    const w = window.open("", "_blank");
+    if (!w) { alert(t("Επίτρεψε τα pop-ups για PDF", "Allow pop-ups for the PDF")); return; }
+    w.document.write(html); w.document.close(); w.focus();
+    setTimeout(() => { try { w.print(); } catch { /* ignore */ } }, 350);
+  };
+
   // Data-quality guard: rows whose category isn't one of the canonical REV/COST buckets are counted in
   // the Group/Dashboard totals but DROPPED from the per-client P&L (which filters by category) — so
   // "Group = Σ per-client" silently breaks. Surface them so the user can fix the category.
@@ -431,6 +500,13 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
               {kpi("EBITDA %", ytd("rev") ? ytd("ebitda") / ytd("rev") : null, P.em, true)}
               {kpi(t("Καθαρό (YTD)", "Net (YTD)"), ytd("net"), ytd("net") >= 0 ? P.gn : P.rd)}
             </div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
+              {[["months", t("📅 Μηνιαία", "📅 Monthly")], ["board", t("📋 Σύνοψη ΔΣ", "📋 Board Summary")]].map(([v, l]) => (
+                <button key={v} onClick={() => setPnlView(v)} style={{ padding: "6px 14px", border: "1px solid " + P.bd, borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: pnlView === v ? 700 : 400, background: pnlView === v ? P.em : P.wh, color: pnlView === v ? "#fff" : P.tx }}>{l}</button>
+              ))}
+              {pnlView === "board" && <button onClick={exportBoardPdf} style={{ marginLeft: "auto", padding: "6px 14px", border: "1px solid " + P.em, borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600, background: P.wh, color: P.em }}>⬇ PDF</button>}
+            </div>
+            {pnlView === "months" && (<>
             <div style={{ background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", minWidth: 1250 }}>
                 <colgroup><col style={{ width: 230 }} />{MONTHS.map(m => <col key={m} style={{ width: 72 }} />)}<col style={{ width: 100 }} /></colgroup>
@@ -467,6 +543,58 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
               {t(`Ενοποιημένο για όλους τους πελάτες (${Object.keys(allData || {}).length}) + εταιρικά OPEX/CAPEX. Τα κόστη εμφανίζονται θετικά· τα υποσύνολα (GM, EBITDA, EBIT, Καθαρό) είναι τα καθαρά αποτελέσματα. EBITDA = Μικτό Κέρδος − OPEX. EBIT = EBITDA − Αποσβέσεις. Τόκοι & Φόροι καταχωρούνται χειροκίνητα (αποθηκεύονται αυτόματα).`,
                  `Consolidated across all clients (${Object.keys(allData || {}).length}) + company OPEX/CAPEX. Costs are shown positive; the subtotals (GM, EBITDA, EBIT, Net) are the net results. EBITDA = Gross Margin − OPEX. EBIT = EBITDA − Depreciation. Interest & Taxes are entered manually (saved automatically).`)}
             </div>
+            </>)}
+
+            {pnlView === "board" && (() => {
+              const rows = boardData();
+              const varE = r => (r.actual != null && r.budget != null) ? r.actual - r.budget : null;
+              const varP = r => { const v = varE(r); return (v != null && r.budget) ? v / Math.abs(r.budget) : null; };
+              const yoy = r => (r.actual != null && r.prior) ? (r.actual - r.prior) / Math.abs(r.prior) : null;
+              // Favourability: for cost rows an over-run (actual > budget) is bad; for revenue/margin it's good.
+              const favColor = (r, delta) => delta == null ? P.tx : ((r.cost ? -delta : delta) >= 0 ? P.gn : P.rd);
+              const cell = (r, v) => v == null ? "—" : r.pct ? fPct(v) : F(v);
+              const cols = [
+                [t("Πραγμ. YTD", "Actual YTD"), "actual"],
+                ["Budget", "budget"],
+                [t("Πέρσι", "Prior"), "prior"],
+              ];
+              return (
+                <div style={{ background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+                    <colgroup><col style={{ width: 210 }} /><col /><col /><col /><col /><col /></colgroup>
+                    <thead><tr>
+                      <th style={{ ...thS, textAlign: "left", borderRight: "2px solid #00695C" }}>{t("Γραμμή", "Line")}</th>
+                      <th style={thS}>{t("Πραγμ. YTD", "Actual YTD")}</th>
+                      <th style={thS}>Budget</th>
+                      <th style={thS}>{t("Διαφ.", "Var")}</th>
+                      <th style={thS}>Var %</th>
+                      <th style={thS}>{t("Πέρσι", "Prior")}</th>
+                      <th style={{ ...thS, background: "#00695C" }}>YoY %</th>
+                    </tr></thead>
+                    <tbody>
+                      {rows.map((r, i) => {
+                        const ve = varE(r), vp = varP(r), yy = yoy(r);
+                        const base = { padding: "7px 10px", textAlign: "right", fontSize: 12, borderBottom: "1px solid " + P.bd, fontWeight: r.b ? 700 : 400 };
+                        return (
+                          <tr key={r.l + i} style={{ background: r.b ? "#EAF5EF" : i % 2 === 0 ? P.wh : P.al }}>
+                            <td style={{ padding: "7px 10px", fontSize: 12, fontWeight: r.b ? 700 : 400, color: r.b ? P.em : P.tx, borderBottom: "1px solid " + P.bd, borderRight: "2px solid " + P.bd, whiteSpace: "nowrap" }}>{r.l}</td>
+                            {cols.map(([, k]) => <td key={k} style={{ ...base, color: r.b ? P.em : P.tx }}>{cell(r, r[k])}</td>)}
+                            <td style={{ ...base, color: r.pct ? P.tx : favColor(r, ve) }}>{ve == null ? "—" : (r.pct ? fPct(ve) : F(ve))}</td>
+                            <td style={{ ...base, color: favColor(r, vp) }}>{vp == null ? "—" : fPct(vp)}</td>
+                            <td style={{ ...base, color: favColor(r, yy) }}>{yy == null ? "—" : fPct(yy)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  <div style={{ fontSize: 11, color: P.tm, padding: "8px 10px", lineHeight: 1.6 }}>
+                    {prev
+                      ? t("Budget: στόχοι πελατών + OPEX budget. Πέρσι: ενοποιημένο προηγούμενης χρήσης. Πράσινο = ευνοϊκή απόκλιση.", "Budget: client targets + OPEX budget. Prior: prior-year consolidated. Green = favourable variance.")
+                      : t("Δεν βρέθηκαν δεδομένα προηγούμενης χρήσης — οι στήλες «Πέρσι/YoY» είναι κενές.", "No prior-year data found — the Prior/YoY columns are blank.")}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 
