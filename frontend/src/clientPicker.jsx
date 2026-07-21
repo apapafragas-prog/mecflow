@@ -48,6 +48,7 @@ export function ClientPicker({user,year,setYear,onSelect,onLogout,allData,loadin
           <LangToggle dark />
           <span style={{opacity:.7}}>{user.name}</span>
           {isAdmin&&<span style={{background:"rgba(255,255,255,.2)",padding:"2px 8px",borderRadius:10,fontSize:10}}>ADMIN</span>}
+          <button onClick={()=>window.dispatchEvent(new Event("mf-open-search"))} title={t("Αναζήτηση (⌘K)","Search (⌘K)")} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 12px",borderRadius:4,cursor:"pointer",fontSize:12}}>🔎 <span style={{fontSize:10,opacity:.85}}>⌘K</span></button>
           <button onClick={onOpenDash} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>📊 Dashboard</button>
           {(user.role==="finance"||user.role==="admin")&&<button onClick={onOpenLedger} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>📒 AP/AR</button>}
           {(user.role==="finance"||user.role==="admin")&&<button onClick={onOpenFinance} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>💰 OPEX/CAPEX</button>}

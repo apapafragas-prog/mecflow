@@ -1,7 +1,97 @@
 // Reusable leaf UI components, extracted from App.jsx. Shared by every screen.
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { P, fmt, logoUrl, logoUrl2 } from "./constants.js";
 import { useT } from "./i18n.jsx";
+
+// ── Global search palette (⌘K / Ctrl-K) ──────────────────────────────────────
+// Cross-client fuzzy search over clients, invoices, subcontractor bills and contracts for the active
+// year. `data` is the year map { clientName: clientData }; `onNavigate` receives a "client:Name:tab"
+// route (the same grammar the chat assistant uses) so a hit jumps straight to the right screen.
+export function GlobalSearch({ data, onNavigate, canFinance }) {
+  const { t } = useT();
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [hi, setHi] = useState(0);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) { e.preventDefault(); setOpen(o => !o); }
+      else if (e.key === "Escape") setOpen(false);
+    };
+    const onOpen = () => setOpen(true);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mf-open-search", onOpen);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("mf-open-search", onOpen); };
+  }, []);
+  useEffect(() => { if (open) { setQ(""); setHi(0); setTimeout(() => inputRef.current?.focus(), 30); } }, [open]);
+
+  // Flat index of everything searchable for the active year (built once per data change).
+  const index = useMemo(() => {
+    const out = [];
+    Object.entries(data || {}).forEach(([client, cd]) => {
+      out.push({ type: "client", client, tab: "contracts", label: client, hint: t("Πελάτης", "Client"), text: client.toLowerCase() });
+      (cd?.inv || []).forEach(r => out.push({ type: "inv", client, tab: "inv", label: (r.inv_no || t("Τιμολόγιο", "Invoice")) + " · €" + fmt(r.amt), hint: client + " · " + (r.cat || "") + (r.comments ? " · " + r.comments : ""), text: [client, r.inv_no, r.cat, r.comments, r.amt, r.site].join(" ").toLowerCase() }));
+      (cd?.sub || []).forEach(r => out.push({ type: "sub", client, tab: "sub", label: (r.supplier || t("Υπεργολάβος", "Subcontractor")) + " · €" + fmt(r.amt), hint: client + " · " + (r.inv_no || "") + (r.svc_desc ? " · " + r.svc_desc : ""), text: [client, r.supplier, r.inv_no, r.svc_desc, r.cat, r.amt].join(" ").toLowerCase() }));
+      (cd?.contracts || []).forEach(r => out.push({ type: "contract", client, tab: "contracts", label: (r.name || r.type || t("Συμβόλαιο", "Contract")) + (r.po ? " · PO " + r.po : ""), hint: client + " · " + (r.type || "") + (r.scope ? " · " + r.scope : ""), text: [client, r.name, r.type, r.po, r.scope].join(" ").toLowerCase() }));
+    });
+    return out;
+  }, [data, t]);
+
+  // Token-AND match; clients first, then by type. Cap the list so the palette stays snappy.
+  const results = useMemo(() => {
+    const query = q.trim().toLowerCase();
+    if (!query) return [];
+    const toks = query.split(/\s+/);
+    const rank = { client: 0, contract: 1, inv: 2, sub: 3 };
+    return index.filter(it => toks.every(tk => it.text.includes(tk)))
+      .sort((a, b) => (rank[a.type] - rank[b.type]) || a.label.localeCompare(b.label))
+      .slice(0, 40);
+  }, [q, index]);
+
+  useEffect(() => { if (hi >= results.length) setHi(0); }, [results.length, hi]);
+  if (!open) return null;
+
+  const go = (it) => { if (!it) return; setOpen(false); onNavigate("client:" + it.client + ":" + it.tab); };
+  const onInputKey = (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); setHi(h => Math.min(h + 1, results.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setHi(h => Math.max(h - 1, 0)); }
+    else if (e.key === "Enter") { e.preventDefault(); go(results[hi]); }
+  };
+  const icon = { client: "🏢", inv: "📤", sub: "📥", contract: "📄" };
+
+  return (
+    <div onMouseDown={() => setOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.35)", zIndex: 2000, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "10vh" }}>
+      <div onMouseDown={e => e.stopPropagation()} style={{ width: "92%", maxWidth: 620, background: P.wh, borderRadius: 14, boxShadow: "0 24px 70px rgba(0,0,0,.35)", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: "1px solid " + P.bd }}>
+          <span style={{ fontSize: 18, opacity: .5 }}>🔎</span>
+          <input ref={inputRef} value={q} onChange={e => { setQ(e.target.value); setHi(0); }} onKeyDown={onInputKey}
+            placeholder={t("Αναζήτηση πελατών, τιμολογίων, προμηθευτών, συμβολαίων…", "Search clients, invoices, suppliers, contracts…")}
+            style={{ flex: 1, border: "none", outline: "none", fontSize: 15, color: P.tx, background: "transparent" }} />
+          <span style={{ fontSize: 10, color: P.tm, border: "1px solid " + P.bd, borderRadius: 5, padding: "2px 6px" }}>ESC</span>
+        </div>
+        <div style={{ maxHeight: "56vh", overflowY: "auto" }}>
+          {q.trim() && !results.length && <div style={{ padding: 26, textAlign: "center", color: P.tm, fontStyle: "italic", fontSize: 13 }}>{t("Κανένα αποτέλεσμα", "No results")}</div>}
+          {results.map((it, i) => (
+            <div key={i} onMouseEnter={() => setHi(i)} onClick={() => go(it)}
+              style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 18px", cursor: "pointer", background: i === hi ? P.ep : P.wh, borderBottom: "1px solid " + P.al }}>
+              <span style={{ fontSize: 16 }}>{icon[it.type]}</span>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: P.tx, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.label}</div>
+                <div style={{ fontSize: 11, color: P.tm, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.hint}</div>
+              </div>
+              <span style={{ fontSize: 10, color: P.tm, textTransform: "uppercase", letterSpacing: .5 }}>{it.type}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ padding: "8px 18px", borderTop: "1px solid " + P.bd, fontSize: 11, color: P.tm, display: "flex", gap: 16 }}>
+          <span>↑↓ {t("πλοήγηση", "navigate")}</span><span>↵ {t("άνοιγμα", "open")}</span><span>⌘K / Ctrl-K</span>
+          {!canFinance && <span style={{ marginLeft: "auto", opacity: .7 }}>{t("μόνο οι πελάτες σας", "your clients only")}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // Loading skeleton — pulsing placeholder KPI cards + table rows, shown while a screen's data loads.
 export function Skeleton({ kpis = 4, rows = 6 }) {

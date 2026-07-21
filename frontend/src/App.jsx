@@ -12,7 +12,7 @@ import {
   uid, CLIENTS, MONTHS, ML, setFiscalYear, normalizeClientData, currentFyLabel,
   REV_CATS, COST_CATS, LAB_ROWS, LAB_ALL_ROWS, LAB_EW_KEY, LAB_PJM_KEY, mkLab, mkAlloc, P, YEARS,
 } from "./constants.js";
-import { LogoImg, LangToggle } from "./ui.jsx";
+import { LogoImg, LangToggle, GlobalSearch } from "./ui.jsx";
 import { Login, ForcePw, ResetPassword } from "./auth.jsx";
 import { PnL, InvTab, SubTab, AccTab, LabTab, POTracker } from "./reportTabs.jsx";
 import { parseWorkbookFile, ReconcileModal } from "./importReconcile.jsx";
@@ -319,7 +319,8 @@ export default function App() {
       ))}
     </div>
   ) : null;
-  const withChat = (screen) => <>{screen}{scanPill}{chatEl}</>;
+  const searchEl = <GlobalSearch data={yd} onNavigate={navChat} canFinance={user.role==="finance"||user.role==="admin"} />;
+  const withChat = (screen) => <>{screen}{scanPill}{chatEl}{searchEl}</>;
 
   if (!client && dashOpen)
     return withChat(<Dashboard year={year} setYear={setYear} user={user} onBack={()=>setDashOpen(false)} onLogout={logout} onSelectClient={c=>{setDashOpen(false);setClient(c);setTab("contracts");}} />);
@@ -567,6 +568,7 @@ export default function App() {
           <span style={{fontSize:14,fontWeight:600,borderLeft:"1px solid rgba(255,255,255,.3)",paddingLeft:12}}>{client} — {year}</span>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8,fontSize:13,position:"relative"}}>
+          <button onClick={()=>window.dispatchEvent(new Event("mf-open-search"))} title={t("Αναζήτηση (⌘K)","Search (⌘K)")} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",padding:"7px 12px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>🔎 <span style={{fontSize:10,opacity:.85}}>⌘K</span></button>
           {/* Period lock (finance/admin): close a month so its invoices/sub become read-only for everyone */}
           {canLock && (
             <div style={{position:"relative"}}>
