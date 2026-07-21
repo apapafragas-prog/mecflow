@@ -1,5 +1,5 @@
 // Reusable leaf UI components, extracted from App.jsx. Shared by every screen.
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { P, fmt, logoUrl, logoUrl2 } from "./constants.js";
 import { useT } from "./i18n.jsx";
 
@@ -123,12 +123,34 @@ export function Sel({l,v,set,opts,w}) {
 }
 
 // Editable data grid with Excel-like cell selection (Sum/Avg/Min/Max on numeric selections).
-export function Tbl({cols,data,del,onEdit,locked}) {
+export function Tbl({cols,data,del,onEdit,locked,onRestore}) {
+  const { t } = useT();
   const [fl,sF] = useState("");
   const [sel,setSel] = useState(new Set());
   const [anchor,setAnchor] = useState(null);
   const [dragging,setDragging] = useState(false);
+  const [rowSel,setRowSel] = useState(new Set());   // ids selected via the row checkboxes (for bulk ops)
+  const [undo,setUndo] = useState(null);            // {rows} of the last bulk delete, for restore
+  const undoTimer = useRef(null);
   const rows = data.filter(r => !fl || cols.some(c => String(r[c.k]||"").toLowerCase().includes(fl.toLowerCase())));
+  const canBulk = !!onRestore;
+  const selectableRows = rows.filter(r => !(locked&&locked(r)));
+  const toggleRow = id => setRowSel(s => { const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
+  const allSelected = selectableRows.length>0 && selectableRows.every(r=>rowSel.has(r.id));
+  const toggleAll = () => setRowSel(allSelected ? new Set() : new Set(selectableRows.map(r=>r.id)));
+  const bulkDelete = () => {
+    const ids = [...rowSel].filter(id => selectableRows.some(r=>r.id===id));
+    if(!ids.length) return;
+    // Snapshot the rows before deletion so they can be restored. Attachments (docId) are purged by del()
+    // and cannot be un-deleted, so strip docId from the restore snapshot to avoid a dangling reference.
+    const snapshot = ids.map(id => data.find(r=>r.id===id)).filter(Boolean).map(r=>{ const c={...r}; delete c.docId; return c; });
+    ids.forEach(id => del(id));
+    setRowSel(new Set());
+    setUndo({rows:snapshot});
+    if(undoTimer.current) clearTimeout(undoTimer.current);
+    undoTimer.current = setTimeout(()=>setUndo(null), 8000);
+  };
+  const doUndo = () => { if(undo&&onRestore) onRestore(undo.rows); setUndo(null); if(undoTimer.current) clearTimeout(undoTimer.current); };
   const cs = {padding:"5px 6px",border:"1px solid "+P.bd,borderRadius:3,fontSize:11,background:P.ip,outline:"none",width:"100%",boxSizing:"border-box"};
   const up = (id,k,v) => { if(onEdit) onEdit(id,k,v); };
   const ck = (ri,ci) => ri+":"+ci;
@@ -140,15 +162,22 @@ export function Tbl({cols,data,del,onEdit,locked}) {
   const sum=vals.reduce((s,v)=>s+v,0);const avg=vals.length?sum/vals.length:0;
   return (
     <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,overflow:"hidden"}} onMouseUp={mu} onMouseLeave={mu}>
-      <div style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd,display:"flex",alignItems:"center",gap:12}}>
+      <div style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
         <input placeholder="Filter..." value={fl} onChange={e=>sF(e.target.value)} style={{padding:"5px 8px",border:"1px solid "+P.bd,borderRadius:4,fontSize:12,outline:"none",width:180}} />
         <span style={{fontSize:11,color:P.tm}}>{rows.length} rows</span>
         {sel.size>1&&<button onClick={()=>setSel(new Set())} style={{background:"none",border:"none",color:P.tm,cursor:"pointer",fontSize:11,textDecoration:"underline"}}>Clear</button>}
+        {canBulk&&rowSel.size>0&&(
+          <span style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:12,fontWeight:600,color:P.em}}>{rowSel.size} {t("επιλεγμένες","selected")}</span>
+            <button onClick={bulkDelete} style={{background:P.rd,color:"#fff",border:"none",padding:"5px 12px",borderRadius:5,fontSize:12,fontWeight:600,cursor:"pointer"}}>🗑 {t("Διαγραφή","Delete")}</button>
+            <button onClick={()=>setRowSel(new Set())} style={{background:"none",border:"1px solid "+P.bd,padding:"5px 10px",borderRadius:5,fontSize:12,cursor:"pointer",color:P.tx}}>{t("Άκυρο","Cancel")}</button>
+          </span>
+        )}
       </div>
       <div style={{overflowX:"auto",userSelect:"none"}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
-          <thead><tr>{cols.map(c=><th key={c.k} style={{padding:"7px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:c.a||"left",whiteSpace:"nowrap",position:"sticky",top:0,zIndex:2}}>{c.l}</th>)}<th style={{padding:7,fontSize:11,color:"#fff",background:P.em,width:30,position:"sticky",top:0,zIndex:2}}></th></tr></thead>
-          <tbody>{rows.map((r,ri)=>{const rl=locked?locked(r):false;return <tr key={r.id||ri}>{cols.map((c,ci)=>{const v=r[c.k];const isSel=sel.has(ck(ri,ci));const bg=isSel?"#E3F2FD":rl?"#F2F4F3":ri%2===0?P.wh:P.al;const bd=isSel?"2px solid #1565C0":"1px solid "+P.bd;const td={padding:"4px 6px",fontSize:12,border:bd,background:bg,textAlign:c.a||"left",minWidth:c.mw||undefined,cursor:"cell"};const h={onMouseDown:e=>md(ri,ci,e),onMouseEnter:()=>me(ri,ci)};
+          <thead><tr>{canBulk&&<th style={{padding:"7px 6px",background:P.em,width:30,position:"sticky",top:0,zIndex:2,textAlign:"center"}}><input type="checkbox" checked={allSelected} onChange={toggleAll} disabled={!selectableRows.length} title={t("Επιλογή όλων","Select all")} style={{cursor:"pointer"}} /></th>}{cols.map(c=><th key={c.k} style={{padding:"7px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:c.a||"left",whiteSpace:"nowrap",position:"sticky",top:0,zIndex:2}}>{c.l}</th>)}<th style={{padding:7,fontSize:11,color:"#fff",background:P.em,width:30,position:"sticky",top:0,zIndex:2}}></th></tr></thead>
+          <tbody>{rows.map((r,ri)=>{const rl=locked?locked(r):false;const rsel=canBulk&&rowSel.has(r.id);return <tr key={r.id||ri}>{canBulk&&<td style={{padding:"4px 6px",textAlign:"center",border:"1px solid "+P.bd,background:rsel?"#E3F2FD":rl?"#F2F4F3":ri%2===0?P.wh:P.al}}>{rl?null:<input type="checkbox" checked={rsel} onChange={()=>toggleRow(r.id)} style={{cursor:"pointer"}} />}</td>}{cols.map((c,ci)=>{const v=r[c.k];const isSel=sel.has(ck(ri,ci));const bg=isSel?"#E3F2FD":rl?"#F2F4F3":ri%2===0?P.wh:P.al;const bd=isSel?"2px solid #1565C0":"1px solid "+P.bd;const td={padding:"4px 6px",fontSize:12,border:bd,background:bg,textAlign:c.a||"left",minWidth:c.mw||undefined,cursor:"cell"};const h={onMouseDown:e=>md(ri,ci,e),onMouseEnter:()=>me(ri,ci)};
             // Locked (closed-period) rows are read-only: render the display value, never the editors.
             if(c.opts&&onEdit&&!rl) return <td key={c.k} style={td} {...h}><select value={v||""} onChange={e=>up(r.id,c.k,e.target.value)} style={{...cs,textAlign:"left"}}>{c.opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}</select></td>;
             if(c.t==="date"&&c.edit&&onEdit&&!rl) return <td key={c.k} style={td} {...h}><input type="date" value={toISODate(v)} onChange={e=>up(r.id,c.k,e.target.value)} style={{...cs,textAlign:"left"}} /></td>;
@@ -168,6 +197,12 @@ export function Tbl({cols,data,del,onEdit,locked}) {
           <span style={{color:"#EF9A9A"}}>Max: <b>{fmt(Math.max(...vals))}</b></span>
         </>):(<span style={{color:"#78909C"}}>Click or drag cells to select — Shift+click for range — numeric cells show Sum / Avg / Min / Max</span>)}
       </div>
+      {undo && (
+        <div style={{position:"fixed",bottom:22,left:"50%",transform:"translateX(-50%)",background:"#263238",color:"#fff",padding:"10px 16px",borderRadius:10,display:"flex",alignItems:"center",gap:16,boxShadow:"0 8px 30px rgba(0,0,0,.3)",zIndex:60,fontSize:13}}>
+          <span>🗑 {undo.rows.length} {t("γραμμές διαγράφηκαν","rows deleted")}</span>
+          <button onClick={doUndo} style={{background:"none",border:"1px solid rgba(255,255,255,.5)",color:"#fff",padding:"5px 14px",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer"}}>↩ {t("Αναίρεση","Undo")}</button>
+        </div>
+      )}
     </div>
   );
 }
