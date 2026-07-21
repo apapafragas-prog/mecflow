@@ -336,8 +336,8 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
           <Sel l={t("Τύπος","Type")} v={f.type} set={v=>sF(x=>({...x,type:v}))} opts={TYPES} w={100} />
           <Inp l="Reference" v={f.ref} set={v=>sF(x=>({...x,ref:v}))} w={130} />
           <Inp l={t("Πελάτης","Client")} v={f.client} set={v=>sF(x=>({...x,client:v}))} w={140} />
-          <Inp l={t("Ημ/νία Έναρξης","Start Date")} v={f.start} set={v=>sF(x=>({...x,start:v}))} w={95} />
-          <Inp l={t("Ημ/νία Λήξης","Expiry Date")} v={f.expiry} set={v=>sF(x=>({...x,expiry:v}))} w={95} />
+          <Inp l={t("Ημ/νία Έναρξης","Start Date")} v={f.start} set={v=>sF(x=>({...x,start:v}))} w={140} t="date" />
+          <Inp l={t("Ημ/νία Λήξης","Expiry Date")} v={f.expiry} set={v=>sF(x=>({...x,expiry:v}))} w={140} t="date" />
           <Inp l={t("Αμοιβή %","Fee %")} v={f.fee_pct} set={v=>sF(x=>({...x,fee_pct:v}))} w={60} t="number" />
           <Sel l="Status" v={f.status} set={v=>sF(x=>({...x,status:v}))} opts={STAT} w={90} />
           <Inp l="PO No" v={f.po} set={v=>sF(x=>({...x,po:v}))} w={100} />

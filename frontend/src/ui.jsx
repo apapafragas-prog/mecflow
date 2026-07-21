@@ -77,9 +77,26 @@ export function MdText({text}) {
   })}</>;
 }
 
-// Labelled text/number input (number uses text input to avoid spinner arrows).
+// Any stored date string (dd/mm/yyyy or yyyy-mm-dd) → yyyy-mm-dd for a native date input; else "".
+export const toISODate = (s) => {
+  if (!s) return "";
+  const str = String(s).trim();
+  let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(str); if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = /^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/.exec(str);
+  if (m) { const y = m[3].length === 2 ? "20" + m[3] : m[3]; return `${y}-${String(m[2]).padStart(2,"0")}-${String(m[1]).padStart(2,"0")}`; }
+  return "";
+};
+
+// Labelled text/number/date input (number uses text input to avoid spinner arrows; date is native).
 export function Inp({l,v,set,w,t="text"}) {
   const isNum = t === "number";
+  if (t === "date") return (
+    <div style={{display:"flex",flexDirection:"column",gap:3,width:w}}>
+      <label style={{fontSize:10,color:P.tm,fontWeight:600}}>{l}</label>
+      <input type="date" value={toISODate(v)} onChange={e=>set(e.target.value)}
+        style={{padding:"4px 6px",border:"1px solid "+P.bd,borderRadius:4,fontSize:12,background:P.ip,outline:"none"}} />
+    </div>
+  );
   return (
     <div style={{display:"flex",flexDirection:"column",gap:3,width:w}}>
       <label style={{fontSize:10,color:P.tm,fontWeight:600}}>{l}</label>
@@ -134,6 +151,7 @@ export function Tbl({cols,data,del,onEdit,locked}) {
           <tbody>{rows.map((r,ri)=>{const rl=locked?locked(r):false;return <tr key={r.id||ri}>{cols.map((c,ci)=>{const v=r[c.k];const isSel=sel.has(ck(ri,ci));const bg=isSel?"#E3F2FD":rl?"#F2F4F3":ri%2===0?P.wh:P.al;const bd=isSel?"2px solid #1565C0":"1px solid "+P.bd;const td={padding:"4px 6px",fontSize:12,border:bd,background:bg,textAlign:c.a||"left",minWidth:c.mw||undefined,cursor:"cell"};const h={onMouseDown:e=>md(ri,ci,e),onMouseEnter:()=>me(ri,ci)};
             // Locked (closed-period) rows are read-only: render the display value, never the editors.
             if(c.opts&&onEdit&&!rl) return <td key={c.k} style={td} {...h}><select value={v||""} onChange={e=>up(r.id,c.k,e.target.value)} style={{...cs,textAlign:"left"}}>{c.opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}</select></td>;
+            if(c.t==="date"&&c.edit&&onEdit&&!rl) return <td key={c.k} style={td} {...h}><input type="date" value={toISODate(v)} onChange={e=>up(r.id,c.k,e.target.value)} style={{...cs,textAlign:"left"}} /></td>;
             if(c.edit&&onEdit&&!rl) return <td key={c.k} style={td} {...h}><input type="text" inputMode={c.t==="number"?"decimal":"text"} value={v??""} onChange={e=>up(r.id,c.k,c.t==="number"?e.target.value:e.target.value)} onBlur={c.t==="number"?e=>{const n=parseFloat(String(e.target.value).replace(",","."));up(r.id,c.k,isNaN(n)?0:n);}:undefined} style={{...cs,textAlign:c.a||"left"}} /></td>;
             const disp = c.opts?((c.opts.find(o=>o.v===v)||{}).l??String(v??"")):c.r?c.r(v,r):String(v??"");
             return <td key={c.k} style={{...td,padding:"5px 10px"}} {...h}>{disp}</td>;

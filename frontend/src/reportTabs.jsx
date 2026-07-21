@@ -288,7 +288,7 @@ export function InvTab({data,set,contracts,year,client,onDupCheck,locked}) {
         <Inp l={t("Ποσό €","Amount €")} v={f.amt} set={v=>sF(x=>({...x,amt:v}))} w={110} t="number" />
         <Inp l={t("ΦΠΑ €","VAT €")} v={f.vat} set={v=>sF(x=>({...x,vat:v}))} w={90} t="number" />
         <Inp l={t("Αρ. Τιμολογίου","Invoice No")} v={f.inv_no} set={v=>sF(x=>({...x,inv_no:v}))} w={110} />
-        <Inp l={t("Ημ/νία","Date")} v={f.date} set={v=>sF(x=>({...x,date:v}))} w={100} />
+        <Inp l={t("Ημ/νία","Date")} v={f.date} set={v=>sF(x=>({...x,date:v}))} w={130} t="date" />
         <Sel l="Actual/Accrual" v={f.act_acc} set={v=>sF(x=>({...x,act_acc:v}))} opts={[{v:"ACTUAL",l:"ACTUAL"},{v:"ACCRUAL",l:"ACCRUAL"}]} w={110} />
         <Sel l="PO No" v={f.po_no||""} set={v=>sF(x=>({...x,po_no:v}))} opts={poOpts} w={120} />
         <Inp l={t("Σχόλια","Comments")} v={f.comments} set={v=>sF(x=>({...x,comments:v}))} w={120} />
@@ -303,7 +303,7 @@ export function InvTab({data,set,contracts,year,client,onDupCheck,locked}) {
         {k:"vat",l:t("ΦΠΑ 24%","VAT 24%"),a:"right",edit:true,t:"number",mw:80},
         {k:"total",l:t("Σύνολο €","Total €"),a:"right",r:fmt},
         {k:"inv_no",l:t("Αρ. Τιμολ.","Invoice No"),edit:true,mw:90},
-        {k:"date",l:t("Ημ/νία","Date"),edit:true,mw:85},
+        {k:"date",l:t("Ημ/νία","Date"),edit:true,t:"date",mw:120},
         {k:"comments",l:t("Σχόλια","Comments"),edit:true,mw:100},
         {k:"act_acc",l:"Act/Acc",opts:[{v:"ACTUAL",l:"ACTUAL"},{v:"ACCRUAL",l:"ACCRUAL"}],mw:90},
         {k:"po_no",l:"PO No",opts:poOpts,mw:100},
@@ -348,7 +348,7 @@ export function SubTab({data,set,contracts,year,client,onDupCheck,locked}) {
         <Sel l={t("Υπηρεσία","Service")} v={f.svc_cat} set={v=>sF(x=>({...x,svc_cat:v}))} opts={SVC_CATS.map(c=>({v:c,l:catLabel(c)}))} w={150} />
         <Inp l={t("Περιγραφή","Description")} v={f.svc_desc||""} set={v=>sF(x=>({...x,svc_desc:v}))} w={120} />
         <Inp l={t("Αρ. Τιμολ.","Invoice No")} v={f.inv_no||""} set={v=>sF(x=>({...x,inv_no:v}))} w={100} />
-        <Inp l={t("Ημ/νία","Date")} v={f.date||""} set={v=>sF(x=>({...x,date:v}))} w={90} />
+        <Inp l={t("Ημ/νία","Date")} v={f.date||""} set={v=>sF(x=>({...x,date:v}))} w={130} t="date" />
         <Inp l={t("Ποσό €","Amount €")} v={f.amt} set={v=>sF(x=>({...x,amt:v}))} w={95} t="number" />
         <Inp l={t("Αμοιβή %","Fee %")} v={f.fee_pct} set={v=>sF(x=>({...x,fee_pct:v}))} w={55} t="number" />
         <Sel l="Act/Acc" v={f.act_acc} set={v=>sF(x=>({...x,act_acc:v}))} opts={[{v:"ACTUAL",l:"ACTUAL"},{v:"ACCRUAL",l:"ACCRUAL"}]} w={90} />
@@ -363,7 +363,7 @@ export function SubTab({data,set,contracts,year,client,onDupCheck,locked}) {
         {k:"svc_cat",l:t("Υπηρεσία","Service"),opts:SVC_CATS.map(c=>({v:c,l:catLabel(c)})),mw:120},
         {k:"svc_desc",l:t("Περιγραφή","Description"),edit:true,mw:120},
         {k:"inv_no",l:t("Αρ. Τιμ.","Inv No"),edit:true,mw:80},
-        {k:"date",l:t("Ημ/νία","Date"),edit:true,mw:80},
+        {k:"date",l:t("Ημ/νία","Date"),edit:true,t:"date",mw:120},
         {k:"amt",l:t("Ποσό €","Amount €"),a:"right",edit:true,t:"number",mw:80},
         {k:"vat",l:t("ΦΠΑ €","VAT €"),a:"right",edit:true,t:"number",mw:70},
         {k:"total",l:t("Σύνολο €","Total €"),a:"right",r:fmt},
