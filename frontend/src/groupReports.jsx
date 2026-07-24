@@ -16,6 +16,8 @@ import { useT, monthLabel } from "./i18n.jsx";
 
 const grossAmt = r => Number(r.total) || ((Number(r.amt) || 0) + (Number(r.vat) || 0)) || Number(r.amt) || 0;
 const isPaid = r => r.paid === "paid" || r.paid === true;
+// Recorded partial payments (gross, dated) on an AR/AP row; legacy rows have none.
+const rowPayments = r => Array.isArray(r.payments) ? r.payments : [];
 
 const mkDefaultBS = () => ({
   accounts: [
@@ -202,14 +204,30 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
     // December lands its cash in the last month rather than silently vanishing from the forecast.
     const shift = (m, n) => { const i = MONTHS.indexOf(m); return i < 0 ? null : MONTHS[Math.min(i + n, MONTHS.length - 1)]; };
     const paidMonthOf = (i) => { const pm = i.paid_date ? String(i.paid_date).slice(0, 7) : null; return (pm && MONTHS.includes(pm)) ? pm : null; };
-    // Settlement month: paid WITH an in-year date → that month; otherwise (open, or paid without a
-    // usable date) → the terms-based expected month. Never drop a cash movement silently.
-    const settleM = (i) => (isPaid(i) && paidMonthOf(i)) || shift(i.month, termsM);
+    // Split an invoice's gross into dated cash movements: each recorded partial payment lands in ITS OWN
+    // month; whatever is still outstanding settles at the closure month (paid) or the terms-based expected
+    // month (open). Out-of-year payments still reduce the residual but produce no in-year movement.
+    const cashEvents = (i) => {
+      const gross = grossAmt(i), events = [];
+      let allocated = 0;
+      rowPayments(i).forEach(p => {
+        const amt = Number(p.amount) || 0; if (amt <= 0) return;
+        allocated += amt;
+        const pm = p.date ? String(p.date).slice(0, 7) : null;
+        if (pm && MONTHS.includes(pm)) events.push([pm, amt]);
+      });
+      const residual = gross - allocated;
+      if (Math.abs(residual) > 0.005) {
+        const rm = isPaid(i) ? (paidMonthOf(i) || shift(i.month, termsM)) : shift(i.month, termsM);
+        if (rm) events.push([rm, residual]);
+      }
+      return events;
+    };
     const z = () => { const o = {}; MONTHS.forEach(m => o[m] = 0); return o; };
     const collIn = z(), payOut = z(), lab = z(), opx = z(), cpx = z(), intr = z(), tax = z();
     Object.values(allData || {}).forEach(cd => {
-      (cd?.inv || []).forEach(i => { if (!isActual(i)) return; const tm = settleM(i); if (tm) collIn[tm] += grossAmt(i); });
-      (cd?.sub || []).forEach(i => { if (!isActual(i)) return; const tm = settleM(i); if (tm) payOut[tm] += grossAmt(i); });
+      (cd?.inv || []).forEach(i => { if (!isActual(i)) return; cashEvents(i).forEach(([m, a]) => { collIn[m] += a; }); });
+      (cd?.sub || []).forEach(i => { if (!isActual(i)) return; cashEvents(i).forEach(([m, a]) => { payOut[m] += a; }); });
       MONTHS.forEach(m => { if (cd?.lab?.[m]) lab[m] += Object.values(cd.lab[m]).reduce((s, v) => s + (Number(v) || 0), 0); });
     });
     const cats = fin?.opex?.cats || [], act = fin?.opex?.actual || {};
@@ -250,17 +268,23 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   const onBooks = it => it && it.status !== "Planned" && it.status !== "Approved";
   const isActual = i => (i.act_acc || "").toUpperCase() !== "ACCRUAL"; // accruals aren't trade AR/AP
   const vatOf = i => Number(i.vat) || (grossAmt(i) - (Number(i.amt) || 0)) || 0;
-  // Open at the END of month `m`: issued on/before m, and not settled on/before m (uses paid_date).
-  const openAt = (i, m) => {
+  // Outstanding gross balance at the END of month `m`: issued on/before m, less any settlement up to m.
+  // Recorded partial payments dated on/before m reduce it; a full `paid` flag with a date on/before m
+  // closes it entirely. Paid but WITHOUT a usable date (legacy/imported/bulk-set rows) → kept fully OPEN
+  // rather than silently dropped: its net still sits in equity via cumNet, so removing the matching AR/AP
+  // asset would leave the balance sheet off by net+VAT with no visible cause. It surfaces in the aging
+  // ledger as outstanding, prompting the user to stamp the real settlement date.
+  const openBalanceAt = (i, m) => {
     const mi = monthIdx(m), ii = monthIdx(i.month);
-    if (ii == null || mi == null || ii > mi) return false;
-    if (!isPaid(i)) return true;
-    const pm = i.paid_date ? monthIdx(String(i.paid_date).slice(0, 7)) : null;
-    // Paid WITH a date → settled from that month on. Paid but WITHOUT a date (legacy/imported/bulk-set
-    // rows) → keep it OPEN rather than silently dropping it: its net still sits in equity via cumNet, so
-    // removing the matching AR/AP asset would leave the balance sheet off by net+VAT with no visible cause.
-    // It surfaces in the aging ledger as outstanding, prompting the user to stamp the real settlement date.
-    return pm != null ? pm > mi : true;
+    if (ii == null || mi == null || ii > mi) return 0;   // not issued yet
+    const gross = grossAmt(i);
+    if (isPaid(i)) {
+      const pm = i.paid_date ? monthIdx(String(i.paid_date).slice(0, 7)) : null;
+      if (pm != null && pm <= mi) return 0;              // fully settled by m
+    }
+    let paidByM = 0;
+    rowPayments(i).forEach(p => { const pmi = p.date ? monthIdx(String(p.date).slice(0, 7)) : null; if (pmi != null && pmi <= mi) paidByM += Number(p.amount) || 0; });
+    return Math.max(0, gross - paidByM);
   };
   // Issued on/before month `m` (regardless of payment). VAT liability accrues on ISSUANCE and stays
   // owed to the state until remitted — it must NOT vanish when the invoice is collected/paid.
@@ -271,13 +295,13 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
     Object.values(allData || {}).forEach(cd => {
       (cd?.inv || []).forEach(i => {
         if (isActual(i)) {
-          if (openAt(i, m)) ar += grossAmt(i);            // AR asset: open (uncollected) only
+          ar += openBalanceAt(i, m);                      // AR asset: outstanding (uncollected) balance
           if (issuedBy(i, m)) vatAr += vatOf(i);          // output VAT: accrues on issuance, persists after payment
         } else if (i.month === m) accrInc += Number(i.amt) || 0;   // ACCRUAL revenue booked this month (net)
       });
       (cd?.sub || []).forEach(i => {
         if (isActual(i)) {
-          if (openAt(i, m)) ap += grossAmt(i);            // AP liability: open (unpaid) only
+          ap += openBalanceAt(i, m);                      // AP liability: outstanding (unpaid) balance
           if (issuedBy(i, m)) vatAp += vatOf(i);          // input VAT: accrues on issuance
         } else if (i.month === m) accrCost += Number(i.amt) || 0;  // ACCRUAL cost booked this month (net)
       });
