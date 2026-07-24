@@ -379,12 +379,12 @@ export function SubTab({data,set,contracts,year,client,onDupCheck,locked}) {
   );
 }
 
-export function AccTab({inv,sub,data,set,locked}) {
+export function AccTab({inv,sub,data,set,locked,autoRev=false,setAutoRev}) {
   const isLocked = (m) => !!(locked && locked.has(m));
   const { t } = useT();
   // Auto-reversal: a manual accrual booked in month M is automatically reversed (negated) in month M+1,
   // so each accrual nets to zero across the two periods — the standard month-end accrual/reversal pair.
-  const [autoRev,setAutoRev] = useState(false);
+  // The toggle is persisted in the client blob (accrualReverse) so it survives a refresh.
   const costCats = ["CORE","EXTRA","PJM"];
   const cats = ["FM Core","FM Extra Works","PJMs"];
   const catLabels = ["FM Core","FM Extra Works","FM PJMs"];
@@ -425,7 +425,7 @@ export function AccTab({inv,sub,data,set,locked}) {
       <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 6px"}}>{t("Δουλευμένα (Accruals)","Accruals")}</h2>
       <p style={{fontSize:12,color:P.tm,margin:"0 0 12px",lineHeight:1.5}}>{t("Γράψε τα accruals χειροκίνητα ανά μήνα (όπως το Labour). Ο μικρός γκρι αριθμός πάνω από ένα κελί είναι όσα προκύπτουν αυτόματα από τιμολόγια ACCRUAL — προστίθεται στα σύνολα.","Type accruals manually per month (like Labour). The small grey number above a cell is the amount auto-derived from ACCRUAL invoices — it is added into the totals.")}</p>
       <label style={{display:"inline-flex",alignItems:"center",gap:8,fontSize:12,color:P.tx,margin:"0 0 16px",cursor:"pointer",background:autoRev?"#E8F5E9":P.wh,border:"1px solid "+(autoRev?P.em:P.bd),borderRadius:6,padding:"6px 12px"}} title={t("Ένα χειροκίνητο accrual του μήνα Μ αντιστρέφεται αυτόματα (−) τον μήνα Μ+1.","A manual accrual in month M is automatically reversed (−) in month M+1.")}>
-        <input type="checkbox" checked={autoRev} onChange={e=>setAutoRev(e.target.checked)} /> ↺ {t("Αυτόματη αντιστροφή χειροκίνητων accruals (Μ+1)","Auto-reverse manual accruals (M+1)")}
+        <input type="checkbox" checked={autoRev} onChange={e=>setAutoRev&&setAutoRev(e.target.checked)} /> ↺ {t("Αυτόματη αντιστροφή χειροκίνητων accruals (Μ+1)","Auto-reverse manual accruals (M+1)")}
       </label>
       {sections.map(sec => (
         <div key={sec.key} style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,marginBottom:16}}>
@@ -482,15 +482,14 @@ export function AccTab({inv,sub,data,set,locked}) {
   );
 }
 
-export function LabTab({data,set,locked}) {
+export function LabTab({data,set,locked,plan={},setPlan}) {
   const { t } = useT();
   const isLocked = (m) => !!(locked && locked.has(m));
   const up = (m,k,v) => { if(isLocked(m)) return; set(p => ({...p,[m]:{...p[m],[k]:parseFloat(v)||0}})); };
-  // FTE × rate planner — a client-side helper to populate the monthly grid from headcount × monthly cost.
-  // Not persisted (a budgeting aid); "Apply" writes the computed cost into every unlocked month.
+  // FTE × rate planner — populates the monthly grid from headcount × monthly cost. Inputs are persisted
+  // in the client blob (labPlan) so they survive a refresh; "Apply" writes the cost into every unlocked month.
   const [planOpen,setPlanOpen] = useState(false);
-  const [plan,setPlan] = useState({});   // {rowKey:{fte, rate}}
-  const setPlanVal = (k,f,v) => setPlan(p=>({...p,[k]:{...p[k],[f]:v}}));
+  const setPlanVal = (k,f,v) => setPlan && setPlan(p=>({...(p||{}),[k]:{...((p||{})[k]||{}),[f]:v}}));
   const planMonthly = k => (Number(plan[k]?.fte)||0)*(Number(plan[k]?.rate)||0);
   const applyRow = k => { const c=planMonthly(k); MONTHS.forEach(m=>{ if(!isLocked(m)) up(m,k,c); }); };
   const applyAll = () => LAB_ROWS.forEach(r=>{ if(plan[r.k]&&(Number(plan[r.k].fte)||Number(plan[r.k].rate))) applyRow(r.k); });

@@ -269,7 +269,7 @@ export default function App() {
     const t = setTimeout(() => { if(dirtyRef.current) doSave(year, client, rest); }, 500);
     return () => clearTimeout(t);
   // eslint-disable-next-line
-  }, [cd&&cd.inv,cd&&cd.sub,cd&&cd.lab,cd&&cd.labAlloc,cd&&cd.manualAccruals,cd&&cd.contracts,cd&&cd.status,cd&&cd.submittedBy,cd&&cd.submittedAt,cd&&cd.rejectNote, client, year]);
+  }, [cd&&cd.inv,cd&&cd.sub,cd&&cd.lab,cd&&cd.labAlloc,cd&&cd.labPlan,cd&&cd.manualAccruals,cd&&cd.accrualReverse,cd&&cd.contracts,cd&&cd.status,cd&&cd.submittedBy,cd&&cd.submittedAt,cd&&cd.rejectNote, client, year]);
   // Flush on tab hide / close so nothing is lost
   useEffect(() => {
     const onVis = () => { if(document.visibilityState==="hidden") flushSave(true); };
@@ -334,6 +334,8 @@ export default function App() {
 
   const inv=cd.inv; const sub=cd.sub; const lab=cd.lab; const contracts=cd.contracts; const docs=cd.docs||[];
   const manualAccruals=cd.manualAccruals||[];
+  const labPlan=cd.labPlan||{};                 // persisted FTE×rate planner inputs (survives refresh)
+  const accrualReverse=cd.accrualReverse||false; // persisted accrual auto-reverse (M+1) toggle
   // Period lock: months a finance/admin has closed. Data-entry in these months is read-only for everyone.
   const lockedMap = cd.locked||{};
   const lockedSet = new Set(Object.keys(lockedMap));
@@ -674,8 +676,8 @@ export default function App() {
         {tab==="insights" && <Insights inv={inv} sub={sub} lab={lab} contracts={contracts} client={client} year={year} />}
         {tab==="inv" && <InvTab data={inv} set={setInv} contracts={contracts} year={year} client={client} onDupCheck={()=>setDupOpen(true)} locked={lockedSet} />}
         {tab==="sub" && <SubTab data={sub} set={setSub} contracts={contracts} year={year} client={client} onDupCheck={()=>setDupOpen(true)} locked={lockedSet} />}
-        {tab==="acc" && <AccTab inv={inv} sub={sub} data={manualAccruals} set={setManualAccruals} locked={lockedSet} />}
-        {tab==="lab" && <LabTab data={lab} set={setLab} locked={lockedSet} />}
+        {tab==="acc" && <AccTab inv={inv} sub={sub} data={manualAccruals} set={setManualAccruals} locked={lockedSet} autoRev={accrualReverse} setAutoRev={v=>upClient("accrualReverse",v)} />}
+        {tab==="lab" && <LabTab data={lab} set={setLab} locked={lockedSet} plan={labPlan} setPlan={v=>upClient("labPlan",v)} />}
       </div>
       {reconcile && (
         <ReconcileModal
