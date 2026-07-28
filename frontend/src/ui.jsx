@@ -225,6 +225,7 @@ export function Tbl({cols,data,del,onEdit,locked,onRestore}) {
   const [rowSel,setRowSel] = useState(new Set());   // ids selected via the row checkboxes (for bulk ops)
   const [undo,setUndo] = useState(null);            // {rows} of the last bulk delete, for restore
   const undoTimer = useRef(null);
+  useEffect(() => () => clearTimeout(undoTimer.current), []);   // clear the pending undo timer on unmount
   const rows = data.filter(r => !fl || cols.some(c => String(r[c.k]||"").toLowerCase().includes(fl.toLowerCase())));
   const canBulk = !!onRestore;
   const selectableRows = rows.filter(r => !(locked&&locked(r)));
@@ -277,7 +278,7 @@ export function Tbl({cols,data,del,onEdit,locked,onRestore}) {
             if(c.edit&&onEdit&&!rl) return <td key={c.k} style={td} {...h}><input type="text" inputMode={c.t==="number"?"decimal":"text"} value={v??""} onChange={e=>up(r.id,c.k,c.t==="number"?e.target.value:e.target.value)} onBlur={c.t==="number"?e=>{const n=parseFloat(String(e.target.value).replace(",","."));up(r.id,c.k,isNaN(n)?0:n);}:undefined} style={{...cs,textAlign:c.a||"left"}} /></td>;
             const disp = c.opts?((c.opts.find(o=>o.v===v)||{}).l??String(v??"")):c.r?c.r(v,r):String(v??"");
             return <td key={c.k} style={{...td,padding:"5px 10px"}} {...h}>{disp}</td>;
-          })}<td style={{padding:4,textAlign:"center",border:"1px solid "+P.bd,background:rl?"#F2F4F3":ri%2===0?P.wh:P.al}}>{rl?<span title="Κλειδωμένος μήνας" style={{fontSize:13,opacity:.6}}>🔒</span>:<button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.rd,cursor:"pointer",fontSize:15}}>×</button>}</td></tr>;})}</tbody>
+          })}<td style={{padding:4,textAlign:"center",border:"1px solid "+P.bd,background:rl?"#F2F4F3":ri%2===0?P.wh:P.al}}>{rl?<span title={t("Κλειδωμένος μήνας","Locked month")} style={{fontSize:13,opacity:.6}}>🔒</span>:<button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.rd,cursor:"pointer",fontSize:15}}>×</button>}</td></tr>;})}</tbody>
         </table>
       </div>
       <div style={{background:"#263238",color:"#fff",padding:"6px 16px",display:"flex",gap:20,fontSize:12,fontFamily:"'Consolas','Courier New',monospace",minHeight:28,alignItems:"center"}}>

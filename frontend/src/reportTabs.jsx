@@ -312,7 +312,7 @@ export function InvTab({data,set,contracts,year,client,onDupCheck,locked}) {
       ]} data={data} del={id=>{const row=(data||[]).find(x=>x.id===id); if(row&&row.docId) api.deleteFile(year,client,row.docId).catch(()=>{}); set(p=>p.filter(x=>x.id!==id));}} onRestore={rows=>set(p=>[...p,...rows])} onEdit={(id,k,v)=>set(p=>p.map(r=>{
         if(r.id!==id) return r;
         const u={...r,[k]:v};
-        if(k==="amt"||k==="vat") u.total=(k==="amt"?parseFloat(v)||0:r.amt)+(k==="vat"?parseFloat(v)||0:r.vat);
+        if(k==="amt"||k==="vat") u.total=(k==="amt"?parseFloat(v)||0:Number(r.amt)||0)+(k==="vat"?parseFloat(v)||0:Number(r.vat)||0);
         // Stamp/clear the payment date so open-AR aging & the balance sheet know WHEN it settled.
         if(k==="paid") u.paid_date = v==="paid" ? (r.paid_date || new Date().toISOString().slice(0,10)) : "";
         return u;
