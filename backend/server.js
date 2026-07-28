@@ -129,21 +129,34 @@ const notifyHtml = (title, body, link) => `
   </div>`;
 const emailsForRoles = (roles) => db.prepare("SELECT name, email, role FROM users WHERE email IS NOT NULL AND email != ''").all().filter(u => roles.includes(u.role));
 const emailForName = (nm) => db.prepare("SELECT email FROM users WHERE name = ? AND email IS NOT NULL AND email != ''").get(nm);
-// Fire report-status notifications (best-effort — never blocks the save).
-const notifyStatusChange = (year, client, newStatus, payload, req) => {
+// Best-effort per-user throttle so a user toggling report status can't relay unlimited CBRE-branded
+// email through CBRE's SMTP (internal spam / phishing).
+const notifyByUser = new Map();
+const NOTIFY_CAP = 30, NOTIFY_WIN = 60 * 60 * 1000;
+const notifyAllowed = (uid) => {
+  const now = Date.now();
+  const arr = (notifyByUser.get(uid) || []).filter(t => now - t < NOTIFY_WIN);
+  if (arr.length >= NOTIFY_CAP) return false;
+  arr.push(now); notifyByUser.set(uid, arr); return true;
+};
+// Fire report-status notifications (best-effort — never blocks the save). Recipients are resolved
+// server-side — the submitter from the STORED report, finance/admin from the users table — never from
+// the caller-supplied blob, so this path can't be steered to email an arbitrary person.
+const notifyStatusChange = (year, client, newStatus, submitterName, rejectNote, req) => {
   if (!EMAIL_ENABLED) return;
+  if (!notifyAllowed((req.user && req.user.id) || "-")) return;
   const base = safeBaseUrl(req);
   // Escape every user-controlled field before it enters the email HTML (structural <b> tags stay).
   const c = esc(client), y = esc(year);
   const send = (to, subj, body) => sendEmail(to, subj, notifyHtml(esc(subj), body, base)).catch(e => console.error("notify email failed:", e.message));
   if (newStatus === "submitted") {
-    const who = esc(payload.submittedBy || req.user.name || "χρήστης");
+    const who = esc(req.user.name || "χρήστης");   // the actual submitter (authenticated), not a blob field
     for (const r of emailsForRoles(["finance", "admin"])) send(r.email, `Report προς έγκριση — ${client} ${year}`, `Ο/Η <b>${who}</b> υπέβαλε το report για <b>${c}</b> (${y}) προς έγκριση.`);
   } else if (newStatus === "approved" || newStatus === "rejected") {
-    const sub = payload.submittedBy && emailForName(payload.submittedBy);
+    const sub = submitterName && emailForName(submitterName);
     if (sub && sub.email) {
       if (newStatus === "approved") send(sub.email, `✓ Εγκρίθηκε — ${client} ${year}`, `Το report σου για <b>${c}</b> (${y}) <b>εγκρίθηκε</b> από το Finance.`);
-      else send(sub.email, `Χρειάζεται διόρθωση — ${client} ${year}`, `Το report σου για <b>${c}</b> (${y}) <b>απορρίφθηκε</b> και χρειάζεται διόρθωση.${payload.rejectNote ? `<br><br><b>Λόγος:</b> ${esc(payload.rejectNote)}` : ""}`);
+      else send(sub.email, `Χρειάζεται διόρθωση — ${client} ${year}`, `Το report σου για <b>${c}</b> (${y}) <b>απορρίφθηκε</b> και χρειάζεται διόρθωση.${rejectNote ? `<br><br><b>Λόγος:</b> ${esc(rejectNote)}` : ""}`);
     }
   }
 };
@@ -252,8 +265,8 @@ app.post("/api/auth/forgot", forgotLimiter, async (req, res) => {
     await sendEmail(u.email, "Επαναφορά κωδικού — CBRE Reporting", resetEmailHtml(esc(u.name || u.username), link));
     audit(u.username, "password_reset_requested", null, req);
   } catch (e) {
+    // Don't disclose account existence via a send-failure status — always return the generic message.
     console.error("Resend send failed:", e.message);
-    return res.status(502).json({ error: "Αποτυχία αποστολής email — δοκίμασε ξανά ή ζήτα admin reset." });
   }
   res.json(generic);
 });
@@ -284,6 +297,7 @@ app.get("/api/users", auth, requireRole("admin"), (req, res) => {
 app.post("/api/users", auth, requireRole("admin"), (req, res) => {
   const { username, password, name, role, clients, email } = req.body;
   if (!username || !password || !name || !role) return res.status(400).json({ error: "Missing fields" });
+  if (!["ops", "finance", "admin"].includes(role)) return res.status(400).json({ error: "Invalid role" });
   if (password.length < 8) return res.status(400).json({ error: "Password must be 8+ chars" });
   try {
     const c = clients === "ALL" ? "ALL" : JSON.stringify(clients || []);
@@ -354,6 +368,9 @@ app.post("/api/users/:id/reset-password", auth, requireRole("admin"), (req, res)
 
 // ── Helper: check user can access client ──
 const canAccess = (user, client) => user.clients === "ALL" || (Array.isArray(user.clients) && user.clients.includes(client));
+// Reject control chars / overlong values in route params — prevents header injection via client/year
+// into email subjects and junk client_data rows. Names may hold unicode letters, spaces, punctuation.
+const badParam = (s) => typeof s !== "string" || s.length < 1 || s.length > 80 || [...s].some(ch => { const c = ch.charCodeAt(0); return c < 32 || c === 127; });
 
 // ── Data endpoints ──
 app.get("/api/data/:year/:client", auth, (req, res) => {
@@ -367,18 +384,33 @@ app.get("/api/data/:year/:client", auth, (req, res) => {
 });
 
 // Optimistic locking: client sends { data, baseVersion }. Version mismatch → 409 (no silent overwrite).
-// Legacy body shape (raw data object, no baseVersion) is still accepted without the check.
+// The envelope (with a numeric baseVersion) is REQUIRED — a raw body that skips the version check is
+// rejected, so a buggy/malicious client can't silently clobber a concurrent edit.
 app.put("/api/data/:year/:client", auth, (req, res) => {
   const { year, client } = req.params;
+  if (badParam(year) || badParam(client)) return res.status(400).json({ error: "Invalid year/client" });
   if (!canAccess(req.user, client)) return res.status(403).json({ error: "Access denied" });
   const hasEnvelope = req.body && typeof req.body === "object" && req.body.data !== undefined && ("baseVersion" in req.body);
-  const payload = hasEnvelope ? req.body.data : req.body;
+  if (!hasEnvelope) return res.status(400).json({ error: "baseVersion required" });
+  const payload = req.body.data;
   if (tooBig(payload)) return res.status(413).json({ error: "Πολύ μεγάλος όγκος δεδομένων για αποθήκευση" });
-  const baseVersion = hasEnvelope ? Number(req.body.baseVersion) : undefined;
+  const baseVersion = Number(req.body.baseVersion);
+  if (Number.isNaN(baseVersion)) return res.status(400).json({ error: "Invalid baseVersion" });
   const row = db.prepare("SELECT version, data FROM client_data WHERE year = ? AND client = ?").get(year, client);
   const currentVersion = row ? (row.version || 0) : 0;
-  if (baseVersion !== undefined && !Number.isNaN(baseVersion) && row && currentVersion !== baseVersion) {
+  if (row && currentVersion !== baseVersion) {
     return res.status(409).json({ error: "Data was modified by another user", version: currentVersion });
+  }
+  // Report status state-machine, enforced server-side (the client gate is bypassable via the API):
+  // only finance/admin may approve or reject; ops can only draft/submit their own report.
+  let oldData = null; try { oldData = row ? JSON.parse(row.data) : null; } catch { /* corrupt → treat as draft */ }
+  const oldStatus = (oldData && oldData.status) || "draft";
+  const newStatus = (payload && payload.status) || "draft";
+  const STATUSES = ["draft", "submitted", "approved", "rejected"];
+  if (!STATUSES.includes(newStatus)) return res.status(400).json({ error: "Invalid report status" });
+  const isFinance = req.user.role === "finance" || req.user.role === "admin";
+  if (newStatus !== oldStatus && (newStatus === "approved" || newStatus === "rejected") && !isFinance) {
+    return res.status(403).json({ error: "Only finance can approve or reject reports" });
   }
   const newVersion = currentVersion + 1;
   const upsert = db.prepare(`INSERT INTO client_data (year, client, data, version, updated_at, updated_by)
@@ -388,12 +420,11 @@ app.put("/api/data/:year/:client", auth, (req, res) => {
   res.json({ ok: true, version: newVersion });
   // Audit trail (best-effort, after the response) — every client-data mutation + status transition.
   try {
-    let oldStatus = "draft"; try { oldStatus = (row && JSON.parse(row.data).status) || "draft"; } catch {}
-    const newStatus = (payload && payload.status) || "draft";
     audit(req.user.username, "data_save", `${year}/${client} v${newVersion}`, req);
     if (newStatus !== oldStatus && ["submitted", "approved", "rejected"].includes(newStatus)) {
       audit(req.user.username, `report_${newStatus}`, `${year}/${client}`, req);
-      notifyStatusChange(year, client, newStatus, payload, req);
+      // Submitter (recipient of the approve/reject mail) is read from the STORED report, not the payload.
+      notifyStatusChange(year, client, newStatus, (oldData && oldData.submittedBy) || "", payload && payload.rejectNote, req);
     }
   } catch (e) { console.error("status-notify/audit error:", e.message); }
 });
@@ -419,13 +450,16 @@ app.get("/api/finance/:year", auth, requireRole("finance", "admin"), (req, res) 
 // Optimistic locking: { data, baseVersion } → 409 on version mismatch (no silent overwrite).
 app.put("/api/finance/:year", auth, requireRole("finance", "admin"), (req, res) => {
   const { year } = req.params;
+  if (badParam(year)) return res.status(400).json({ error: "Invalid year" });
   const hasEnvelope = req.body && typeof req.body === "object" && req.body.data !== undefined && ("baseVersion" in req.body);
-  const payload = hasEnvelope ? req.body.data : req.body;
+  if (!hasEnvelope) return res.status(400).json({ error: "baseVersion required" });
+  const payload = req.body.data;
   if (tooBig(payload)) return res.status(413).json({ error: "Πολύ μεγάλος όγκος δεδομένων για αποθήκευση" });
-  const baseVersion = hasEnvelope ? Number(req.body.baseVersion) : undefined;
+  const baseVersion = Number(req.body.baseVersion);
+  if (Number.isNaN(baseVersion)) return res.status(400).json({ error: "Invalid baseVersion" });
   const row = db.prepare("SELECT version FROM finance_data WHERE year = ?").get(year);
   const currentVersion = row ? (row.version || 0) : 0;
-  if (baseVersion !== undefined && !Number.isNaN(baseVersion) && row && currentVersion !== baseVersion) {
+  if (row && currentVersion !== baseVersion) {
     return res.status(409).json({ error: "Data was modified by another user", version: currentVersion });
   }
   const newVersion = currentVersion + 1;
@@ -593,7 +627,7 @@ app.patch("/api/files/:year/:client/:id", auth, (req, res) => {
 
 // ── Audit log (admin only) ──
 app.get("/api/audit", auth, requireRole("admin"), (req, res) => {
-  const limit = parseInt(req.query.limit) || 100;
+  const limit = Math.min(Math.max(parseInt(req.query.limit) || 100, 1), 1000);
   const logs = db.prepare("SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT ?").all(limit);
   res.json(logs);
 });
@@ -833,8 +867,16 @@ const insightsLimiter = rateLimit({
   windowMs: 60 * 1000, max: 20,
   keyGenerator: (req) => (req.user ? `u${req.user.id}` : req.ip)
 });
+// Per-user daily budget cap (like /api/chat) so one user can't drive unbounded Anthropic spend.
+const INSIGHTS_DAILY_CAP = parseInt(process.env.INSIGHTS_DAILY_CAP || "100", 10);
+let insDay = ""; const insByUser = new Map();
 app.post("/api/insights", auth, insightsLimiter, async (req, res) => {
   if (!anthropic) return res.status(503).json({ error: "AI δεν έχει ρυθμιστεί (λείπει ANTHROPIC_API_KEY)" });
+  const today = new Date().toISOString().slice(0, 10);
+  if (today !== insDay) { insDay = today; insByUser.clear(); }
+  const used = insByUser.get(req.user.id) || 0;
+  if (used >= INSIGHTS_DAILY_CAP) return res.status(429).json({ error: "Εξάντλησες το ημερήσιο όριο AI insights. Δοκίμασε ξανά αύριο." });
+  insByUser.set(req.user.id, used + 1);
   const scope = (req.body && req.body.scope) === "portfolio" ? "portfolio" : "client";
   const context = (req.body && req.body.context) || {};
   const lang = (req.body && req.body.lang) === "en" ? "en" : "el";

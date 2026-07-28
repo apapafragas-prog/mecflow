@@ -269,7 +269,7 @@ export default function App() {
     const t = setTimeout(() => { if(dirtyRef.current) doSave(year, client, rest); }, 500);
     return () => clearTimeout(t);
   // eslint-disable-next-line
-  }, [cd&&cd.inv,cd&&cd.sub,cd&&cd.lab,cd&&cd.labAlloc,cd&&cd.labPlan,cd&&cd.manualAccruals,cd&&cd.accrualReverse,cd&&cd.contracts,cd&&cd.status,cd&&cd.submittedBy,cd&&cd.submittedAt,cd&&cd.rejectNote, client, year]);
+  }, [cd&&cd.inv,cd&&cd.sub,cd&&cd.lab,cd&&cd.labAlloc,cd&&cd.labPlan,cd&&cd.manualAccruals,cd&&cd.accrualReverse,cd&&cd.contracts,cd&&cd.locked,cd&&cd.status,cd&&cd.submittedBy,cd&&cd.submittedAt,cd&&cd.rejectNote, client, year]);
   // Flush on tab hide / close so nothing is lost
   useEffect(() => {
     const onVis = () => { if(document.visibilityState==="hidden") flushSave(true); };
