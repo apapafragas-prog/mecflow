@@ -6,11 +6,35 @@
 // (same store as OPEX/CAPEX) — we load the whole blob and save it back, preserving opex/capex.
 import { useState, useEffect, useRef } from "react";
 import { api } from "./api.js";
-import { P, MONTHS, ML, YEARS, uid, fmt, fPct, normalizeClientData, REV_CATS, COST_CATS } from "./constants.js";
+import { P, MONTHS, ML, YEARS, uid, fmt, fPct, normalizeClientData, remapMonth, REV_CATS, COST_CATS } from "./constants.js";
 import { groupPnLSeries, nbvAtMonth, monthIdx } from "./calc.js";
 import { exportWorkbook } from "./exportXlsx.js";
 
 const normYear = (d) => Object.fromEntries(Object.entries(d || {}).map(([c, cd]) => [c, normalizeClientData(cd)]));
+// Remap a finance blob's month-keyed fields (opex actual/budget, pnl interest/tax, capex start month)
+// onto the ACTIVE fiscal year — lossless for YTD sums — so a prior-year blob lines up with MONTHS when
+// computing the board's YoY comparatives. Mirrors normalizeClientData's month healing for client data.
+const remapFinMonths = (d) => {
+  if (!d || typeof d !== "object") return {};
+  const remapCatMap = (obj) => {
+    if (!obj || typeof obj !== "object") return obj;
+    const out = {};
+    for (const [cat, byM] of Object.entries(obj)) {
+      if (byM && typeof byM === "object") { out[cat] = {}; for (const [m, v] of Object.entries(byM)) { const tk = remapMonth(m); out[cat][tk] = (out[cat][tk] || 0) + (Number(v) || 0); } }
+      else out[cat] = byM;
+    }
+    return out;
+  };
+  const remapFlat = (obj) => {
+    if (!obj || typeof obj !== "object") return obj;
+    const out = {}; for (const [m, v] of Object.entries(obj)) { const tk = remapMonth(m); out[tk] = (out[tk] || 0) + (Number(v) || 0); } return out;
+  };
+  const out = { ...d };
+  if (out.opex) out.opex = { ...out.opex, actual: remapCatMap(out.opex.actual), budget: remapCatMap(out.opex.budget) };
+  if (out.pnl) out.pnl = { ...out.pnl, interest: remapFlat(out.pnl.interest), tax: remapFlat(out.pnl.tax) };
+  if (Array.isArray(out.capex)) out.capex = out.capex.map(it => (it && typeof it === "object" ? { ...it, month: remapMonth(it.month) } : it));
+  return out;
+};
 import { LangToggle, Skeleton } from "./ui.jsx";
 import { useT, monthLabel } from "./i18n.jsx";
 
@@ -87,8 +111,9 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
       (async () => {
         const [pcd, pfr] = await Promise.all([api.getYearData(py).catch(() => ({})), api.getFinanceData(py).catch(() => null)]);
         if (cancelled) return;
-        // Prior-year amounts are month-independent for a YTD total, so raw data is fine here.
-        setPrev({ series: groupPnLSeries(pcd || {}, (pfr && pfr.data) || {}, MONTHS) });
+        // groupPnLSeries filters by the ACTIVE FY's month keys, so prior-year data must be remapped onto
+        // those keys first (lossless for the YTD totals the board uses) — otherwise every Prior line is 0.
+        setPrev({ series: groupPnLSeries(normYear(pcd || {}), remapFinMonths((pfr && pfr.data) || {}), MONTHS) });
       })();
     }
     return () => { cancelled = true; };
@@ -267,7 +292,9 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   // Only capitalised assets carry NBV/depreciation — Planned/Approved aren't on the books yet.
   const onBooks = it => it && it.status !== "Planned" && it.status !== "Approved";
   const isActual = i => (i.act_acc || "").toUpperCase() !== "ACCRUAL"; // accruals aren't trade AR/AP
-  const vatOf = i => Number(i.vat) || (grossAmt(i) - (Number(i.amt) || 0)) || 0;
+  // Derive VAT from the SAME gross used for AR/AP (gross − net) so the balance identity
+  // AR(gross) = equity(net) + VAT holds even when a stored row has total ≠ amt + vat.
+  const vatOf = i => grossAmt(i) - (Number(i.amt) || 0);
   // Outstanding gross balance at the END of month `m`: issued on/before m, less any settlement up to m.
   // Recorded partial payments dated on/before m reduce it; a full `paid` flag with a date on/before m
   // closes it entirely. Paid but WITHOUT a usable date (legacy/imported/bulk-set rows) → kept fully OPEN
@@ -438,7 +465,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
     const body = rows.map(r => {
       const td = `padding:6px 10px;font-size:11px;border-bottom:1px solid #D5DDD8;text-align:right;white-space:nowrap${r.b ? ";font-weight:700;background:#E8F5E9" : ""}`;
       const ve = varE(r), vp = varP(r), yy = yoy(r);
-      return `<tr><td style="${td};text-align:left">${escp(r.l)}</td><td style="${td}">${escp(num(r, r.actual))}</td><td style="${td}">${escp(num(r, r.budget))}</td><td style="${td}">${ve == null ? "—" : escp(fmt(ve))}</td><td style="${td}">${vp == null ? "—" : escp(fPct(vp))}</td><td style="${td}">${escp(num(r, r.prior))}</td><td style="${td}">${yy == null ? "—" : escp(fPct(yy))}</td></tr>`;
+      return `<tr><td style="${td};text-align:left">${escp(r.l)}</td><td style="${td}">${escp(num(r, r.actual))}</td><td style="${td}">${escp(num(r, r.budget))}</td><td style="${td}">${ve == null ? "—" : escp(r.pct ? fPct(ve) : fmt(ve))}</td><td style="${td}">${vp == null ? "—" : escp(fPct(vp))}</td><td style="${td}">${escp(num(r, r.prior))}</td><td style="${td}">${yy == null ? "—" : escp(fPct(yy))}</td></tr>`;
     }).join("");
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>CBRE Group P&L — ${escp(year)}</title></head>
       <body style="font-family:Segoe UI,Arial,sans-serif;color:#1A2E23;padding:26px">
