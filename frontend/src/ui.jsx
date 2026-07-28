@@ -7,7 +7,7 @@ import { useT } from "./i18n.jsx";
 // Cross-client fuzzy search over clients, invoices, subcontractor bills and contracts for the active
 // year. `data` is the year map { clientName: clientData }; `onNavigate` receives a "client:Name:tab"
 // route (the same grammar the chat assistant uses) so a hit jumps straight to the right screen.
-export function GlobalSearch({ data, onNavigate, canFinance }) {
+export function GlobalSearch({ data, onNavigate, canFinance, myClients }) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -27,16 +27,19 @@ export function GlobalSearch({ data, onNavigate, canFinance }) {
   useEffect(() => { if (open) { setQ(""); setHi(0); setTimeout(() => inputRef.current?.focus(), 30); } }, [open]);
 
   // Flat index of everything searchable for the active year (built once per data change).
+  // Restricted (non-finance) users only ever see/navigate their own portfolio — never the full roster.
   const index = useMemo(() => {
+    const allowed = (!canFinance && Array.isArray(myClients)) ? new Set(myClients) : null;
     const out = [];
     Object.entries(data || {}).forEach(([client, cd]) => {
+      if (allowed && !allowed.has(client)) return;
       out.push({ type: "client", client, tab: "contracts", label: client, hint: t("Πελάτης", "Client"), text: client.toLowerCase() });
       (cd?.inv || []).forEach(r => out.push({ type: "inv", client, tab: "inv", label: (r.inv_no || t("Τιμολόγιο", "Invoice")) + " · €" + fmt(r.amt), hint: client + " · " + (r.cat || "") + (r.comments ? " · " + r.comments : ""), text: [client, r.inv_no, r.cat, r.comments, r.amt, r.site].join(" ").toLowerCase() }));
       (cd?.sub || []).forEach(r => out.push({ type: "sub", client, tab: "sub", label: (r.supplier || t("Υπεργολάβος", "Subcontractor")) + " · €" + fmt(r.amt), hint: client + " · " + (r.inv_no || "") + (r.svc_desc ? " · " + r.svc_desc : ""), text: [client, r.supplier, r.inv_no, r.svc_desc, r.cat, r.amt].join(" ").toLowerCase() }));
       (cd?.contracts || []).forEach(r => out.push({ type: "contract", client, tab: "contracts", label: (r.name || r.type || t("Συμβόλαιο", "Contract")) + (r.po ? " · PO " + r.po : ""), hint: client + " · " + (r.type || "") + (r.scope ? " · " + r.scope : ""), text: [client, r.name, r.type, r.po, r.scope].join(" ").toLowerCase() }));
     });
     return out;
-  }, [data, t]);
+  }, [data, t, canFinance, myClients]);
 
   // Token-AND match; clients first, then by type. Cap the list so the palette stays snappy.
   const results = useMemo(() => {

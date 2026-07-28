@@ -319,7 +319,7 @@ export default function App() {
       ))}
     </div>
   ) : null;
-  const searchEl = <GlobalSearch data={yd} onNavigate={navChat} canFinance={user.role==="finance"||user.role==="admin"} />;
+  const searchEl = <GlobalSearch data={yd} onNavigate={navChat} canFinance={user.role==="finance"||user.role==="admin"} myClients={user.clients} />;
   const withChat = (screen) => <>{screen}{scanPill}{chatEl}{searchEl}</>;
 
   if (!client && dashOpen)
