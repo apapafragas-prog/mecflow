@@ -129,7 +129,7 @@ export function mkLab() { const o = {}; MONTHS.forEach(m => { o[m] = {}; LAB_ALL
 // Legacy per-month segment weights — no longer used for the P&L split (kept for old saved blobs).
 export function mkAlloc() { const o = {}; MONTHS.forEach(m => { o[m] = {core:100,ew:0,pjm:0}; }); return o; }
 
-export const P = { em:"#003F2D",ep:"#E8F5E9",wh:"#fff",of:"#F7F9F8",bd:"#D5DDD8",tx:"#1A2E23",tm:"#5F7567",rd:"#C62828",gn:"#2E7D32",al:"#F0F5F2",ip:"#FFFFF0" };
+export const P = { em:"#003F2D",ep:"#E8F5E9",wh:"#fff",of:"#EEF2F0",bd:"#E1E7E3",tx:"#1A2E23",tm:"#5F7567",rd:"#AD2A2A",gn:"#2E7D32",al:"#F4F8F5",ip:"#F5F8F6",ac:"#17E88F",dk:"#012A2D",sh:"0 1px 2px rgba(3,42,45,.04), 0 6px 18px rgba(3,42,45,.05)" };
 // Money formatter — accounting style: negatives in parentheses. `compact` rounds to whole units
 // (no decimals) for scanning large consolidated tables.
 export const fmt = (n, compact) => {

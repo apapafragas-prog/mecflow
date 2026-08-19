@@ -138,7 +138,7 @@ export function LogoImg({name,size,radius}) {
   const [err,setErr] = useState(0);
   const fallback = () => { if(err===0){setSrc(logoUrl2(nm));setErr(1);} else setErr(2); };
   const sz = size||36; const rd = radius||8;
-  const color = (() => {const colors=["#003F2D","#00695C","#00897B","#0277BD","#1565C0","#283593","#4527A0","#6A1B9A","#AD1457","#C62828","#D84315","#EF6C00","#F9A825","#2E7D32","#00838F","#37474F"];let h=0;for(let i=0;i<nm.length;i++)h=((h<<5)-h+nm.charCodeAt(i))|0;return colors[Math.abs(h)%colors.length];})();
+  const color = (() => {const colors=["#003F2D","#003F2D","#003F2D","#0277BD","#1565C0","#283593","#4527A0","#6A1B9A","#AD1457","#C62828","#D84315","#EF6C00","#F9A825","#2E7D32","#00838F","#37474F"];let h=0;for(let i=0;i<nm.length;i++)h=((h<<5)-h+nm.charCodeAt(i))|0;return colors[Math.abs(h)%colors.length];})();
   const ini = nm.split(/[\s-]+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();
   if(err>=2||!src) return <div style={{width:sz,height:sz,borderRadius:rd,background:color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:sz*0.36,flexShrink:0}}>{ini}</div>;
   return <img src={src} alt="" style={{width:sz,height:sz,borderRadius:rd,objectFit:"contain",background:"#f5f5f5",padding:2,flexShrink:0}} onError={fallback} />;
@@ -255,7 +255,7 @@ export function Tbl({cols,data,del,onEdit,locked,onRestore}) {
   const vals=[];sel.forEach(k=>{const[ri,ci]=k.split(":").map(Number);const v=gv(ri,ci);if(typeof v==="number"&&!isNaN(v))vals.push(v);});
   const sum=vals.reduce((s,v)=>s+v,0);const avg=vals.length?sum/vals.length:0;
   return (
-    <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,overflow:"hidden"}} onMouseUp={mu} onMouseLeave={mu}>
+    <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,overflow:"hidden"}} onMouseUp={mu} onMouseLeave={mu}>
       <div style={{padding:"8px 12px",borderBottom:"1px solid "+P.bd,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
         <input placeholder="Filter..." value={fl} onChange={e=>sF(e.target.value)} style={{padding:"5px 8px",border:"1px solid "+P.bd,borderRadius:4,fontSize:12,outline:"none",width:180}} />
         <span style={{fontSize:11,color:P.tm}}>{rows.length} rows</span>

@@ -183,7 +183,7 @@ export function PnL({inv,sub,lab,client,year,user}) {
           </div>
         </div>
       )}
-      <div style={{overflowX:"auto",background:P.wh,borderRadius:8,border:"1px solid "+P.bd}}>
+      <div style={{overflowX:"auto",background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
           <thead><tr><th style={{...H,textAlign:"left",minWidth:220}}>{t("Γραμμή","Line")}</th>{am.map(m=><th key={m} style={H}>{monthLabel(m)}</th>)}<th style={H}>YTD</th></tr></thead>
           <tbody>{rows.map((r,i) => {
@@ -281,7 +281,7 @@ export function InvTab({data,set,contracts,year,client,onDupCheck,locked}) {
   return (
     <div>
       <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 16px"}}>{t("Τιμολόγια CBRE — Έσοδα","CBRE Invoices — Revenue")}</h2>
-      <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:14,marginBottom:16,display:"flex",flexWrap:"wrap",gap:8,alignItems:"end"}}>
+      <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,padding:14,marginBottom:16,display:"flex",flexWrap:"wrap",gap:8,alignItems:"end"}}>
         <Sel l="Site" v={f.site} set={v=>sF(x=>({...x,site:v}))} opts={SITES.map(s=>({v:s,l:s}))} w={90} />
         <Sel l={t("Μήνας","Month")} v={f.month} set={v=>sF(x=>({...x,month:v}))} opts={MONTHS.map(m=>({v:m,l:monthLabel(m)}))} w={100} />
         <Sel l={t("Κατηγορία Εσόδων","Revenue Category")} v={f.cat} set={v=>sF(x=>({...x,cat:v}))} opts={REV_CATS.map(c=>({v:c,l:catLabel(c)}))} w={200} />
@@ -341,7 +341,7 @@ export function SubTab({data,set,contracts,year,client,onDupCheck,locked}) {
     <div>
       <h2 style={{color:P.em,fontSize:16,fontWeight:700,margin:"0 0 6px"}}>{t("Τιμολόγια Υπεργολάβων","Subcontractor Invoices")}</h2>
       <p style={{fontSize:13,color:P.tm,margin:"0 0 16px"}}>{t("Αμοιβή συμβολαίου","Contract fee")}: <strong style={{color:P.em}}>{activeFee}%</strong> {t("(από ενεργό MSA)","(from active MSA)")}</p>
-      <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:14,marginBottom:16,display:"flex",flexWrap:"wrap",gap:8,alignItems:"end"}}>
+      <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,padding:14,marginBottom:16,display:"flex",flexWrap:"wrap",gap:8,alignItems:"end"}}>
         <Sel l={t("Μήνας","Month")} v={f.month} set={v=>sF(x=>({...x,month:v}))} opts={MONTHS.map(m=>({v:m,l:monthLabel(m)}))} w={100} />
         <Sel l={t("Κατ. Κόστους","Cost Cat")} v={f.cat} set={v=>sF(x=>({...x,cat:v}))} opts={COST_CATS.map(c=>({v:c,l:catLabel(c)}))} w={190} />
         <Inp l={t("Προμηθευτής","Supplier")} v={f.supplier} set={v=>sF(x=>({...x,supplier:v}))} w={130} />
@@ -428,7 +428,7 @@ export function AccTab({inv,sub,data,set,locked,autoRev=false,setAutoRev}) {
         <input type="checkbox" checked={autoRev} onChange={e=>setAutoRev&&setAutoRev(e.target.checked)} /> ↺ {t("Αυτόματη αντιστροφή χειροκίνητων accruals (Μ+1)","Auto-reverse manual accruals (M+1)")}
       </label>
       {sections.map(sec => (
-        <div key={sec.key} style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,marginBottom:16}}>
+        <div key={sec.key} style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,marginBottom:16}}>
           <div style={{background:P.ep,padding:"10px 16px",fontWeight:700,fontSize:13,color:P.em}}>{sec.t}</div>
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed",minWidth:1100}}>
@@ -438,9 +438,9 @@ export function AccTab({inv,sub,data,set,locked,autoRev=false,setAutoRev}) {
                 <col style={{width:95}} />
               </colgroup>
               <thead><tr>
-                <th style={{...thS,textAlign:"left",borderRight:"2px solid #00695C"}}>{t("Κατηγορία","Category")}</th>
+                <th style={{...thS,textAlign:"left",borderRight:"2px solid #003F2D"}}>{t("Κατηγορία","Category")}</th>
                 {MONTHS.map(m=><th key={m} style={thS}>{monthLabel(m)}</th>)}
-                <th style={{...thS,background:"#00695C"}}>{t("Σύνολο","Total")}</th>
+                <th style={{...thS,background:"#003F2D"}}>{t("Σύνολο","Total")}</th>
               </tr></thead>
               <tbody>
                 {[0,1,2].map(g => {
@@ -464,12 +464,12 @@ export function AccTab({inv,sub,data,set,locked,autoRev=false,setAutoRev}) {
                   );
                 })}
                 <tr style={{background:P.ep}}>
-                  <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,borderRight:"2px solid #00695C"}}>{t("Υποσύνολο","Sub-Total")} {sec.sub}</td>
+                  <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,borderRight:"2px solid #003F2D"}}>{t("Υποσύνολο","Sub-Total")} {sec.sub}</td>
                   {MONTHS.map(m => {
                     const v = [0,1,2].reduce((s,g)=>s+cell(sec.key,g,m),0);
                     return <td key={m} style={{padding:"6px 8px",textAlign:"right",fontSize:12,fontWeight:700,color:v<0?P.rd:P.em}}>{fmt(v)}</td>;
                   })}
-                  <td style={{padding:"6px 8px",textAlign:"right",fontSize:13,fontWeight:700,color:P.em,background:"#C8E6C9",borderLeft:"2px solid #00695C"}}>
+                  <td style={{padding:"6px 8px",textAlign:"right",fontSize:13,fontWeight:700,color:P.em,background:"#C8E6C9",borderLeft:"2px solid #003F2D"}}>
                     {fmt(MONTHS.reduce((x,m)=>x+[0,1,2].reduce((s,g)=>s+cell(sec.key,g,m),0),0))}
                   </td>
                 </tr>
@@ -543,7 +543,7 @@ export function LabTab({data,set,locked,plan={},setPlan}) {
         )}
       </div>
 
-      <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd}}>
+      <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh}}>
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed",minWidth:1100}}>
             <colgroup>
@@ -552,17 +552,17 @@ export function LabTab({data,set,locked,plan={},setPlan}) {
               <col style={{width:95}} />
             </colgroup>
             <thead><tr>
-              <th style={{...thS,textAlign:"left",borderRight:"2px solid #00695C"}}>{t("Κατηγορία","Category")}</th>
+              <th style={{...thS,textAlign:"left",borderRight:"2px solid #003F2D"}}>{t("Κατηγορία","Category")}</th>
               {MONTHS.map(m=><th key={m} style={thS}>{monthLabel(m)}</th>)}
-              <th style={{...thS,background:"#00695C"}}>{t("Σύνολο","Total")}</th>
+              <th style={{...thS,background:"#003F2D"}}>{t("Σύνολο","Total")}</th>
             </tr></thead>
             <tbody>
               {LAB_ROWS.map((r,i) => inpRow(r,i))}
               {/* Subtotal — FM Core Labour → P&L "Labour Cost - FM Core" */}
               <tr style={{background:"#E8F5E9"}}>
-                <td style={{padding:"7px 10px",fontSize:12,fontWeight:700,color:P.em,borderRight:"2px solid #00695C"}}>{t("Υποσύνολο — FM Core Labour","Subtotal — FM Core Labour")}</td>
+                <td style={{padding:"7px 10px",fontSize:12,fontWeight:700,color:P.em,borderRight:"2px solid #003F2D"}}>{t("Υποσύνολο — FM Core Labour","Subtotal — FM Core Labour")}</td>
                 {MONTHS.map(m => <td key={m} style={{padding:"6px 8px",textAlign:"right",fontSize:12,fontWeight:700,color:P.em}}>{fmt(coreMonth(m))}</td>)}
-                <td style={{padding:"6px 8px",textAlign:"right",fontSize:12,fontWeight:700,color:P.em,background:"#DcEDC8",borderLeft:"2px solid #00695C"}}>
+                <td style={{padding:"6px 8px",textAlign:"right",fontSize:12,fontWeight:700,color:P.em,background:"#DcEDC8",borderLeft:"2px solid #003F2D"}}>
                   {fmt(MONTHS.reduce((x,m)=>x+coreMonth(m),0))}
                 </td>
               </tr>
@@ -570,9 +570,9 @@ export function LabTab({data,set,locked,plan={},setPlan}) {
               {LAB_SEG_ROWS.map((r,i) => inpRow(r,i,"#FFFDE7"))}
               {/* SUM — Total Labour → P&L "Total Labour Cost" */}
               <tr style={{background:P.ep}}>
-                <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,borderRight:"2px solid #00695C"}}>{t("ΣΥΝΟΛΟ — Total Labour","SUM — Total Labour")}</td>
+                <td style={{padding:"8px 10px",fontSize:12,fontWeight:700,borderRight:"2px solid #003F2D"}}>{t("ΣΥΝΟΛΟ — Total Labour","SUM — Total Labour")}</td>
                 {MONTHS.map(m => <td key={m} style={{padding:"6px 8px",textAlign:"right",fontSize:12,fontWeight:700,color:P.em}}>{fmt(totalMonth(m))}</td>)}
-                <td style={{padding:"6px 8px",textAlign:"right",fontSize:13,fontWeight:700,color:P.em,background:"#C8E6C9",borderLeft:"2px solid #00695C"}}>
+                <td style={{padding:"6px 8px",textAlign:"right",fontSize:13,fontWeight:700,color:P.em,background:"#C8E6C9",borderLeft:"2px solid #003F2D"}}>
                   {fmt(MONTHS.reduce((x,m)=>x+totalMonth(m),0))}
                 </td>
               </tr>
@@ -616,7 +616,7 @@ export function POTracker({inv,contracts}) {
           const pctUsed = Math.min(pd.pct*100,100);
           const bc = pctUsed>90?P.rd:pctUsed>70?"#F57F17":P.gn;
           return (
-            <div key={pd.po} style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,overflow:"hidden"}}>
+            <div key={pd.po} style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,overflow:"hidden"}}>
               <div style={{background:P.em,color:"#fff",padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <span style={{fontWeight:700,fontSize:14}}>PO {pd.po}</span>
                 <span style={{fontSize:11,opacity:.8}}>{pd.scope}</span>
@@ -643,7 +643,7 @@ export function POTracker({inv,contracts}) {
 
       {/* Collapsible invoice detail per PO */}
       {poData.map(pd => (
-        <div key={pd.po} style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,marginBottom:12,overflow:"hidden"}}>
+        <div key={pd.po} style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,marginBottom:12,overflow:"hidden"}}>
           <div onClick={()=>toggle(pd.po)} style={{background:P.ep,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",userSelect:"none"}}>
             <span style={{fontWeight:700,fontSize:13,color:P.em}}>{open[pd.po]?"▼":"▶"} PO {pd.po} — {pd.scope} ({pd.actuals.length} {t("πραγματικά","actuals")})</span>
             <span style={{fontSize:12,fontWeight:600,color:pd.remaining<0?P.rd:P.gn}}>€{fmt(pd.spent)} / €{fmt(pd.budget)}</span>

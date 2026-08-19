@@ -86,7 +86,7 @@ export function AdminPanel({me,onClose}) {
     finally{ setBusy(false); }
   };
 
-  const roleBadge = {admin:"#003F2D",finance:"#00695C",ops:"#0277BD"};
+  const roleBadge = {admin:"#003F2D",finance:"#003F2D",ops:"#0277BD"};
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={onClose}>
       <div style={{background:P.wh,borderRadius:12,width:"95%",maxWidth:960,maxHeight:"90vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.3)"}} onClick={e=>e.stopPropagation()}>

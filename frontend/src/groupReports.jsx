@@ -562,9 +562,9 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
               <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", minWidth: 1250 }}>
                 <colgroup><col style={{ width: 230 }} />{MONTHS.map(m => <col key={m} style={{ width: 72 }} />)}<col style={{ width: 100 }} /></colgroup>
                 <thead><tr>
-                  <th style={{ ...thS, textAlign: "left", borderRight: "2px solid #00695C" }}>{t("Γραμμή", "Line")}</th>
+                  <th style={{ ...thS, textAlign: "left", borderRight: "2px solid #003F2D" }}>{t("Γραμμή", "Line")}</th>
                   {MONTHS.map(m => <th key={m} style={thS}>{monthLabel(m)}</th>)}
-                  <th style={{ ...thS, background: "#00695C" }}>YTD</th>
+                  <th style={{ ...thS, background: "#003F2D" }}>YTD</th>
                 </tr></thead>
                 <tbody>
                   {R.map((r, i) => {
@@ -614,13 +614,13 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
                   <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
                     <colgroup><col style={{ width: 210 }} /><col /><col /><col /><col /><col /></colgroup>
                     <thead><tr>
-                      <th style={{ ...thS, textAlign: "left", borderRight: "2px solid #00695C" }}>{t("Γραμμή", "Line")}</th>
+                      <th style={{ ...thS, textAlign: "left", borderRight: "2px solid #003F2D" }}>{t("Γραμμή", "Line")}</th>
                       <th style={thS}>{t("Πραγμ. YTD", "Actual YTD")}</th>
                       <th style={thS}>Budget</th>
                       <th style={thS}>{t("Διαφ.", "Var")}</th>
                       <th style={thS}>Var %</th>
                       <th style={thS}>{t("Πέρσι", "Prior")}</th>
-                      <th style={{ ...thS, background: "#00695C" }}>YoY %</th>
+                      <th style={{ ...thS, background: "#003F2D" }}>YoY %</th>
                     </tr></thead>
                     <tbody>
                       {rows.map((r, i) => {
@@ -663,9 +663,9 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
               <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", minWidth: 1250 }}>
                 <colgroup><col style={{ width: 230 }} />{MONTHS.map(m => <col key={m} style={{ width: 72 }} />)}<col style={{ width: 100 }} /><col style={{ width: 34 }} /></colgroup>
                 <thead><tr>
-                  <th style={{ ...thS, textAlign: "left", borderRight: "2px solid #00695C" }}>{t("Λογαριασμός", "Account")}</th>
+                  <th style={{ ...thS, textAlign: "left", borderRight: "2px solid #003F2D" }}>{t("Λογαριασμός", "Account")}</th>
                   {MONTHS.map(m => <th key={m} style={thS}>{monthLabel(m)}</th>)}
-                  <th style={{ ...thS, background: "#00695C" }}>{t("Τέλος έτους", "Year-end")}</th><th style={thS}></th>
+                  <th style={{ ...thS, background: "#003F2D" }}>{t("Τέλος έτους", "Year-end")}</th><th style={thS}></th>
                 </tr></thead>
                 <tbody>
                   {SECTIONS.map(sec => (
@@ -675,21 +675,21 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
                   ))}
                   {/* Balance check */}
                   <tr style={{ background: "#263238" }}>
-                    <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: "#fff", borderRight: "2px solid #00695C" }}>{t("Σ Ενεργητικό", "Σ Assets")}</td>
+                    <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: "#fff", borderRight: "2px solid #003F2D" }}>{t("Σ Ενεργητικό", "Σ Assets")}</td>
                     {MONTHS.map(m => <td key={m} style={{ padding: "6px 6px", textAlign: "right", fontSize: 11, fontWeight: 700, color: "#A5D6A7" }}>{F(totalAssets(m))}</td>)}
-                    <td style={{ padding: "6px 8px", textAlign: "right", fontSize: 12, fontWeight: 700, color: "#A5D6A7", borderLeft: "2px solid #00695C" }}>{F(totalAssets(MONTHS[MONTHS.length - 1]))}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontSize: 12, fontWeight: 700, color: "#A5D6A7", borderLeft: "2px solid #003F2D" }}>{F(totalAssets(MONTHS[MONTHS.length - 1]))}</td>
                     <td style={{ background: "#263238" }}></td>
                   </tr>
                   <tr style={{ background: "#37474F" }}>
-                    <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: "#fff", borderRight: "2px solid #00695C" }}>{t("Σ Υποχρ. + Ίδια Κεφ.", "Σ Liab. + Equity")}</td>
+                    <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: "#fff", borderRight: "2px solid #003F2D" }}>{t("Σ Υποχρ. + Ίδια Κεφ.", "Σ Liab. + Equity")}</td>
                     {MONTHS.map(m => <td key={m} style={{ padding: "6px 6px", textAlign: "right", fontSize: 11, fontWeight: 700, color: "#90CAF9" }}>{F(totalLE(m))}</td>)}
-                    <td style={{ padding: "6px 8px", textAlign: "right", fontSize: 12, fontWeight: 700, color: "#90CAF9", borderLeft: "2px solid #00695C" }}>{F(totalLE(MONTHS[MONTHS.length - 1]))}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontSize: 12, fontWeight: 700, color: "#90CAF9", borderLeft: "2px solid #003F2D" }}>{F(totalLE(MONTHS[MONTHS.length - 1]))}</td>
                     <td style={{ background: "#37474F" }}></td>
                   </tr>
                   <tr style={{ background: P.ep }}>
-                    <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: P.em, borderRight: "2px solid #00695C" }}>{t("Έλεγχος (πρέπει = 0)", "Check (must = 0)")}</td>
+                    <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: P.em, borderRight: "2px solid #003F2D" }}>{t("Έλεγχος (πρέπει = 0)", "Check (must = 0)")}</td>
                     {MONTHS.map(m => { const c = check(m); const ok = Math.abs(c) < 1; return <td key={m} style={{ padding: "6px 6px", textAlign: "right", fontSize: 11, fontWeight: 700, color: ok ? P.gn : P.rd }} title={ok ? t("Ισοσκελισμένο", "Balanced") : t("Διαφορά — συμπλήρωσε ταμείο/opening balances", "Difference — fill cash/opening balances")}>{ok ? "✓" : F(c)}</td>; })}
-                    <td style={{ borderLeft: "2px solid #00695C", background: P.ep }}></td>
+                    <td style={{ borderLeft: "2px solid #003F2D", background: P.ep }}></td>
                     <td style={{ background: P.ep }}></td>
                   </tr>
                 </tbody>
@@ -863,7 +863,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
               <div style={{ background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", minWidth: 1250 }}>
                   <colgroup><col style={{ width: 220 }} />{MONTHS.map(m => <col key={m} style={{ width: 72 }} />)}<col style={{ width: 100 }} /></colgroup>
-                  <thead><tr><th style={{ ...thS, textAlign: "left", borderRight: "2px solid #00695C" }}>{t("Γραμμή", "Line")}</th>{MONTHS.map(m => <th key={m} style={thC}>{monthLabel(m)}</th>)}<th style={{ ...thC, background: "#00695C" }}>{t("Σύνολο", "Total")}</th></tr></thead>
+                  <thead><tr><th style={{ ...thS, textAlign: "left", borderRight: "2px solid #003F2D" }}>{t("Γραμμή", "Line")}</th>{MONTHS.map(m => <th key={m} style={thC}>{monthLabel(m)}</th>)}<th style={{ ...thC, background: "#003F2D" }}>{t("Σύνολο", "Total")}</th></tr></thead>
                   <tbody>
                     {R.map((r, i) => (
                       <tr key={r.k} style={{ background: i % 2 === 0 ? P.wh : P.al }}>
@@ -873,14 +873,14 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
                       </tr>
                     ))}
                     <tr style={{ background: P.ep }}>
-                      <td style={{ padding: "7px 10px", fontSize: 12, fontWeight: 700, color: P.em, borderRight: "2px solid #00695C" }}>{t("Καθαρή ταμειακή ροή", "Net cash flow")}</td>
+                      <td style={{ padding: "7px 10px", fontSize: 12, fontWeight: 700, color: P.em, borderRight: "2px solid #003F2D" }}>{t("Καθαρή ταμειακή ροή", "Net cash flow")}</td>
                       {MONTHS.map(m => <td key={m} style={{ ...cell, fontWeight: 700, color: by[m].net < 0 ? P.rd : P.em }}>{F(by[m].net)}</td>)}
-                      <td style={{ ...cell, fontWeight: 700, background: "#C8E6C9", borderLeft: "2px solid #00695C", color: sum("net") < 0 ? P.rd : P.em }}>{F(sum("net"))}</td>
+                      <td style={{ ...cell, fontWeight: 700, background: "#C8E6C9", borderLeft: "2px solid #003F2D", color: sum("net") < 0 ? P.rd : P.em }}>{F(sum("net"))}</td>
                     </tr>
                     <tr style={{ background: "#263238" }}>
-                      <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: "#fff", borderRight: "2px solid #00695C" }}>{t("Ταμείο τέλους μήνα", "Closing cash")}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 12, fontWeight: 700, color: "#fff", borderRight: "2px solid #003F2D" }}>{t("Ταμείο τέλους μήνα", "Closing cash")}</td>
                       {MONTHS.map(m => <td key={m} style={{ ...cell, fontWeight: 700, color: by[m].close < 0 ? "#FF8A80" : "#A5D6A7" }}>{F(by[m].close)}</td>)}
-                      <td style={{ ...cell, fontWeight: 700, borderLeft: "2px solid #00695C", color: endClose < 0 ? "#FF8A80" : "#A5D6A7" }}>{F(endClose)}</td>
+                      <td style={{ ...cell, fontWeight: 700, borderLeft: "2px solid #003F2D", color: endClose < 0 ? "#FF8A80" : "#A5D6A7" }}>{F(endClose)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -1038,7 +1038,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
 function SectionBlock({ sec, secLabel, secShort, autoTag, derived, manual, bsVal, setBsVal, renameAcct, delAcct, acctTotal, sectionTotal, inpS, F }) {
   return (
     <>
-      <tr style={{ background: "#00695C" }}>
+      <tr style={{ background: "#003F2D" }}>
         <td colSpan={MONTHS.length + 3} style={{ padding: "6px 10px", fontSize: 12, fontWeight: 700, color: "#fff" }}>{secLabel}</td>
       </tr>
       {derived.map((d, i) => (
@@ -1064,9 +1064,9 @@ function SectionBlock({ sec, secLabel, secShort, autoTag, derived, manual, bsVal
         </tr>
       ))}
       <tr style={{ background: P.ep }}>
-        <td style={{ padding: "6px 10px", fontSize: 11.5, fontWeight: 700, color: P.em, borderRight: "2px solid #00695C" }}>{secShort}</td>
+        <td style={{ padding: "6px 10px", fontSize: 11.5, fontWeight: 700, color: P.em, borderRight: "2px solid #003F2D" }}>{secShort}</td>
         {MONTHS.map(m => <td key={m} style={{ padding: "5px 6px", textAlign: "right", fontSize: 11, fontWeight: 700, color: P.em }}>{F(sectionTotal(sec.k, m))}</td>)}
-        <td style={{ padding: "5px 8px", textAlign: "right", fontSize: 11, fontWeight: 700, color: P.em, background: "#C8E6C9", borderLeft: "2px solid #00695C" }}>{F(sectionTotal(sec.k, MONTHS[MONTHS.length - 1]))}</td>
+        <td style={{ padding: "5px 8px", textAlign: "right", fontSize: 11, fontWeight: 700, color: P.em, background: "#C8E6C9", borderLeft: "2px solid #003F2D" }}>{F(sectionTotal(sec.k, MONTHS[MONTHS.length - 1]))}</td>
         <td style={{ background: P.ep }}></td>
       </tr>
     </>

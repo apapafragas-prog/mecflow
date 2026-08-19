@@ -115,7 +115,7 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
     </span>
   );
   const kpi = (l,v,c,pct,delta)=>(
-    <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:10,padding:"14px 16px",boxShadow:"0 1px 2px rgba(0,0,0,.04)"}}>
+    <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:14,padding:"15px 16px",boxShadow:P.sh}}>
       <div style={{fontSize:12,color:P.tm}}>{l}</div>
       <div style={{fontSize:22,fontWeight:800,color:c,marginTop:5}}>{pct?fPct(v):"€"+fmt(v)}{delta!==undefined&&yoyBadge(delta)}</div>
     </div>
@@ -153,7 +153,7 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
             {kpi(t("Εργασία","Labour"),totLab,P.tx,false,prevTot?(()=>{const d=yoy(totLab,prevTot.lab);return d==null?null:-d;})():undefined)}
             {kpi(t("Μικτό Περιθώριο","Gross Margin"),totGM,totGM>=0?P.gn:P.rd,false,prevTot?yoy(totGM,prevGM):undefined)}
             {kpi("GM %",totRev?totGM/totRev:null,P.em,true)}
-            <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:10,padding:"14px 16px"}}>
+            <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:14,padding:"15px 16px",boxShadow:P.sh}}>
               <div style={{fontSize:12,color:P.tm}}>{t("Ενεργοί πελάτες","Active clients")}</div>
               <div style={{fontSize:22,fontWeight:800,color:P.em,marginTop:5}}>{active.length}<span style={{fontSize:13,color:P.tm,fontWeight:400}}> / {rows.length}</span></div>
             </div>
@@ -167,7 +167,7 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
 
           {/* 🔔 AI Anomaly Alerts — portfolio-wide, severity-ranked, click a row to open the client */}
           {anomalies.length>0 && (
-            <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,marginBottom:16,overflow:"hidden"}}>
+            <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,marginBottom:16,overflow:"hidden"}}>
               <div style={{padding:"10px 16px",borderBottom:"1px solid "+P.bd,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
                 <div style={{fontSize:13,fontWeight:700,color:P.em}}>🔔 {t("Ειδοποιήσεις — ανωμαλίες δεδομένων","Alerts — data anomalies")} ({anomalies.length})</div>
                 {anomHigh>0 && <div style={{fontSize:11,fontWeight:700,color:P.rd}}>⚠️ {anomHigh} {t("υψηλής προτεραιότητας","high priority")}</div>}
@@ -189,7 +189,7 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
 
           <div style={{display:"grid",gridTemplateColumns:"1fr",gap:16,alignItems:"start"}}>
             {/* Monthly trend */}
-            <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16}}>
+            <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,padding:16}}>
               <div style={{fontSize:13,fontWeight:700,color:P.em,marginBottom:12}}>{t("Μηνιαία τάση — Έσοδα / GM","Monthly trend — Revenue / GM")}</div>
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
                 {monthly.map(x=>(
@@ -218,7 +218,7 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
             exp.sort((a,b)=>a.dd-b.dd);
             if(!exp.length) return null;
             return (
-              <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16,marginTop:16}}>
+              <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,padding:16,marginTop:16}}>
                 <div style={{fontSize:13,fontWeight:700,color:"#C62828",marginBottom:10}}>⚠️ {t("Συμβόλαια/PO που λήγουν (επόμενες 90 ημέρες)","Contracts/POs expiring (next 90 days)")} — {exp.length}</div>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead><tr>{[t("Πελάτης","Client"),t("Τύπος","Type"),"Reference",t("Λήξη","Expiry"),t("Σε","In")].map((h,i)=>(<th key={i} style={{padding:"6px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:i===4?"right":"left"}}>{h}</th>))}</tr></thead>
@@ -253,12 +253,12 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
             return (
               <div style={{marginTop:16}}>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:12}}>
-                  <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:10,padding:"14px 16px"}}><div style={{fontSize:12,color:P.tm}}>{t("Προβλ. Έσοδα έτους","Projected Revenue FY")}</div><div style={{fontSize:20,fontWeight:800,color:P.em,marginTop:5}}>€{fmt(rr.projected.rev)}</div></div>
-                  <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:10,padding:"14px 16px"}}><div style={{fontSize:12,color:P.tm}}>{t("Προβλ. GM έτους","Projected GM FY")}</div><div style={{fontSize:20,fontWeight:800,color:rr.projected.gm>=0?P.gn:P.rd,marginTop:5}}>€{fmt(rr.projected.gm)}</div></div>
-                  <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:10,padding:"14px 16px"}}><div style={{fontSize:12,color:P.tm}}>{t("Προβλ. GM%","Projected GM%")}</div><div style={{fontSize:20,fontWeight:800,color:P.em,marginTop:5}}>{fPct(projGmPct)}</div></div>
+                  <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:14,padding:"15px 16px",boxShadow:P.sh}}><div style={{fontSize:12,color:P.tm}}>{t("Προβλ. Έσοδα έτους","Projected Revenue FY")}</div><div style={{fontSize:20,fontWeight:800,color:P.em,marginTop:5}}>€{fmt(rr.projected.rev)}</div></div>
+                  <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:14,padding:"15px 16px",boxShadow:P.sh}}><div style={{fontSize:12,color:P.tm}}>{t("Προβλ. GM έτους","Projected GM FY")}</div><div style={{fontSize:20,fontWeight:800,color:rr.projected.gm>=0?P.gn:P.rd,marginTop:5}}>€{fmt(rr.projected.gm)}</div></div>
+                  <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:14,padding:"15px 16px",boxShadow:P.sh}}><div style={{fontSize:12,color:P.tm}}>{t("Προβλ. GM%","Projected GM%")}</div><div style={{fontSize:20,fontWeight:800,color:P.em,marginTop:5}}>{fPct(projGmPct)}</div></div>
                 </div>
                 {riskyClients.length>0 && (
-                  <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16,marginBottom:12}}>
+                  <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,padding:16,marginBottom:12}}>
                     <div style={{fontSize:13,fontWeight:700,color:P.rd,marginBottom:10}}>⚠️ {t("Πελάτες με ρίσκα","Clients at risk")} ({riskyClients.length})</div>
                     {riskyClients.slice(0,8).map(c=>(
                       <div key={c.name} onClick={()=>onSelectClient&&onSelectClient(c.name)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid "+P.bd,cursor:"pointer",fontSize:12.5}}>
@@ -274,7 +274,7 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
           })()}
 
           {/* Clients by GM — all active, highest → lowest (loss-makers surfaced, not truncated) */}
-          <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16,marginTop:16}}>
+          <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,padding:16,marginTop:16}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
               <div style={{fontSize:13,fontWeight:700,color:P.em}}>{t("Πελάτες κατά GM (φθίνουσα)","Clients by GM (highest → lowest)")}</div>
               {lossMakers>0 && <div style={{fontSize:11,fontWeight:700,color:P.rd}}>⚠️ {lossMakers} {t("με αρνητικό GM","with negative GM")}</div>}
@@ -448,7 +448,7 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
             {YEARS.map(y=>(<button key={y} onClick={()=>setYear(y)} style={{padding:"6px 14px",border:year===y?"2px solid "+P.em:"1px solid "+P.bd,borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:year===y?700:400,background:year===y?P.em:P.wh,color:year===y?"#fff":P.tx}}>{y}</button>))}
           </div>
-          <div style={{display:"flex",gap:0,background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:4}}>
+          <div style={{display:"flex",gap:0,background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,padding:4}}>
             <button onClick={()=>setView("AR")} style={{background:view==="AR"?P.em:"transparent",color:view==="AR"?"#fff":P.tx,border:"none",padding:"7px 18px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>📤 {t("AR — Πελάτες (εισπρακτέα)","AR — Clients (receivable)")}</button>
             <button onClick={()=>setView("AP")} style={{background:view==="AP"?P.em:"transparent",color:view==="AP"?"#fff":P.tx,border:"none",padding:"7px 18px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>📥 {t("AP — Προμηθευτές (πληρωτέα)","AP — Suppliers (payable)")}</button>
           </div>
@@ -468,10 +468,10 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
         <>
           {/* KPIs + aging buckets */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:12,marginBottom:18}}>
-            <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:10,padding:"14px 16px"}}><div style={{fontSize:12,color:P.tm}}>{view==="AR"?t("Εισπρακτέα","Receivable"):t("Πληρωτέα","Payable")} ({t("ανοιχτά","open")})</div><div style={{fontSize:22,fontWeight:800,color:P.em,marginTop:5}}>€{fmt(totalOpen)}</div></div>
-            <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:10,padding:"14px 16px"}}><div style={{fontSize:12,color:P.tm}}>{t("Ληξιπρόθεσμα","Overdue")}</div><div style={{fontSize:22,fontWeight:800,color:overdue>0?P.rd:P.gn,marginTop:5}}>€{fmt(overdue)}</div></div>
+            <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:14,padding:"15px 16px",boxShadow:P.sh}}><div style={{fontSize:12,color:P.tm}}>{view==="AR"?t("Εισπρακτέα","Receivable"):t("Πληρωτέα","Payable")} ({t("ανοιχτά","open")})</div><div style={{fontSize:22,fontWeight:800,color:P.em,marginTop:5}}>€{fmt(totalOpen)}</div></div>
+            <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:14,padding:"15px 16px",boxShadow:P.sh}}><div style={{fontSize:12,color:P.tm}}>{t("Ληξιπρόθεσμα","Overdue")}</div><div style={{fontSize:22,fontWeight:800,color:overdue>0?P.rd:P.gn,marginTop:5}}>€{fmt(overdue)}</div></div>
             {AGING_COLS.map(b=>(
-              <div key={b} style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:10,padding:"14px 16px"}}>
+              <div key={b} style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:14,padding:"15px 16px",boxShadow:P.sh}}>
                 <div style={{fontSize:12,color:bucketColor[b]}}>● {b==="current"?t("Τρέχον","Current"):b==="unknown"?t("Χωρίς ημ/νία","Undated"):b+t(" ημ"," d")}</div>
                 <div style={{fontSize:18,fontWeight:700,color:P.tx,marginTop:5}}>€{fmt(bucketTotal(b))}</div>
               </div>
@@ -479,7 +479,7 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
           </div>
 
           {/* Per-counterparty aging */}
-          <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,marginBottom:16,overflowX:"auto"}}>
+          <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,marginBottom:16,overflowX:"auto"}}>
             <div style={{padding:"10px 16px",fontSize:13,fontWeight:700,color:P.em,borderBottom:"1px solid "+P.bd}}>{t("Aging ανά","Aging by")} {view==="AR"?t("πελάτη","client"):t("προμηθευτή","supplier")} ({termLabel})</div>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:900}}>
               <thead><tr>{[view==="AR"?t("Πελάτης","Client"):t("Προμηθευτής","Supplier"),t("Όροι","Terms"),...AGING_COLS.map(bucketLabel),t("Σύνολο","Total")].map((h,i)=>(<th key={i} style={{padding:"7px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:i===0?"left":i===1?"center":"right"}}>{h}</th>))}</tr></thead>
@@ -500,7 +500,7 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
           </div>
 
           {/* Open items */}
-          <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,overflowX:"auto"}}>
+          <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,overflowX:"auto"}}>
             <div style={{padding:"10px 16px",fontSize:13,fontWeight:700,color:P.em,borderBottom:"1px solid "+P.bd}}>{showPaid?t("Όλα τα παραστατικά","All documents"):t("Ανοιχτά παραστατικά","Open documents")} ({visible.length})</div>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:960}}>
               <thead><tr>{[[t("Ημ/νία","Date"),"l"],[view==="AR"?t("Πελάτης","Client"):t("Προμηθευτής","Supplier"),"l"],[t("Αρ. Τιμ.","Inv No"),"l"],[t("Ποσό €","Amount €"),"r"],[t("Υπόλοιπο €","Balance €"),"r"],["Aging","l"],["",""]].map(([h,al],i)=>(<th key={i} style={{padding:"7px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:al==="r"?"right":"left"}}>{h}</th>))}</tr></thead>
@@ -659,7 +659,7 @@ export function OpexCapex({year,setYear,user,onBack,onLogout}) {
           <div style={{display:"flex",gap:8}}>
             {YEARS.map(y=>(<button key={y} onClick={()=>setYear(y)} style={{padding:"6px 16px",border:year===y?"2px solid "+P.em:"1px solid "+P.bd,borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:year===y?700:400,background:year===y?P.em:P.wh,color:year===y?"#fff":P.tx}}>{y}</button>))}
           </div>
-          <div style={{display:"flex",gap:0,background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:4}}>
+          <div style={{display:"flex",gap:0,background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,padding:4}}>
             {[{v:"opex",l:"OPEX"},{v:"capex",l:"CAPEX"},{v:"summary",l:t("Σύνοψη","Summary")}].map(o=>(
               <button key={o.v} onClick={()=>setSub(o.v)} style={{background:sub===o.v?P.em:"transparent",color:sub===o.v?"#fff":P.tx,border:"none",padding:"7px 20px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>{o.l}</button>
             ))}
@@ -672,9 +672,9 @@ export function OpexCapex({year,setYear,user,onBack,onLogout}) {
         {loaded && sub==="opex" && (
           <div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:10}}>
-              <div style={{display:"flex",gap:0,background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:3}}>
+              <div style={{display:"flex",gap:0,background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,padding:3}}>
                 {[{v:"actual",l:t("Πραγματικά","Actual")},{v:"budget",l:t("Προϋπολογισμός","Budget")},{v:"variance",l:t("Απόκλιση","Variance")}].map(o=>(
-                  <button key={o.v} onClick={()=>setOpexView(o.v)} style={{background:opexView===o.v?"#00897B":"transparent",color:opexView===o.v?"#fff":P.tx,border:"none",padding:"6px 16px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>{o.l}</button>
+                  <button key={o.v} onClick={()=>setOpexView(o.v)} style={{background:opexView===o.v?"#003F2D":"transparent",color:opexView===o.v?"#fff":P.tx,border:"none",padding:"6px 16px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>{o.l}</button>
                 ))}
               </div>
               <div style={{display:"flex",gap:8,alignItems:"center"}}>
@@ -682,13 +682,13 @@ export function OpexCapex({year,setYear,user,onBack,onLogout}) {
                 <button onClick={addCat} style={{background:P.em,color:"#fff",border:"none",padding:"6px 14px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>+ {t("Κατηγορία","Category")}</button>
               </div>
             </div>
-            <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,overflowX:"auto"}}>
+            <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed",minWidth:1150}}>
                 <colgroup><col style={{width:170}} />{MONTHS.map(m=><col key={m} style={{width:72}} />)}<col style={{width:95}} /><col style={{width:34}} /></colgroup>
                 <thead><tr>
-                  <th style={{...thS,textAlign:"left",borderRight:"2px solid #00695C"}}>{t("Κατηγορία","Category")}</th>
+                  <th style={{...thS,textAlign:"left",borderRight:"2px solid #003F2D"}}>{t("Κατηγορία","Category")}</th>
                   {MONTHS.map(m=><th key={m} style={thS}>{monthLabel(m)}</th>)}
-                  <th style={{...thS,background:"#00695C"}}>{t("Σύνολο","Total")}</th><th style={thS}></th>
+                  <th style={{...thS,background:"#003F2D"}}>{t("Σύνολο","Total")}</th><th style={thS}></th>
                 </tr></thead>
                 <tbody>
                   {cats.map((c,i)=>(
@@ -707,9 +707,9 @@ export function OpexCapex({year,setYear,user,onBack,onLogout}) {
                     </tr>
                   ))}
                   <tr style={{background:P.ep}}>
-                    <td style={{padding:"8px 8px",fontSize:12,fontWeight:700,borderRight:"2px solid #00695C"}}>{t("ΣΥΝΟΛΟ","TOTAL")} {opexView==="variance"?"(Act−Bud)":opexView}</td>
+                    <td style={{padding:"8px 8px",fontSize:12,fontWeight:700,borderRight:"2px solid #003F2D"}}>{t("ΣΥΝΟΛΟ","TOTAL")} {opexView==="variance"?"(Act−Bud)":opexView}</td>
                     {MONTHS.map(m=>{ const v=opexView==="variance"?(opexColTotal("actual",m)-opexColTotal("budget",m)):opexColTotal(opexView,m); return <td key={m} style={{padding:"6px 6px",textAlign:"right",fontSize:11,fontWeight:700,color:opexView==="variance"&&v>0?P.rd:P.em}}>{fmt(v)}</td>; })}
-                    <td style={{padding:"6px 8px",textAlign:"right",fontSize:12,fontWeight:700,color:P.em,background:"#C8E6C9",borderLeft:"2px solid #00695C"}}>{fmt(opexView==="variance"?(totActual-totBudget):opexGrand(opexView))}</td>
+                    <td style={{padding:"6px 8px",textAlign:"right",fontSize:12,fontWeight:700,color:P.em,background:"#C8E6C9",borderLeft:"2px solid #003F2D"}}>{fmt(opexView==="variance"?(totActual-totBudget):opexGrand(opexView))}</td>
                     <td style={{background:P.ep}}></td>
                   </tr>
                 </tbody>
@@ -722,7 +722,7 @@ export function OpexCapex({year,setYear,user,onBack,onLogout}) {
         {/* ── CAPEX ── */}
         {loaded && sub==="capex" && (
           <div>
-            <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:14,marginBottom:16,display:"flex",flexWrap:"wrap",gap:8,alignItems:"end"}}>
+            <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,padding:14,marginBottom:16,display:"flex",flexWrap:"wrap",gap:8,alignItems:"end"}}>
               <Inp l={t("Περιγραφή","Description")} v={cf.desc} set={v=>setCf(x=>({...x,desc:v}))} w={180} />
               <Sel l={t("Κατηγορία","Category")} v={cf.cat} set={v=>setCf(x=>({...x,cat:v}))} opts={CAPEX_CATS.map(c=>({v:c,l:c}))} w={160} />
               <Inp l={t("Αξία €","Value €")} v={cf.amount} set={v=>setCf(x=>({...x,amount:v}))} w={100} t="number" />
@@ -732,7 +732,7 @@ export function OpexCapex({year,setYear,user,onBack,onLogout}) {
               <Inp l="PO No" v={cf.po} set={v=>setCf(x=>({...x,po:v}))} w={90} />
               <button onClick={addCapex} style={{background:P.em,color:"#fff",border:"none",padding:"7px 18px",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600}}>+ {t("Πάγιο","Asset")}</button>
             </div>
-            <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,overflowX:"auto"}}>
+            <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:1000}}>
                 <thead><tr>{[[t("Περιγραφή","Description"),0],[t("Κατηγορία","Category"),0],[t("Αξία €","Value €"),1],[t("Κτήση","Acq."),0],[t("Ωφ.ζωή","Life"),0],[t("Μην. απόσβ.","Mo. depr."),1],[t("Σωρευ. απόσβ.","Accum. depr."),1],["NBV €",1],["Status",0],["PO",0],["",0]].map(([h,r],i)=>(
                   <th key={i} style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:r?"right":"left"}}>{h}</th>
@@ -794,7 +794,7 @@ export function OpexCapex({year,setYear,user,onBack,onLogout}) {
                 </div>
               ))}
             </div>
-            <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16}}>
+            <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,padding:16}}>
               <div style={{fontSize:13,fontWeight:700,color:P.em,marginBottom:10}}>{t("OPEX — Προϋπολογισμός vs Πραγματικά ανά κατηγορία","OPEX — Budget vs Actual by category")} ({year})</div>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead><tr>{[t("Κατηγορία","Category"),t("Προϋπ. €","Budget €"),t("Πραγμ. €","Actual €"),t("Απόκλιση €","Variance €"),"%"].map((h,i)=>(<th key={i} style={{padding:"7px 10px",fontSize:11,fontWeight:700,color:"#fff",background:P.em,textAlign:i===0?"left":"right"}}>{h}</th>))}</tr></thead>

@@ -10,7 +10,7 @@ import { P } from "./constants.js";
 import { PwField, LangToggle } from "./ui.jsx";
 import { useT } from "./i18n.jsx";
 
-// CBRE 2026 brand palette (never the old #006A4E): CBRE Green #003F2D, Accent Green #17E88F
+// CBRE 2026 brand palette (never the old #003F2D): CBRE Green #003F2D, Accent Green #17E88F
 // (sparingly), Dark Green #012A2D.
 const ACCENT = "#17E88F";
 const DARK = "#003F2D";

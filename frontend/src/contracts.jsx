@@ -113,7 +113,7 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
   });
 
   // Contract summary
-  const typeColors = {MSA:"#003F2D",LEA:"#00695C",PO:"#00897B",Amendment:"#4DB6AC",NDA:"#80CBC4",Other:"#B2DFDB"};
+  const typeColors = {MSA:"#003F2D",LEA:"#003F2D",PO:"#003F2D",Amendment:"#4DB6AC",NDA:"#80CBC4",Other:"#B2DFDB"};
   const summary = TYPES.map(ty => {
     const contracts = data.filter(c=>c.type===ty.v);
     const docCount = (docs||[]).filter(d=>d.type===ty.v).length;
@@ -130,7 +130,7 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
       {/* ── 1. CONTRACT SUMMARY CARDS ── */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12,marginBottom:20}}>
         {summary.map(ty => (
-          <div key={ty.v} style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,overflow:"hidden"}}>
+          <div key={ty.v} style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,overflow:"hidden"}}>
             <div style={{background:typeColors[ty.v]||P.em,color:"#fff",padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <span style={{fontWeight:700,fontSize:14}}>{ty.l}</span>
               <div style={{display:"flex",gap:6,alignItems:"center"}}>
@@ -207,7 +207,7 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
             {poData.map(pd=>{
               const pct=Math.min(pd.pct*100,100);const bc=pct>90?P.rd:pct>70?"#F57F17":P.gn;
               return (
-                <div key={pd.po} style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:14,cursor:"pointer",transition:"all .15s"}}
+                <div key={pd.po} style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,padding:14,cursor:"pointer",transition:"all .15s"}}
                   onClick={()=>setModalPO(pd)}
                   onMouseEnter={e=>e.currentTarget.style.borderColor=P.em}
                   onMouseLeave={e=>e.currentTarget.style.borderColor=P.bd}>
@@ -276,7 +276,7 @@ export function ContractTab({data,set,inv,docs,setDocs,year,client}) {
       )}
 
       {/* ── 3. DOCUMENT UPLOAD ── */}
-      <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:14,marginBottom:16}}>
+      <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,padding:14,marginBottom:16}}>
         <div style={{fontSize:13,fontWeight:600,color:P.em,marginBottom:10}}>{t("Ανέβασμα Εγγράφου Συμβολαίου","Upload Contract Document")}</div>
         <div style={{display:"flex",gap:8,alignItems:"end",marginBottom:10,flexWrap:"wrap"}}>
           <Sel l={t("Τύπος Εγγράφου","Document Type")} v={docType} set={setDocType} opts={TYPES} w={120} />

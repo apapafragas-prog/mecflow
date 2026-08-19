@@ -15,7 +15,7 @@ export function AiCard({scope,buildContext}) {
   const [text,setText]=useState(""); const [busy,setBusy]=useState(false); const [err,setErr]=useState("");
   const gen = async () => { setBusy(true); setErr(""); try { const r=await api.getInsights(scope, buildContext(), lang); setText(r.text||t("(κενή απάντηση)","(empty response)")); } catch(e){ setErr(e.status===503?t("Το AI δεν έχει ρυθμιστεί (ANTHROPIC_API_KEY).","AI is not configured (ANTHROPIC_API_KEY)."):(e.message||t("Απέτυχε","Failed"))); } finally{ setBusy(false); } };
   return (
-    <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16,marginTop:16}}>
+    <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,padding:16,marginTop:16}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:text?10:0}}>
         <div style={{fontSize:13,fontWeight:700,color:P.em}}>🤖 {t("AI σχολιασμός","AI commentary")}</div>
         <button onClick={gen} disabled={busy} style={{background:P.em,color:"#fff",border:"none",padding:"6px 16px",borderRadius:6,cursor:busy?"wait":"pointer",fontSize:12,fontWeight:600,opacity:busy?.6:1}}>{busy?t("Ανάλυση…","Analyzing…"):text?t("↻ Ξανά","↻ Again"):t("✨ Δημιουργία σχολίου","✨ Generate commentary")}</button>
@@ -60,7 +60,7 @@ export function Insights({inv,sub,lab,contracts,client,year}) {
       </div>
 
       <div style={{display:"grid",gridTemplateColumns:"1.6fr 1fr",gap:16,alignItems:"start",marginTop:8}}>
-        <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16}}>
+        <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,padding:16}}>
           <div style={{fontSize:13,fontWeight:700,color:P.em,marginBottom:12}}>{t("Μηνιαία εξέλιξη GM","Monthly GM trend")}</div>
           {activeSeries.length? series.map(x=>(
             <div key={x.m} style={{display:"flex",alignItems:"center",gap:8,fontSize:11,marginBottom:5}}>
@@ -72,7 +72,7 @@ export function Insights({inv,sub,lab,contracts,client,year}) {
             </div>
           )) : <div style={{fontSize:12,color:P.tm,fontStyle:"italic"}}>{t("Δεν υπάρχουν δεδομένα ακόμη.","No data yet.")}</div>}
         </div>
-        <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,padding:16}}>
+        <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,padding:16}}>
           <div style={{fontSize:13,fontWeight:700,color:P.rd,marginBottom:10}}>⚠️ {t("Ρίσκα","Risk flags")} ({risks.length})</div>
           {risks.length? risks.map((r,i)=>(
             <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:i<risks.length-1?"1px solid "+P.bd:"none",fontSize:12.5}}>

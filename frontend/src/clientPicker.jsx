@@ -86,7 +86,7 @@ export function ClientPicker({user,year,setYear,onSelect,onLogout,allData,loadin
         </div>
 
         {/* Client list */}
-        <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,overflow:"hidden"}}>
+        <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,overflow:"hidden"}}>
           <table style={{width:"100%",borderCollapse:"collapse"}}>
             <thead><tr>
               {[["Client",t("Πελάτης","Client")],["Revenue €",t("Έσοδα €","Revenue €")],["Cost €",t("Κόστος €","Cost €")],["GM €","GM €"],["GM%","GM%"],["Invoices",t("Τιμολόγια","Invoices")],["Sub",t("Υπεργ.","Sub")],["Contracts",t("Συμβόλαια","Contracts")],["PO Value €",t("Αξία PO €","PO Value €")]].map(([k,h])=>(

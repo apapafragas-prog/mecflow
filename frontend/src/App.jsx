@@ -595,7 +595,7 @@ export default function App() {
           )}
           {/* Actions dropdown */}
           <div style={{position:"relative"}}>
-            <button onClick={()=>setMenuOpen(!menuOpen)} style={{background:"#00897B",border:"none",color:"#fff",padding:"7px 16px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
+            <button onClick={()=>setMenuOpen(!menuOpen)} style={{background:"#003F2D",border:"none",color:"#fff",padding:"7px 16px",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
               ⚙️ {t("Ενέργειες","Actions")} <span style={{fontSize:9}}>{menuOpen?"▲":"▼"}</span>
             </button>
             {menuOpen && (
@@ -665,7 +665,7 @@ export default function App() {
               border:"none",borderBottom:tab===tb.id?"3px solid "+P.em:"3px solid transparent",
               fontWeight:tab===tb.id?700:400,color:tab===tb.id?P.em:P.tm,
               opacity:dragTab===i?0.4:1,cursor:"grab",
-              outline:overTab===i&&dragTab!==null?"2px solid #00897B":"none",
+              outline:overTab===i&&dragTab!==null?"2px solid #003F2D":"none",
             }}>{tabLabel(tb.id)}</button>
         ))}
       </div>
