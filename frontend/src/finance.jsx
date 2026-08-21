@@ -25,7 +25,7 @@ const ANOM_COLOR = { high: "#C62828", med: "#F57F17", low: "#78909C" };
 // getYearData returns RAW stored blobs; heal each client's months/keys onto the active FY (same as
 // the per-client screens) so the finance aggregates match the client P&L and are self-consistent.
 const normYear = (d) => Object.fromEntries(Object.entries(d || {}).map(([c, cd]) => [c, normalizeClientData(cd)]));
-import { Inp, Sel, LangToggle, Skeleton } from "./ui.jsx";
+import { Inp, Sel, Skeleton, AppHeader } from "./ui.jsx";
 import { AiCard } from "./insights.jsx";
 import { useT, monthLabel } from "./i18n.jsx";
 
@@ -123,18 +123,7 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
 
   return (
     <div style={{minHeight:"100vh",background:P.of,fontFamily:"Segoe UI,Tahoma,sans-serif"}}>
-      <div style={{background:P.em,color:"#fff",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-        <div style={{display:"flex",alignItems:"center",gap:16}}>
-          <span style={{fontWeight:800,fontSize:20,letterSpacing:1}}>CBRE</span>
-          <button onClick={onBack} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",padding:"4px 12px",borderRadius:4,cursor:"pointer",fontSize:12}}>◀ {t("Πελάτες","Clients")}</button>
-          <span style={{fontSize:14,fontWeight:600,borderLeft:"1px solid rgba(255,255,255,.3)",paddingLeft:12}}>📊 {t("Dashboard Χαρτοφυλακίου","Portfolio Dashboard")} — {year}</span>
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:10,fontSize:13}}>
-          <LangToggle dark />
-          <span style={{opacity:.7}}>{user.name}</span>
-          <button onClick={onLogout} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>{t("Αποσύνδεση","Logout")}</button>
-        </div>
-      </div>
+      <AppHeader user={user} onLogout={onLogout} onBack={onBack} title={`📊 ${t("Dashboard Χαρτοφυλακίου","Portfolio Dashboard")} — ${year}`} />
 
       <div style={{maxWidth:1300,margin:"0 auto",padding:"18px clamp(12px,4vw,24px)"}}>
         <div style={{display:"flex",gap:8,marginBottom:16,justifyContent:"space-between",alignItems:"center",flexWrap:"wrap"}}>
@@ -430,18 +419,7 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
 
   return (
     <div style={{minHeight:"100vh",background:P.of,fontFamily:"Segoe UI,Tahoma,sans-serif"}}>
-      <div style={{background:P.em,color:"#fff",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-        <div style={{display:"flex",alignItems:"center",gap:16}}>
-          <span style={{fontWeight:800,fontSize:20,letterSpacing:1}}>CBRE</span>
-          <button onClick={onBack} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",padding:"4px 12px",borderRadius:4,cursor:"pointer",fontSize:12}}>◀ {t("Πελάτες","Clients")}</button>
-          <span style={{fontSize:14,fontWeight:600,borderLeft:"1px solid rgba(255,255,255,.3)",paddingLeft:12}}>📒 {t("Καθολικό AP / AR","AP / AR Ledger")} — {year}</span>
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:10,fontSize:13}}>
-          <LangToggle dark />
-          <span style={{opacity:.7}}>{user.name}</span>
-          <button onClick={onLogout} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>{t("Αποσύνδεση","Logout")}</button>
-        </div>
-      </div>
+      <AppHeader user={user} onLogout={onLogout} onBack={onBack} title={`📒 ${t("Καθολικό AP / AR","AP / AR Ledger")} — ${year}`} />
 
       <div style={{maxWidth:1300,margin:"0 auto",padding:"18px clamp(12px,4vw,24px)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:12}}>
@@ -639,19 +617,8 @@ export function OpexCapex({year,setYear,user,onBack,onLogout}) {
 
   return (
     <div style={{minHeight:"100vh",background:P.of,fontFamily:"Segoe UI,Tahoma,sans-serif"}}>
-      <div style={{background:P.em,color:"#fff",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-        <div style={{display:"flex",alignItems:"center",gap:16}}>
-          <span style={{fontWeight:800,fontSize:20,letterSpacing:1}}>CBRE</span>
-          <button onClick={onBack} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",padding:"4px 12px",borderRadius:4,cursor:"pointer",fontSize:12}}>◀ {t("Πελάτες","Clients")}</button>
-          <span style={{fontSize:14,fontWeight:600,borderLeft:"1px solid rgba(255,255,255,.3)",paddingLeft:12}}>💰 {t("OPEX / CAPEX — Εταιρεία","OPEX / CAPEX — Company")} ({year})</span>
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:10,fontSize:13}}>
-          <span style={{fontSize:11,opacity:.9,minWidth:78,textAlign:"right"}}>{saveLbl}</span>
-          <LangToggle dark />
-          <span style={{opacity:.7}}>{user.name}</span>
-          <button onClick={onLogout} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>{t("Αποσύνδεση","Logout")}</button>
-        </div>
-      </div>
+      <AppHeader user={user} onLogout={onLogout} onBack={onBack} title={`💰 ${t("OPEX / CAPEX — Εταιρεία","OPEX / CAPEX — Company")} (${year})`}
+        right={<span style={{fontSize:11,color:P.tm,minWidth:78,textAlign:"right"}}>{saveLbl}</span>} />
 
       <div style={{maxWidth:1400,margin:"0 auto",padding:"18px clamp(12px,4vw,24px)"}}>
         {/* Year + sub-tabs */}

@@ -35,7 +35,7 @@ const remapFinMonths = (d) => {
   if (Array.isArray(out.capex)) out.capex = out.capex.map(it => (it && typeof it === "object" ? { ...it, month: remapMonth(it.month) } : it));
   return out;
 };
-import { LangToggle, Skeleton } from "./ui.jsx";
+import { Skeleton, AppHeader } from "./ui.jsx";
 import { useT, monthLabel } from "./i18n.jsx";
 
 const grossAmt = r => Number(r.total) || ((Number(r.amt) || 0) + (Number(r.vat) || 0)) || Number(r.amt) || 0;
@@ -503,19 +503,8 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
 
   return (
     <div style={{ minHeight: "100vh", background: P.of, fontFamily: "Segoe UI,Tahoma,sans-serif" }}>
-      <div style={{ background: P.em, color: "#fff", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <span style={{ fontWeight: 800, fontSize: 20, letterSpacing: 1 }}>CBRE</span>
-          <button onClick={onBack} style={{ background: "rgba(255,255,255,.2)", border: "none", color: "#fff", padding: "4px 12px", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>◀ {t("Πελάτες", "Clients")}</button>
-          <span style={{ fontSize: 14, fontWeight: 600, borderLeft: "1px solid rgba(255,255,255,.3)", paddingLeft: 12 }}>🏢 {t("Όμιλος P&L / Ισολογισμός", "Group P&L / Balance Sheet")} — {year}</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13 }}>
-          <span style={{ fontSize: 11, opacity: .9, minWidth: 78, textAlign: "right" }}>{saveLbl}</span>
-          <LangToggle dark />
-          <span style={{ opacity: .7 }}>{user.name}</span>
-          <button onClick={onLogout} style={{ background: "rgba(255,255,255,.15)", border: "none", color: "#fff", padding: "5px 14px", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>{t("Αποσύνδεση", "Logout")}</button>
-        </div>
-      </div>
+      <AppHeader user={user} onLogout={onLogout} onBack={onBack} title={`🏢 ${t("Όμιλος P&L / Ισολογισμός", "Group P&L / Balance Sheet")} — ${year}`}
+        right={<span style={{ fontSize: 11, color: P.tm, minWidth: 78, textAlign: "right" }}>{saveLbl}</span>} />
 
       <div style={{ maxWidth: 1400, margin: "0 auto", padding: "18px 24px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>

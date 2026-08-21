@@ -1,7 +1,7 @@
 // Client selection landing screen (per-user client list with status + logo). Extracted from App.jsx.
 import { useState } from "react";
 import { P, CLIENTS, YEARS, fmt, fPct } from "./constants.js";
-import { LogoImg, LangToggle } from "./ui.jsx";
+import { LogoImg, AppHeader, HeaderBtn } from "./ui.jsx";
 import { AdminPanel } from "./admin.jsx";
 import { useT } from "./i18n.jsx";
 
@@ -39,24 +39,16 @@ export function ClientPicker({user,year,setYear,onSelect,onLogout,allData,loadin
   return (
     <div style={{minHeight:"100vh",background:P.of,fontFamily:"Segoe UI,Tahoma,sans-serif"}}>
       {/* Header */}
-      <div style={{background:P.em,color:"#fff",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <div style={{display:"flex",alignItems:"center",gap:16}}>
-          <span style={{fontWeight:800,fontSize:22,letterSpacing:2}}>CBRE</span>
-          <span style={{fontSize:13,opacity:.7,borderLeft:"1px solid rgba(255,255,255,.3)",paddingLeft:12}}>{t("Ελλάδα — Μηνιαία Αναφορά","Greece — Monthly Reporting")}</span>
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:10,fontSize:13}}>
-          <LangToggle dark />
-          <span style={{opacity:.7}}>{user.name}</span>
-          {isAdmin&&<span style={{background:"rgba(255,255,255,.2)",padding:"2px 8px",borderRadius:10,fontSize:10}}>ADMIN</span>}
-          <button onClick={()=>window.dispatchEvent(new Event("mf-open-search"))} title={t("Αναζήτηση (⌘K)","Search (⌘K)")} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 12px",borderRadius:4,cursor:"pointer",fontSize:12}}>🔎 <span style={{fontSize:10,opacity:.85}}>⌘K</span></button>
-          <button onClick={onOpenDash} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>📊 Dashboard</button>
-          {(user.role==="finance"||user.role==="admin")&&<button onClick={onOpenLedger} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>📒 AP/AR</button>}
-          {(user.role==="finance"||user.role==="admin")&&<button onClick={onOpenFinance} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>💰 OPEX/CAPEX</button>}
-          {(user.role==="finance"||user.role==="admin")&&<button onClick={onOpenGroup} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>🏢 {t("Όμιλος P&L/BS","Group P&L/BS")}</button>}
-          {user.role==="admin"&&<button onClick={()=>setAdminOpen(true)} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>⚙️ Admin</button>}
-          <button onClick={onLogout} style={{background:"rgba(255,255,255,.12)",border:"none",color:"#fff",padding:"5px 14px",borderRadius:4,cursor:"pointer",fontSize:12}}>{t("Αποσύνδεση","Logout")}</button>
-        </div>
-      </div>
+      <AppHeader user={user} onLogout={onLogout} sub={t("Ελλάδα — Μηνιαία Αναφορά","Greece — Monthly Reporting")}
+        right={<>
+          {isAdmin&&<span style={{background:P.ep,color:P.em,padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:700}}>ADMIN</span>}
+          <HeaderBtn onClick={()=>window.dispatchEvent(new Event("mf-open-search"))} title={t("Αναζήτηση (⌘K)","Search (⌘K)")}>🔎 <span style={{fontFamily:"'Space Mono',monospace",fontSize:9.5,color:P.tm,border:"1px solid "+P.bd,borderRadius:5,padding:"1px 5px"}}>⌘K</span></HeaderBtn>
+          <HeaderBtn onClick={onOpenDash}>📊 Dashboard</HeaderBtn>
+          {(user.role==="finance"||user.role==="admin")&&<HeaderBtn onClick={onOpenLedger}>📒 AP/AR</HeaderBtn>}
+          {(user.role==="finance"||user.role==="admin")&&<HeaderBtn onClick={onOpenFinance}>💰 OPEX/CAPEX</HeaderBtn>}
+          {(user.role==="finance"||user.role==="admin")&&<HeaderBtn onClick={onOpenGroup}>🏢 {t("Όμιλος P&L/BS","Group P&L/BS")}</HeaderBtn>}
+          {user.role==="admin"&&<HeaderBtn onClick={()=>setAdminOpen(true)}>⚙️ Admin</HeaderBtn>}
+        </>} />
       {adminOpen && <AdminPanel me={user} onClose={()=>setAdminOpen(false)} />}
 
       <div style={{maxWidth:1300,margin:"0 auto",padding:"20px 24px"}}>

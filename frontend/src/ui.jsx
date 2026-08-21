@@ -131,6 +131,49 @@ export function LangToggle({ dark }) {
   );
 }
 
+// Official CBRE logo (2026 green) — never type "CBRE" in a font (brand rule); use the real letterforms.
+export function CbreMark({ height = 20 }) {
+  return (
+    <svg viewBox="0 0 81 20.13" style={{ height, width: "auto", display: "block" }} aria-label="CBRE">
+      <path fill={P.em} d="M33.57,15.41H26.89V12.05h6.86a1.66,1.66,0,0,1,1.49,1.64,1.73,1.73,0,0,1-1.67,1.72m-6.68-11h7A1.64,1.64,0,0,1,35.3,6a1.72,1.72,0,0,1-1.43,1.68h-7Zm9.94,5.37c2.56-.85,3-3,3-4.75,0-2.68-1.89-5-7.48-5H21.94V20.09h10.4C38,20.09,40,17.21,40,14.32a4.91,4.91,0,0,0-3.19-4.58M63.37,0V20.13H81V15.54H68.28V12H79.75V7.63H68.28V4.39H81V0ZM55.79,6.26a1.65,1.65,0,0,1-1.57,1.38H47.34V4.43h6.88a1.57,1.57,0,0,1,1.57,1.4ZM53.12,0H42.47v20.1h4.89V12h5.39a2.8,2.8,0,0,1,2.74,2.85v5.27h4.79V13.62a4.21,4.21,0,0,0-2.9-3.89,4.5,4.5,0,0,0,3-4.44C60.34.94,56.6,0,53.12,0M18.76,15.27c-.07,0-6.69.13-9-.09a5.16,5.16,0,0,1-5-5.31,5.14,5.14,0,0,1,4.82-5.2c1.39-.19,9-.1,9.09-.1h.16L18.9,0h-.16L10.11,0A12.73,12.73,0,0,0,5.93.84,10.25,10.25,0,0,0,2,4a10,10,0,0,0-2,6,12.15,12.15,0,0,0,.16,2A9.8,9.8,0,0,0,5.65,19a14.72,14.72,0,0,0,5.46,1.11l1.63,0h6.17V15.27Z"/>
+    </svg>
+  );
+}
+
+// Header pill button — light (default) or solid green. Consistent nav control across every screen.
+export function HeaderBtn({ onClick, children, tone = "light", title, active }) {
+  const solid = tone === "solid" || active;
+  return (
+    <button onClick={onClick} title={title} style={{ background: solid ? P.em : P.of, border: "1px solid " + (solid ? P.em : P.bd), color: solid ? "#fff" : P.tx, padding: "7px 13px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>{children}</button>
+  );
+}
+
+// Shared top bar — light surface, real CBRE logo, pill controls, avatar + logout. `right` holds the
+// screen-specific nav pills (use HeaderBtn); `onBack`/`title` render the left context.
+export function AppHeader({ user, onLogout, onBack, backLabel, title, sub, right }) {
+  const { t } = useT();
+  const initials = (user?.name || user?.user || "?").split(/\s+/).filter(Boolean).map(s => s[0]).slice(0, 2).join("").toUpperCase() || "?";
+  return (
+    <div style={{ background: P.wh, color: P.tx, padding: "11px clamp(12px,3vw,24px)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, boxShadow: P.sh, position: "relative", zIndex: 5 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 13, flexWrap: "wrap" }}>
+        <CbreMark />
+        <span style={{ fontFamily: "'Space Mono',ui-monospace,monospace", fontSize: 9.5, letterSpacing: ".14em", color: P.tm, textTransform: "uppercase", borderLeft: "1px solid " + P.bd, paddingLeft: 11 }}>{sub || "Hellas · Reporting"}</span>
+        {onBack && <button onClick={onBack} style={{ background: P.of, border: "1px solid " + P.bd, color: P.tx, padding: "6px 12px", borderRadius: 9, cursor: "pointer", fontSize: 12, fontWeight: 500 }}>◀ {backLabel || t("Πελάτες", "Clients")}</button>}
+        {title && <span style={{ fontSize: 14, fontWeight: 600, color: P.em }}>{title}</span>}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 13 }}>
+        {right}
+        <LangToggle />
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ width: 32, height: 32, borderRadius: "50%", background: "linear-gradient(135deg,#0A5A40," + P.ac + ")", color: "#fff", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 600, flex: "none" }}>{initials}</span>
+          <span style={{ fontSize: 13, color: P.tx, fontWeight: 500 }}>{user?.name}</span>
+        </span>
+        <button onClick={onLogout} style={{ background: P.of, border: "1px solid " + P.bd, color: P.tx, padding: "6px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12 }}>{t("Αποσύνδεση", "Logout")}</button>
+      </div>
+    </div>
+  );
+}
+
 // Real company logo (Clearbit → Google favicon → colored-initials avatar on error).
 export function LogoImg({name,size,radius}) {
   const nm = name || "?";
