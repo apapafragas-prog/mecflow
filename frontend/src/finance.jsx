@@ -135,16 +135,24 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
 
         {loading ? <Skeleton kpis={6} rows={6} /> : (
         <>
-          {/* KPIs */}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:12,marginBottom:20}}>
-            {kpi(t("Συνολικά Έσοδα","Total Revenue"),totRev,P.gn,false,prevTot?yoy(totRev,prevTot.rev):undefined)}
-            {kpi(t("Συνολικό Κόστος (υπεργ.)","Total Cost (sub)"),totCost,P.tx,false,prevTot?(()=>{const d=yoy(totCost,prevTot.cost);return d==null?null:-d;})():undefined)}
-            {kpi(t("Εργασία","Labour"),totLab,P.tx,false,prevTot?(()=>{const d=yoy(totLab,prevTot.lab);return d==null?null:-d;})():undefined)}
-            {kpi(t("Μικτό Περιθώριο","Gross Margin"),totGM,totGM>=0?P.gn:P.rd,false,prevTot?yoy(totGM,prevGM):undefined)}
-            {kpi("GM %",totRev?totGM/totRev:null,P.em,true)}
-            <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:14,padding:"15px 16px",boxShadow:P.sh}}>
-              <div style={{fontSize:12,color:P.tm}}>{t("Ενεργοί πελάτες","Active clients")}</div>
-              <div style={{fontSize:22,fontWeight:800,color:P.em,marginTop:5}}>{active.length}<span style={{fontSize:13,color:P.tm,fontWeight:400}}> / {rows.length}</span></div>
+          {/* Hero consolidated-revenue card + KPI cards */}
+          <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:20}}>
+            <div style={{flex:"1 1 250px",minWidth:250,background:"linear-gradient(150deg,#014A34 0%,#003F2D 55%,#012A2D 100%)",color:"#EAF6EF",borderRadius:16,padding:"20px 22px",position:"relative",overflow:"hidden",boxShadow:P.sh}}>
+              <div style={{fontFamily:"'Space Mono',ui-monospace,monospace",fontSize:9.5,letterSpacing:".12em",textTransform:"uppercase",color:"#9FD9C4"}}>{t("Ενοποιημένα Έσοδα · FY","Consolidated Revenue · FY")} {year}</div>
+              <div style={{fontSize:32,fontWeight:700,margin:"12px 0 3px",letterSpacing:"-.02em",lineHeight:1}}>€{fmt(totRev)}{prevTot&&yoy(totRev,prevTot.rev)!=null&&<span style={{fontSize:13,fontWeight:700,marginLeft:8,color:yoy(totRev,prevTot.rev)>=0?"#7EE8B4":"#F3A6A5"}}>{yoy(totRev,prevTot.rev)>=0?"▲":"▼"} {Math.abs(yoy(totRev,prevTot.rev)*100).toFixed(0)}%</span>}</div>
+              <div style={{fontSize:12,color:"#AEE9CF"}}>{active.length}/{rows.length} {t("ενεργοί πελάτες","active clients")} · {t("Μικτό","GM")} {fPct(totRev?totGM/totRev:null)}</div>
+              <svg viewBox="0 0 300 40" preserveAspectRatio="none" style={{position:"absolute",left:0,right:0,bottom:0,width:"100%",height:38,opacity:.55}}><path d="M0 28 Q40 8 80 22 T160 18 T240 24 T300 12 V40 H0 Z" fill="rgba(23,232,143,.18)"/><path d="M0 28 Q40 8 80 22 T160 18 T240 24 T300 12" fill="none" stroke="rgba(23,232,143,.55)" strokeWidth="1.5"/></svg>
+            </div>
+            <div style={{flex:"3 1 440px",display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:12}}>
+              {kpi(t("Συνολικά Έσοδα","Total Revenue"),totRev,P.gn,false,prevTot?yoy(totRev,prevTot.rev):undefined)}
+              {kpi(t("Συνολικό Κόστος (υπεργ.)","Total Cost (sub)"),totCost,P.tx,false,prevTot?(()=>{const d=yoy(totCost,prevTot.cost);return d==null?null:-d;})():undefined)}
+              {kpi(t("Εργασία","Labour"),totLab,P.tx,false,prevTot?(()=>{const d=yoy(totLab,prevTot.lab);return d==null?null:-d;})():undefined)}
+              {kpi(t("Μικτό Περιθώριο","Gross Margin"),totGM,totGM>=0?P.gn:P.rd,false,prevTot?yoy(totGM,prevGM):undefined)}
+              {kpi("GM %",totRev?totGM/totRev:null,P.em,true)}
+              <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:14,padding:"15px 16px",boxShadow:P.sh}}>
+                <div style={{fontSize:12,color:P.tm}}>{t("Ενεργοί πελάτες","Active clients")}</div>
+                <div style={{fontSize:22,fontWeight:800,color:P.em,marginTop:5}}>{active.length}<span style={{fontSize:13,color:P.tm,fontWeight:400}}> / {rows.length}</span></div>
+              </div>
             </div>
           </div>
 
@@ -177,26 +185,39 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
           )}
 
           <div style={{display:"grid",gridTemplateColumns:"1fr",gap:16,alignItems:"start"}}>
-            {/* Monthly trend */}
+            {/* Monthly trend — vertical bar chart (revenue) with per-month GM + a GM trend line */}
             <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,padding:16}}>
-              <div style={{fontSize:13,fontWeight:700,color:P.em,marginBottom:12}}>{t("Μηνιαία τάση — Έσοδα / GM","Monthly trend — Revenue / GM")}</div>
-              <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                {monthly.map(x=>(
-                  <div key={x.m} style={{display:"flex",alignItems:"center",gap:8,fontSize:11}}>
-                    <span style={{width:44,color:P.tm,flexShrink:0}}>{monthLabel(x.m)}</span>
-                    <div style={{flex:1,background:"#eef2ef",borderRadius:4,height:16,position:"relative",overflow:"hidden"}} title={x.gm<0?t("Ζημιά αυτόν τον μήνα","Loss this month"):""}>
-                      <div style={{position:"absolute",left:0,top:0,bottom:0,width:(x.rev/maxRev*100)+"%",background:P.ep}} />
-                      {/* GM overlay: dark-green when profitable, red when the month made a loss (was invisible before) */}
-                      <div style={{position:"absolute",left:0,top:0,bottom:0,width:(Math.min(1,Math.abs(x.gm)/maxRev)*100)+"%",background:x.gm>=0?P.em:P.rd,opacity:.85}} />
-                    </div>
-                    <span style={{width:78,textAlign:"right",color:P.gn,flexShrink:0}}>{fmt(x.rev)}</span>
-                    <span style={{width:78,textAlign:"right",color:x.gm>=0?P.em:P.rd,fontWeight:600,flexShrink:0}}>{fmt(x.gm)}</span>
-                  </div>
-                ))}
-              </div>
-              <div style={{display:"flex",gap:16,marginTop:10,fontSize:10,color:P.tm}}>
-                <span><span style={{display:"inline-block",width:10,height:10,background:P.ep,borderRadius:2,verticalAlign:"middle",marginRight:4}} />{t("Έσοδα","Revenue")}</span>
-                <span><span style={{display:"inline-block",width:10,height:10,background:P.em,borderRadius:2,verticalAlign:"middle",marginRight:4}} />GM</span>
+              <div style={{fontSize:13,fontWeight:700,color:P.em,marginBottom:6}}>{t("Μηνιαία τάση — Έσοδα / GM","Monthly trend — Revenue / GM")}</div>
+              {(()=>{
+                const W=720,H=250,base=200,top=14,plot=base-top,x0=16,slot=(W-2*x0)/12,barW=Math.min(34,slot-14);
+                const peak=monthly.reduce((mi,x,i,a)=>x.rev>a[mi].rev?i:mi,0);
+                const cx=i=>x0+i*slot+slot/2;
+                const gmMax=Math.max(1,...monthly.map(x=>Math.abs(x.gm)));
+                const gmY=v=>base-(v/gmMax)*plot*0.9;   // GM line on its own scale, sharing the baseline
+                const pts=monthly.map((x,i)=>`${cx(i)},${Math.max(top-6,Math.min(base,gmY(x.gm)))}`).join(" ");
+                return (
+                  <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto",display:"block"}}>
+                    <text x={x0} y={top-2} style={{fontSize:11,fill:P.tm}}>€{fmt(maxRev)}</text>
+                    {[0.25,0.5,0.75,1].map(f=><line key={f} x1={x0} y1={base-f*plot} x2={W-x0} y2={base-f*plot} stroke={P.bd} strokeWidth="1"/>)}
+                    <line x1={x0} y1={base} x2={W-x0} y2={base} stroke={P.tm} strokeWidth="1"/>
+                    {monthly.map((x,i)=>{ const h=maxRev>0?(x.rev/maxRev)*plot:0; return (
+                      <g key={x.m}>
+                        <rect x={cx(i)-barW/2} y={base-h} width={barW} height={h} rx="6" fill={i===peak&&maxRev>0?P.em:"#80BBAD"}>
+                          <title>{`${monthLabel(x.m)} · ${t("Έσοδα","Revenue")} €${fmt(x.rev)} · GM €${fmt(x.gm)}`}</title>
+                        </rect>
+                        <text x={cx(i)} y={base+16} textAnchor="middle" style={{fontSize:11,fill:i===peak?P.em:P.tm,fontWeight:i===peak?700:400}}>{monthLabel(x.m)}</text>
+                        <text x={cx(i)} y={base+31} textAnchor="middle" style={{fontSize:10,fill:x.gm>=0?P.gn:P.rd,fontWeight:600}}>{fmt(x.gm)}</text>
+                      </g>
+                    ); })}
+                    <polyline points={pts} fill="none" stroke={P.tx} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.75"/>
+                    {monthly.map((x,i)=><circle key={x.m} cx={cx(i)} cy={Math.max(top-6,Math.min(base,gmY(x.gm)))} r="2.6" fill={P.tx}/>)}
+                  </svg>
+                );
+              })()}
+              <div style={{display:"flex",gap:16,marginTop:6,fontSize:10,color:P.tm}}>
+                <span><span style={{display:"inline-block",width:10,height:10,background:"#80BBAD",borderRadius:2,verticalAlign:"middle",marginRight:4}} />{t("Έσοδα","Revenue")}</span>
+                <span><span style={{display:"inline-block",width:10,height:10,background:P.em,borderRadius:2,verticalAlign:"middle",marginRight:4}} />{t("Κορυφή","Peak")}</span>
+                <span><span style={{display:"inline-block",width:14,height:2,background:P.tx,verticalAlign:"middle",marginRight:4}} />{t("Γραμμή GM","GM line")}</span>
               </div>
             </div>
           </div>
