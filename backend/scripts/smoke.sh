@@ -7,6 +7,11 @@
 # Run from anywhere:  npm run smoke   (or: bash scripts/smoke.sh)
 # Exits non-zero if any assertion fails — safe to gate a deploy on.
 #
+# ENVIRONMENT: this is a DEV-environment tool. It needs the backend deps installed
+# (npm install) plus bash + curl + node on PATH. It does NOT run on the host shell
+# (no node_modules there) nor inside the Alpine production container (no bash/curl,
+# and scripts/ isn't baked into the image). Run it where you develop/CI, before deploy.
+#
 # Requires: the DB seed password below to match init-db.js (default users).
 # ─────────────────────────────────────────────────────────────────────────────
 set -u
@@ -25,8 +30,10 @@ LOG="$DATA_DIR/server.log"
 cleanup(){ [ -n "${SRV:-}" ] && kill "$SRV" 2>/dev/null; rm -rf "$DATA_DIR"; }
 trap cleanup EXIT
 
+command -v curl >/dev/null 2>&1 || { echo "FATAL: curl not found — this is a dev-environment tool (see header). Skip on the NAS/host and use the browser checklist instead."; exit 1; }
+[ -d node_modules ] || { echo "FATAL: backend node_modules missing — run 'npm install' first. This tool can't run on the host or the Alpine container (see header)."; exit 1; }
 echo "seeding throwaway DB in $DATA_DIR"
-node init-db.js >/dev/null 2>&1 || { echo "FATAL: init-db failed"; exit 1; }
+if ! node init-db.js > "$DATA_DIR/init.log" 2>&1; then echo "FATAL: init-db failed:"; cat "$DATA_DIR/init.log"; exit 1; fi
 node server.js >"$LOG" 2>&1 &
 SRV=$!
 
