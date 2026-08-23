@@ -533,12 +533,56 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
         {/* ── GROUP P&L ── */}
         {loaded && tab === "pnl" && (
           <div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 12, marginBottom: 16 }}>
-              {kpi(t("Έσοδα (YTD)", "Revenue (YTD)"), ytd("rev"), P.gn)}
-              {kpi(t("Μικτό Κέρδος (YTD)", "Gross Margin (YTD)"), ytd("gm"), ytd("gm") >= 0 ? P.gn : P.rd)}
-              {kpi("EBITDA (YTD)", ytd("ebitda"), ytd("ebitda") >= 0 ? P.em : P.rd)}
-              {kpi("EBITDA %", ytd("rev") ? ytd("ebitda") / ytd("rev") : null, P.em, true)}
-              {kpi(t("Καθαρό (YTD)", "Net (YTD)"), ytd("net"), ytd("net") >= 0 ? P.gn : P.rd)}
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 16 }}>
+              <div style={{ flex: "1 1 250px", minWidth: 250, background: "linear-gradient(150deg,#014A34 0%,#003F2D 55%,#012A2D 100%)", color: "#EAF6EF", borderRadius: 16, padding: "20px 22px", position: "relative", overflow: "hidden", boxShadow: P.sh }}>
+                <div style={{ fontFamily: "'Space Mono',ui-monospace,monospace", fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "#9FD9C4" }}>{t("Ενοποιημένα Έσοδα · FY", "Consolidated Revenue · FY")} {year}</div>
+                <div style={{ fontSize: 32, fontWeight: 700, margin: "12px 0 3px", letterSpacing: "-.02em", lineHeight: 1 }}>€{F(ytd("rev"))}</div>
+                <div style={{ fontSize: 12, color: "#AEE9CF" }}>EBITDA €{F(ytd("ebitda"))} · {t("περιθώριο", "margin")} {fPct(ytd("rev") ? ytd("ebitda") / ytd("rev") : null)}</div>
+                <svg viewBox="0 0 300 40" preserveAspectRatio="none" style={{ position: "absolute", left: 0, right: 0, bottom: 0, width: "100%", height: 38, opacity: .55 }}><path d="M0 28 Q40 8 80 22 T160 18 T240 24 T300 12 V40 H0 Z" fill="rgba(23,232,143,.18)" /><path d="M0 28 Q40 8 80 22 T160 18 T240 24 T300 12" fill="none" stroke="rgba(23,232,143,.55)" strokeWidth="1.5" /></svg>
+              </div>
+              <div style={{ flex: "3 1 440px", display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: 12 }}>
+                {kpi(t("Έσοδα (YTD)", "Revenue (YTD)"), ytd("rev"), P.gn)}
+                {kpi(t("Μικτό Κέρδος (YTD)", "Gross Margin (YTD)"), ytd("gm"), ytd("gm") >= 0 ? P.gn : P.rd)}
+                {kpi("EBITDA (YTD)", ytd("ebitda"), ytd("ebitda") >= 0 ? P.em : P.rd)}
+                {kpi("EBITDA %", ytd("rev") ? ytd("ebitda") / ytd("rev") : null, P.em, true)}
+                {kpi(t("Καθαρό (YTD)", "Net (YTD)"), ytd("net"), ytd("net") >= 0 ? P.gn : P.rd)}
+              </div>
+            </div>
+
+            {/* Monthly consolidated — revenue bars + EBITDA trend line */}
+            <div style={{ background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, boxShadow: P.sh, padding: 16, marginBottom: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: P.em, marginBottom: 6 }}>{t("Μηνιαία ενοποιημένα — Έσοδα / EBITDA", "Monthly consolidated — Revenue / EBITDA")}</div>
+              {(() => {
+                const W = 720, H = 232, base = 190, top = 14, plot = base - top, x0 = 16, slot = (W - 2 * x0) / 12, barW = Math.min(34, slot - 14);
+                const mrev = Math.max(1, ...series.map(s => s.rev));
+                const peak = series.reduce((mi, s, i, a) => s.rev > a[mi].rev ? i : mi, 0);
+                const cx = i => x0 + i * slot + slot / 2;
+                const eMax = Math.max(1, ...series.map(s => Math.abs(s.ebitda)));
+                const eY = v => base - (v / eMax) * plot * 0.9;
+                const pts = series.map((s, i) => `${cx(i)},${Math.max(top - 6, Math.min(base, eY(s.ebitda)))}`).join(" ");
+                return (
+                  <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
+                    <text x={x0} y={top - 2} style={{ fontSize: 11, fill: P.tm }}>€{F(mrev)}</text>
+                    {[0.25, 0.5, 0.75, 1].map(f => <line key={f} x1={x0} y1={base - f * plot} x2={W - x0} y2={base - f * plot} stroke={P.bd} strokeWidth="1" />)}
+                    <line x1={x0} y1={base} x2={W - x0} y2={base} stroke={P.tm} strokeWidth="1" />
+                    {series.map((s, i) => { const h = (s.rev / mrev) * plot; return (
+                      <g key={s.m}>
+                        <rect x={cx(i) - barW / 2} y={base - h} width={barW} height={h} rx="6" fill={i === peak ? P.em : "#80BBAD"}>
+                          <title>{`${monthLabel(s.m)} · ${t("Έσοδα", "Revenue")} €${fmt(s.rev)} · EBITDA €${fmt(s.ebitda)}`}</title>
+                        </rect>
+                        <text x={cx(i)} y={base + 16} textAnchor="middle" style={{ fontSize: 11, fill: i === peak ? P.em : P.tm, fontWeight: i === peak ? 700 : 400 }}>{monthLabel(s.m)}</text>
+                      </g>
+                    ); })}
+                    <polyline points={pts} fill="none" stroke={P.tx} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.75" />
+                    {series.map((s, i) => <circle key={s.m} cx={cx(i)} cy={Math.max(top - 6, Math.min(base, eY(s.ebitda)))} r="2.6" fill={P.tx} />)}
+                  </svg>
+                );
+              })()}
+              <div style={{ display: "flex", gap: 16, marginTop: 6, fontSize: 10, color: P.tm }}>
+                <span><span style={{ display: "inline-block", width: 10, height: 10, background: "#80BBAD", borderRadius: 2, verticalAlign: "middle", marginRight: 4 }} />{t("Έσοδα", "Revenue")}</span>
+                <span><span style={{ display: "inline-block", width: 10, height: 10, background: P.em, borderRadius: 2, verticalAlign: "middle", marginRight: 4 }} />{t("Κορυφή", "Peak")}</span>
+                <span><span style={{ display: "inline-block", width: 14, height: 2, background: P.tx, verticalAlign: "middle", marginRight: 4 }} />{t("Γραμμή EBITDA", "EBITDA line")}</span>
+              </div>
             </div>
             <div style={{ display: "flex", gap: 6, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
               {[["months", t("📅 Μηνιαία", "📅 Monthly")], ["board", t("📋 Σύνοψη ΔΣ", "📋 Board Summary")]].map(([v, l]) => (
