@@ -465,16 +465,40 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
 
         {loading ? <Skeleton kpis={6} rows={6} /> : (
         <>
-          {/* KPIs + aging buckets */}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:12,marginBottom:18}}>
-            <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:14,padding:"15px 16px",boxShadow:P.sh}}><div style={{fontSize:12,color:P.tm}}>{view==="AR"?t("Εισπρακτέα","Receivable"):t("Πληρωτέα","Payable")} ({t("ανοιχτά","open")})</div><div style={{fontSize:22,fontWeight:800,color:P.em,marginTop:5}}>€{fmt(totalOpen)}</div></div>
-            <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:14,padding:"15px 16px",boxShadow:P.sh}}><div style={{fontSize:12,color:P.tm}}>{t("Ληξιπρόθεσμα","Overdue")}</div><div style={{fontSize:22,fontWeight:800,color:overdue>0?P.rd:P.gn,marginTop:5}}>€{fmt(overdue)}</div></div>
-            {AGING_COLS.map(b=>(
-              <div key={b} style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:14,padding:"15px 16px",boxShadow:P.sh}}>
-                <div style={{fontSize:12,color:bucketColor[b]}}>● {b==="current"?t("Τρέχον","Current"):b==="unknown"?t("Χωρίς ημ/νία","Undated"):b+t(" ημ"," d")}</div>
-                <div style={{fontSize:18,fontWeight:700,color:P.tx,marginTop:5}}>€{fmt(bucketTotal(b))}</div>
+          {/* Hero + aging donut */}
+          <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:18}}>
+            <div style={{flex:"1 1 250px",minWidth:250,background:"linear-gradient(150deg,#014A34 0%,#003F2D 55%,#012A2D 100%)",color:"#EAF6EF",borderRadius:16,padding:"20px 22px",position:"relative",overflow:"hidden",boxShadow:P.sh}}>
+              <div style={{fontFamily:"'Space Mono',ui-monospace,monospace",fontSize:9.5,letterSpacing:".12em",textTransform:"uppercase",color:"#9FD9C4"}}>{view==="AR"?t("Εισπρακτέα · Ανοιχτά","Receivable · Open"):t("Πληρωτέα · Ανοιχτά","Payable · Open")}</div>
+              <div style={{fontSize:32,fontWeight:700,margin:"12px 0 3px",letterSpacing:"-.02em",lineHeight:1}}>€{fmt(totalOpen)}</div>
+              <div style={{fontSize:12,color:overdue>0?"#F3A6A5":"#AEE9CF"}}>{t("Ληξιπρόθεσμα","Overdue")} €{fmt(overdue)}{totalOpen?` · ${Math.round(overdue/totalOpen*100)}%`:""}</div>
+              <svg viewBox="0 0 300 40" preserveAspectRatio="none" style={{position:"absolute",left:0,right:0,bottom:0,width:"100%",height:38,opacity:.55}}><path d="M0 28 Q40 8 80 22 T160 18 T240 24 T300 12 V40 H0 Z" fill="rgba(23,232,143,.18)"/><path d="M0 28 Q40 8 80 22 T160 18 T240 24 T300 12" fill="none" stroke="rgba(23,232,143,.55)" strokeWidth="1.5"/></svg>
+            </div>
+            <div style={{flex:"2 1 380px",background:P.wh,border:"1px solid "+P.bd,borderRadius:16,padding:"16px 18px",boxShadow:P.sh,display:"flex",gap:20,alignItems:"center",flexWrap:"wrap"}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:700,color:P.em,marginBottom:8}}>{t("Κατανομή aging","Aging distribution")}</div>
+                {(()=>{
+                  const segs=AGING_COLS.map(b=>({b,v:bucketTotal(b)})).filter(s=>s.v>0);
+                  const tot=segs.reduce((s,x)=>s+x.v,0); const C=2*Math.PI*52; let acc=0;
+                  return (
+                    <svg viewBox="0 0 140 140" width="128" height="128" style={{display:"block"}}>
+                      <circle cx="70" cy="70" r="52" fill="none" stroke={P.al} strokeWidth="20"/>
+                      {tot>0 && segs.map(s=>{ const seg=s.v/tot*C; const el=<circle key={s.b} cx="70" cy="70" r="52" fill="none" stroke={bucketColor[s.b]} strokeWidth="20" strokeDasharray={`${seg} ${C-seg}`} strokeDashoffset={-acc} transform="rotate(-90 70 70)"/>; acc+=seg; return el; })}
+                      <text x="70" y="66" textAnchor="middle" style={{fontSize:15,fontWeight:800,fill:P.em}}>€{fmt(totalOpen)}</text>
+                      <text x="70" y="84" textAnchor="middle" style={{fontSize:9,fill:P.tm}}>{t("ανοιχτά","open")}</text>
+                    </svg>
+                  );
+                })()}
               </div>
-            ))}
+              <div style={{flex:1,minWidth:150,display:"flex",flexDirection:"column",gap:7}}>
+                {AGING_COLS.map(b=>(
+                  <div key={b} style={{display:"flex",alignItems:"center",gap:8,fontSize:12}}>
+                    <span style={{width:9,height:9,borderRadius:2,background:bucketColor[b],flex:"none"}} />
+                    <span style={{color:P.tm}}>{b==="current"?t("Τρέχον","Current"):b==="unknown"?t("Χωρίς ημ/νία","Undated"):b+t(" ημ"," d")}</span>
+                    <span style={{marginLeft:"auto",fontWeight:600,color:(bucketTotal(b)&&b!=="current")?bucketColor[b]:P.tx}}>€{fmt(bucketTotal(b))}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* Per-counterparty aging */}
