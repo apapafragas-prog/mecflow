@@ -86,7 +86,9 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
         if (cancelled) return;
         // groupPnLSeries filters by the ACTIVE FY's month keys, so prior-year data must be remapped onto
         // those keys first (lossless for the YTD totals the board uses) — otherwise every Prior line is 0.
-        setPrev({ series: groupPnLSeries(normYear(pcd || {}), remapFinanceMonths((pfr && pfr.data) || {}), MONTHS) });
+        const pn2 = normYear(pcd || {});
+        const byClient = Object.fromEntries(Object.entries(pn2).map(([name, pc]) => [name, clientActual(pc)]));  // per-client prior actuals (for budget seeding)
+        setPrev({ series: groupPnLSeries(pn2, remapFinanceMonths((pfr && pfr.data) || {}), MONTHS), byClient });
       })();
     }
     return () => { cancelled = true; };
@@ -160,6 +162,28 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   };
   const budgetOf = (client) => fin?.budgets?.[client] || {};
   const setBudget = (client, field, v) => mutate(n => { if (!n.budgets[client]) n.budgets[client] = {}; n.budgets[client][field] = parseFloat(v) || 0; });
+  // Bulk-seed every client's annual targets from a source: prior-year actuals / current YTD / run-rate.
+  const seedBudgets = (mode) => {
+    const label = mode === "prev" ? t("περσινά πραγματικά", "prior-year actuals") : mode === "ytd" ? t("τρέχοντα πραγματικά YTD", "current YTD actuals") : t("ετησιοποιημένο run-rate", "annualized run-rate");
+    if (mode === "prev" && !prev?.byClient) { alert(t("Δεν υπάρχουν δεδομένα προηγούμενης χρήσης.", "No prior-year data available.")); return; }
+    if (!confirm(t(`Ορισμός στόχων ΟΛΩΝ των πελατών από: ${label}; Οι υπάρχοντες στόχοι θα αντικατασταθούν.`, `Set ALL clients' targets from: ${label}? Existing targets will be overwritten.`))) return;
+    const monthsActive = Math.max(1, series.filter(s => s.rev || s.sub || s.labour).length);
+    mutate(n => {
+      Object.entries(allData || {}).forEach(([name, cd]) => {
+        let rev, gmPct;
+        if (mode === "prev") { const p = prev.byClient[name]; if (!p) return; rev = p.rev; gmPct = p.rev ? p.gm / p.rev * 100 : 0; }
+        else { const a = clientActual(cd); rev = mode === "ytd" ? a.rev : a.rev / monthsActive * 12; gmPct = a.rev ? a.gm / a.rev * 100 : 0; }
+        if (!rev && !gmPct) return;
+        if (!n.budgets[name]) n.budgets[name] = {};
+        n.budgets[name].rev = Math.round(rev);
+        n.budgets[name].gmPct = Math.round(gmPct * 10) / 10;
+      });
+    });
+  };
+  // Uplift/haircut all existing revenue targets by a percentage (e.g. +5%).
+  const upliftBudgets = (pct) => {
+    mutate(n => { Object.keys(n.budgets || {}).forEach(name => { if (n.budgets[name] && n.budgets[name].rev) n.budgets[name].rev = Math.round(n.budgets[name].rev * (1 + pct / 100)); }); });
+  };
 
   // ── Fee & COP (CBRE cost-plus core) ──
   // Management fee earned on subcontractor cost: prefer the stored cbre_fee, else amt × fee_pct (default 5%).
@@ -761,11 +785,40 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
           const tdS = { padding: "6px 10px", borderBottom: "1px solid " + P.bd, fontSize: 12 };
           const inp = { width: 96, padding: "3px 5px", border: "1px solid " + P.bd, borderRadius: 4, fontSize: 12, textAlign: "right", background: P.ip, outline: "none" };
           const pctColor = (p) => p == null ? P.tm : p >= 100 ? P.gn : p >= 85 ? "#F57F17" : P.rd;
+          // Top-down reconciliation feeding the board Budget column: Σ client GM targets − OPEX budget = EBITDA budget.
+          const gmBudget = rows.reduce((s, r) => s + ((r.revT || 0) * (r.gmT || 0) / 100), 0);
+          const catsB = fin?.opex?.cats || [], budB = fin?.opex?.budget || {};
+          const opexBudget = catsB.reduce((s, c) => s + MONTHS.reduce((s2, m) => s2 + (Number(budB[c.id]?.[m]) || 0), 0), 0);
+          const ebitdaBudget = gmBudget - opexBudget;
+          const bcard = (l, v, sub, c) => (
+            <div style={{ background: P.wh, border: "1px solid " + P.bd, borderRadius: 14, padding: "13px 15px", boxShadow: P.sh, minWidth: 150, flex: 1 }}>
+              <div style={{ fontSize: 11, color: P.tm, textTransform: "uppercase", letterSpacing: ".04em" }}>{l}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: c || P.em, marginTop: 4 }}>€{F(v)}</div>
+              {sub && <div style={{ fontSize: 11, color: P.tm, marginTop: 2 }}>{sub}</div>}
+            </div>
+          );
+          const seedBtn = (label, mode) => <button onClick={() => seedBudgets(mode)} style={{ background: P.of, border: "1px solid " + P.bd, color: P.tx, padding: "7px 12px", borderRadius: 9, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{label}</button>;
           return (
             <div>
-              <div style={{ background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, overflow: "auto", maxHeight: 560 }}>
+              {/* Top-down reconciliation band (feeds the board Budget column) */}
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+                {bcard(t("Στόχος Εσόδων", "Revenue budget"), totRevT, totRevA ? t("πραγμ.", "actual") + " €" + F(totRevA) + " · " + Math.round(totRevT ? totRevA / totRevT * 100 : 0) + "%" : "")}
+                {bcard(t("Στόχος Μικτού (GM)", "GM budget"), gmBudget, totRevT ? (gmBudget / totRevT * 100).toFixed(1) + "%" : "")}
+                {bcard(t("Προϋπ. OPEX", "OPEX budget"), opexBudget, t("από καρτέλα OPEX", "from OPEX tab"))}
+                {bcard("EBITDA " + t("στόχος", "budget"), ebitdaBudget, t("GM − OPEX", "GM − OPEX"), ebitdaBudget >= 0 ? P.em : P.rd)}
+              </div>
+              {/* Seed / uplift toolbar */}
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+                <span style={{ fontSize: 12, color: P.tm, fontWeight: 600 }}>{t("Γρήγορη συμπλήρωση:", "Quick fill:")}</span>
+                {seedBtn(t("↺ Πέρσι", "↺ Prior year"), "prev")}
+                {seedBtn(t("= Πραγμ. YTD", "= Actual YTD"), "ytd")}
+                {seedBtn(t("↗ Run-rate", "↗ Run-rate"), "runrate")}
+                <button onClick={() => upliftBudgets(5)} style={{ background: P.of, border: "1px solid " + P.bd, color: P.tx, padding: "7px 12px", borderRadius: 9, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>+5%</button>
+                <span style={{ fontSize: 11, color: P.tm, marginLeft: "auto" }}>{t("Αντικαθιστά όλους τους στόχους πελατών", "Overwrites all client targets")}</span>
+              </div>
+              <div style={{ background: P.wh, borderRadius: 8, border: "1px solid " + P.bd, boxShadow: P.sh, overflow: "auto", maxHeight: 560 }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
-                  <thead><tr>{[t("Πελάτης", "Client"), t("Στόχος Εσόδων €", "Revenue Target €"), t("Πραγμ. Έσοδα €", "Actual Revenue €"), t("Επίτευξη", "Achieved"), t("Στόχος GM %", "Target GM %"), t("Πραγμ. GM %", "Actual GM %"), t("Διαφορά", "Variance")].map((h, i) => (
+                  <thead><tr>{[t("Πελάτης", "Client"), t("Στόχος Εσόδων €", "Revenue Target €"), t("Πραγμ. Έσοδα €", "Actual Revenue €"), t("Πέρσι €", "Prior €"), t("Επίτευξη", "Achieved"), t("Στόχος GM %", "Target GM %"), t("Πραγμ. GM %", "Actual GM %"), t("Διαφορά", "Variance")].map((h, i) => (
                     <th key={i} style={{ padding: "7px 10px", fontSize: 11, fontWeight: 700, color: "#fff", background: P.em, textAlign: i === 0 ? "left" : "right", whiteSpace: "nowrap", position: "sticky", top: 0, zIndex: i === 0 ? 3 : 2, ...(i === 0 ? { left: 0 } : {}) }}>{h}</th>
                   ))}</tr></thead>
                   <tbody>
@@ -774,6 +827,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
                         <td style={{ ...tdS, fontWeight: 600, color: P.em, position: "sticky", left: 0, background: i % 2 === 0 ? P.wh : P.al, zIndex: 1 }}>{r.name}</td>
                         <td style={{ ...tdS, textAlign: "right" }}><input type="number" step="0.01" value={budgetOf(r.name).rev ?? ""} onChange={e => setBudget(r.name, "rev", e.target.value)} style={inp} /></td>
                         <td style={{ ...tdS, textAlign: "right" }}>{F(r.rev)}</td>
+                        <td style={{ ...tdS, textAlign: "right", color: P.tm }}>{prev?.byClient?.[r.name] ? F(prev.byClient[r.name].rev) : "—"}</td>
                         <td style={{ ...tdS, textAlign: "right", fontWeight: 700, color: pctColor(r.revPct) }}>{r.revPct == null ? "—" : Math.round(r.revPct) + "%"}</td>
                         <td style={{ ...tdS, textAlign: "right" }}><input type="number" step="0.1" value={budgetOf(r.name).gmPct ?? ""} onChange={e => setBudget(r.name, "gmPct", e.target.value)} style={{ ...inp, width: 70 }} /></td>
                         <td style={{ ...tdS, textAlign: "right", color: r.gmPct != null && r.gmPct < 0 ? P.rd : P.tx }}>{r.gmPct == null ? "—" : r.gmPct.toFixed(1) + "%"}</td>
@@ -784,6 +838,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
                       <td style={{ ...tdS, color: P.em, position: "sticky", left: 0, background: P.ep, zIndex: 1 }}>{t("Σύνολο", "Total")}</td>
                       <td style={{ ...tdS, textAlign: "right", color: P.em }}>{F(totRevT)}</td>
                       <td style={{ ...tdS, textAlign: "right", color: P.em }}>{F(totRevA)}</td>
+                      <td style={{ ...tdS, textAlign: "right", color: P.tm }}>{F(rows.reduce((s, r) => s + ((prev?.byClient?.[r.name]?.rev) || 0), 0))}</td>
                       <td style={{ ...tdS, textAlign: "right", color: pctColor(totRevT > 0 ? totRevA / totRevT * 100 : null) }}>{totRevT > 0 ? Math.round(totRevA / totRevT * 100) + "%" : "—"}</td>
                       <td colSpan={3}></td>
                     </tr>
