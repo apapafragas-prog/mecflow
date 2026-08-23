@@ -26,7 +26,7 @@ import { AdminPanel } from "./admin.jsx";
 import { Scan } from "./scan.jsx";
 import { ClientPicker } from "./clientPicker.jsx";
 import { ContractTab } from "./contracts.jsx";
-import { useT, monthLabel } from "./i18n.jsx";
+import { useT, monthLabel, statusLabel } from "./i18n.jsx";
 
 // A scan session is per-client so scanning survives tab/client navigation (it lives in App,
 // which never unmounts). Fresh object each call to avoid shared-reference mutation.
@@ -677,6 +677,30 @@ export default function App() {
             }}>{tabLabel(tb.id)}</button>
         ))}
       </div>
+      {(()=>{
+        const st = cd.status || "draft";
+        const isFin = user.role==="finance" || user.role==="admin";
+        const C = { draft:{c:"#607D8B",bg:"#ECEFF1"}, submitted:{c:"#B07A17",bg:"#FFF8E1"}, approved:{c:P.gn,bg:"#E8F5E9"}, rejected:{c:P.rd,bg:"#FDECEA"} }[st] || { c:P.tm, bg:P.al };
+        const today = new Date().toISOString().slice(0,10);
+        const submit = () => { upClient("status","submitted"); upClient("submittedBy", user.name||user.user); upClient("submittedAt", today); upClient("rejectNote",""); };
+        const approve = () => upClient("status","approved");
+        const reject = () => { const note = prompt(t("Λόγος απόρριψης (θα σταλεί στον υποβάλλοντα):","Reason for rejection (sent to the submitter):"),""); if(note===null) return; upClient("status","rejected"); upClient("rejectNote", note||""); };
+        const reopen = () => { upClient("status","draft"); upClient("rejectNote",""); };
+        const btn = (label,onClick,bg,br)=> <button onClick={onClick} style={{background:bg,color:br?P.tx:"#fff",border:br?"1px solid "+P.bd:"none",padding:"6px 14px",borderRadius:9,cursor:"pointer",fontSize:12,fontWeight:600}}>{label}</button>;
+        return (
+          <div style={{background:C.bg,borderBottom:"1px solid "+P.bd,padding:"9px clamp(12px,3vw,24px)",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+            <span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:700,color:C.c}}><span style={{width:8,height:8,borderRadius:"50%",background:C.c}} />{statusLabel(st)}</span>
+            {st==="submitted" && cd.submittedBy && <span style={{fontSize:11.5,color:P.tm}}>{t("από","by")} <b style={{color:P.tx}}>{cd.submittedBy}</b>{cd.submittedAt?` · ${cd.submittedAt}`:""}</span>}
+            {st==="rejected" && cd.rejectNote && <span style={{fontSize:11.5,color:P.rd}}>↩ {cd.rejectNote}</span>}
+            <div style={{marginLeft:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
+              {(st==="draft"||st==="rejected") && btn("📤 "+t("Υποβολή προς έγκριση","Submit for approval"), submit, P.em)}
+              {st==="submitted" && isFin && <>{btn("✓ "+t("Έγκριση","Approve"), approve, P.gn)}{btn("↩ "+t("Απόρριψη","Reject"), reject, P.rd)}</>}
+              {st==="submitted" && !isFin && <span style={{fontSize:11.5,color:P.tm,fontStyle:"italic"}}>{t("Αναμονή έγκρισης Finance","Awaiting Finance approval")}</span>}
+              {st==="approved" && isFin && btn("↺ "+t("Επαναφορά σε πρόχειρο","Reopen to draft"), reopen, P.of, true)}
+            </div>
+          </div>
+        );
+      })()}
       <div style={{padding:"clamp(10px,3vw,20px)",maxWidth:1400,margin:"0 auto"}}>
         {tab==="contracts" && <ContractTab data={contracts} set={setContracts} inv={inv} docs={docs} setDocs={setDocs} year={year} client={client} />}
         {tab==="scan" && <Scan session={scanSession} scanApi={scanApi} goTo={setTab} year={year} client={client} onAdd={items => setSub(p => [...p,...items.map(x => { const a=Number(x.amt)||0, v=Number(x.vat)||0; const fp=Number(x.fee_pct)|| (contracts||[]).find(c=>c.status==="Active"&&c.type==="MSA")?.fee_pct || 5.5; const fee=Math.round(a*fp/100*100)/100; return {...x,id:uid(),total:x.total!=null?x.total:Math.round((a+v)*100)/100,fee_pct:fp,cbre_fee:fee,cbre_bill:Math.round((a+fee)*100)/100}; })])} onAddAR={items => setInv(p => [...p,...items.map(x => ({...x,id:uid()}))])} />}
