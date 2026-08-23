@@ -6,7 +6,7 @@
 // (same store as OPEX/CAPEX) — we load the whole blob and save it back, preserving opex/capex.
 import { useState, useEffect, useRef } from "react";
 import { api } from "./api.js";
-import { P, MONTHS, ML, YEARS, uid, fmt, fPct, normalizeClientData, remapFinanceMonths, REV_CATS, COST_CATS } from "./constants.js";
+import { P, MONTHS, ML, YEARS, uid, fmt, fmtShort, fPct, normalizeClientData, remapFinanceMonths, REV_CATS, COST_CATS } from "./constants.js";
 import { groupPnLSeries, nbvAtMonth, monthIdx, openBalanceAt, cashEvents } from "./calc.js";
 import { exportWorkbook } from "./exportXlsx.js";
 
@@ -527,7 +527,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   const kpi = (l, v, c, pct) => (
     <div style={{ background: P.wh, border: "1px solid " + P.bd, borderRadius: 10, padding: "12px 14px" }}>
       <div style={{ fontSize: 11, color: P.tm }}>{l}</div>
-      <div style={{ fontSize: 20, fontWeight: 800, color: c, marginTop: 4 }}>{pct ? fPct(v) : "€" + F(v)}</div>
+      <div style={{ fontSize: 20, fontWeight: 800, color: c, marginTop: 4 }}>{pct ? fPct(v) : "€" + fmtShort(v)}</div>
     </div>
   );
 
@@ -569,8 +569,8 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
             <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 16 }}>
               <div style={{ flex: "1 1 250px", minWidth: 250, background: "linear-gradient(150deg,#014A34 0%,#003F2D 55%,#012A2D 100%)", color: "#EAF6EF", borderRadius: 16, padding: "20px 22px", position: "relative", overflow: "hidden", boxShadow: P.sh }}>
                 <div style={{ fontFamily: "'Space Mono',ui-monospace,monospace", fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "#9FD9C4" }}>{t("Ενοποιημένα Έσοδα · FY", "Consolidated Revenue · FY")} {year}</div>
-                <div style={{ fontSize: 32, fontWeight: 700, margin: "12px 0 3px", letterSpacing: "-.02em", lineHeight: 1 }}>€{F(ytd("rev"))}</div>
-                <div style={{ fontSize: 12, color: "#AEE9CF" }}>EBITDA €{F(ytd("ebitda"))} · {t("περιθώριο", "margin")} {fPct(ytd("rev") ? ytd("ebitda") / ytd("rev") : null)}</div>
+                <div style={{ fontSize: 32, fontWeight: 700, margin: "12px 0 3px", letterSpacing: "-.02em", lineHeight: 1 }}>€{fmtShort(ytd("rev"))}</div>
+                <div style={{ fontSize: 12, color: "#AEE9CF" }}>EBITDA €{fmtShort(ytd("ebitda"))} · {t("περιθώριο", "margin")} {fPct(ytd("rev") ? ytd("ebitda") / ytd("rev") : null)}</div>
                 <svg viewBox="0 0 300 40" preserveAspectRatio="none" style={{ position: "absolute", left: 0, right: 0, bottom: 0, width: "100%", height: 38, opacity: .55 }}><path d="M0 28 Q40 8 80 22 T160 18 T240 24 T300 12 V40 H0 Z" fill="rgba(23,232,143,.18)" /><path d="M0 28 Q40 8 80 22 T160 18 T240 24 T300 12" fill="none" stroke="rgba(23,232,143,.55)" strokeWidth="1.5" /></svg>
               </div>
               <div style={{ flex: "3 1 440px", display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: 12 }}>
@@ -595,7 +595,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
                 const pts = series.map((s, i) => `${cx(i)},${Math.max(top - 6, Math.min(base, eY(s.ebitda)))}`).join(" ");
                 return (
                   <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
-                    <text x={x0} y={top - 2} style={{ fontSize: 11, fill: P.tm }}>€{F(mrev)}</text>
+                    <text x={x0} y={top - 2} style={{ fontSize: 11, fill: P.tm }}>€{fmtShort(mrev)}</text>
                     {[0.25, 0.5, 0.75, 1].map(f => <line key={f} x1={x0} y1={base - f * plot} x2={W - x0} y2={base - f * plot} stroke={P.bd} strokeWidth="1" />)}
                     <line x1={x0} y1={base} x2={W - x0} y2={base} stroke={P.tm} strokeWidth="1" />
                     {series.map((s, i) => { const h = (s.rev / mrev) * plot; return (

@@ -167,6 +167,17 @@ export const fmt = (n, compact) => {
 };
 export const fPct = n => (n == null || isNaN(n) || !isFinite(n)) ? "-" : (n*100).toFixed(1)+"%";
 
+// Short/rounded money for headline KPIs & hero cards: €X.XM for millions, €XXXK for thousands,
+// whole number below 1k. Accounting-style negatives. Detailed tables keep the full `fmt`.
+export const fmtShort = (n) => {
+  if (n == null || isNaN(n)) return "-";
+  const a = Math.abs(n); let s;
+  if (a >= 1e6) s = (a / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  else if (a >= 1e3) s = Math.round(a / 1e3).toLocaleString("en-US") + "K";
+  else s = Math.round(a).toString();
+  return n < 0 ? `(${s})` : s;
+};
+
 // Small badge describing a contract's expiry state (null when no/unparseable date or far out).
 export const expiryBadge = (expiry) => {
   const dd = daysUntil(expiry); if (dd == null) return null;
