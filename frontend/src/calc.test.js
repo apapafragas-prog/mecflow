@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { monthIdx, depreciation, nbvAtMonth, groupPnLSeries, allocFractions, parseDate, daysUntil, clientSeries, linregSlope, runRateFY, clientRisks, agingBucket, detectAnomalies } from "./calc.js";
+import { monthIdx, depreciation, nbvAtMonth, groupPnLSeries, allocFractions, parseDate, daysUntil, clientSeries, linregSlope, runRateFY, clientRisks, agingBucket, detectAnomalies, grossOf, settlementInfo, openBalanceAt, cashEvents } from "./calc.js";
+import { remapFinanceMonths, MONTHS } from "./constants.js";
 
 const FY26 = Array.from({ length: 12 }, (_, i) => `2026-${String(i + 1).padStart(2, "0")}`);
 
@@ -208,5 +209,116 @@ describe("detectAnomalies", () => {
   it("clean data yields no anomalies, and results are severity-ranked", () => {
     const inv = [1000, 1000, 1000].map((amt, i) => ({ month: FY26[i], cat: "R", inv_no: "n" + i, amt }));
     expect(detectAnomalies({ Acme: { inv, sub: [], lab: {} } }, FY26)).toHaveLength(0);
+  });
+});
+
+// ── Regression tests locking in the audit fixes (partial payments, aging, prior-year remap) ──
+
+describe("grossOf", () => {
+  it("prefers stored total, else amt + vat, else amt", () => {
+    expect(grossOf({ total: 130, amt: 100, vat: 24 })).toBe(130);
+    expect(grossOf({ amt: 100, vat: 24 })).toBe(124);
+    expect(grossOf({ amt: 100 })).toBe(100);
+    expect(grossOf({})).toBe(0);
+  });
+});
+
+describe("settlementInfo (AP/AR ledger)", () => {
+  it("open with no payments → full balance", () => {
+    const s = settlementInfo({ amt: 1000, vat: 0 });
+    expect(s.balance).toBe(1000); expect(s.closed).toBe(false); expect(s.partial).toBe(false);
+  });
+  it("partial payment reduces the balance and flags partial", () => {
+    const s = settlementInfo({ total: 1000, payments: [{ amount: 300, date: "2026-02" }] });
+    expect(s.settled).toBe(300); expect(s.balance).toBe(700);
+    expect(s.partial).toBe(true); expect(s.closed).toBe(false);
+  });
+  it("paid flag WITH a date → fully closed", () => {
+    const s = settlementInfo({ total: 1000, paid: "paid", paid_date: "2026-03-15" });
+    expect(s.balance).toBe(0); expect(s.closed).toBe(true);
+  });
+  it("paid flag WITHOUT a date → stays open (matches the balance sheet)", () => {
+    const s = settlementInfo({ total: 1000, paid: "paid" });
+    expect(s.balance).toBe(1000); expect(s.closed).toBe(false);
+  });
+  it("payments covering the full amount close it", () => {
+    const s = settlementInfo({ total: 1000, payments: [{ amount: 600 }, { amount: 400 }] });
+    expect(s.balance).toBe(0); expect(s.closed).toBe(true);
+  });
+});
+
+describe("openBalanceAt (balance sheet)", () => {
+  const inv = { month: "2026-01", total: 1000 };
+  it("is 0 before the invoice is issued", () => {
+    expect(openBalanceAt(inv, "2025-12")).toBe(0);
+  });
+  it("carries full gross while open", () => {
+    expect(openBalanceAt(inv, "2026-06")).toBe(1000);
+  });
+  it("a partial payment reduces it only from its own month onward", () => {
+    const r = { month: "2026-01", total: 1000, payments: [{ amount: 400, date: "2026-03" }] };
+    expect(openBalanceAt(r, "2026-02")).toBe(1000);
+    expect(openBalanceAt(r, "2026-03")).toBe(600);
+  });
+  it("a paid flag with a date closes it from that month", () => {
+    const r = { month: "2026-01", total: 1000, paid: "paid", paid_date: "2026-04-10" };
+    expect(openBalanceAt(r, "2026-03")).toBe(1000);
+    expect(openBalanceAt(r, "2026-04")).toBe(0);
+  });
+  it("paid WITHOUT a date stays open (legacy guard)", () => {
+    const r = { month: "2026-01", total: 1000, paid: "paid" };
+    expect(openBalanceAt(r, "2026-12")).toBe(1000);
+  });
+});
+
+describe("cashEvents (cash-flow forecast)", () => {
+  const M = Array.from({ length: 12 }, (_, i) => `2026-${String(i + 1).padStart(2, "0")}`);
+  const sum = (evs) => evs.reduce((s, [, a]) => s + a, 0);
+  it("open invoice settles at issue month + terms lag", () => {
+    const evs = cashEvents({ month: "2026-01", total: 1000 }, M, 1);
+    expect(evs).toEqual([["2026-02", 1000]]);
+  });
+  it("splits a partial payment into its own month + the residual at terms", () => {
+    const evs = cashEvents({ month: "2026-01", total: 1000, payments: [{ amount: 300, date: "2026-01" }] }, M, 1);
+    expect(evs).toContainEqual(["2026-01", 300]);
+    expect(evs).toContainEqual(["2026-02", 700]);
+    expect(sum(evs)).toBe(1000);
+  });
+  it("a fully paid invoice lands its cash in the paid_date month", () => {
+    const evs = cashEvents({ month: "2026-01", total: 1000, paid: "paid", paid_date: "2026-05-20" }, M, 2);
+    expect(evs).toEqual([["2026-05", 1000]]);
+  });
+  it("an out-of-year payment reduces the residual but adds no in-year movement", () => {
+    const evs = cashEvents({ month: "2026-02", total: 1000, payments: [{ amount: 400, date: "2025-12" }] }, M, 1);
+    expect(evs).toEqual([["2026-03", 600]]);   // only the residual, in-year
+  });
+  it("clamps a settlement past December to the last month", () => {
+    const evs = cashEvents({ month: "2026-12", total: 500 }, M, 3);
+    expect(evs).toEqual([["2026-12", 500]]);
+  });
+});
+
+describe("remapFinanceMonths (board prior-year YoY)", () => {
+  it("remaps opex/pnl/capex month keys onto the active FY, preserving sums", () => {
+    const prior = {
+      opex: { cats: [{ id: "c1" }], actual: { c1: { "2025-03": 100, "2025-07": 50 } }, budget: { c1: { "2025-03": 120 } } },
+      pnl: { interest: { "2025-06": 40 }, tax: { "2025-06": 10 } },
+      capex: [{ month: "2025-09", amount: 1000, life: 36 }],
+    };
+    const out = remapFinanceMonths(prior);
+    // month numbers preserved, year shifted onto the active FY (default 2026)
+    expect(out.opex.actual.c1[MONTHS[2]]).toBe(100);   // March
+    expect(out.opex.actual.c1[MONTHS[6]]).toBe(50);    // July
+    expect(out.opex.budget.c1[MONTHS[2]]).toBe(120);
+    expect(out.pnl.interest[MONTHS[5]]).toBe(40);      // June
+    expect(out.pnl.tax[MONTHS[5]]).toBe(10);
+    expect(out.capex[0].month).toBe(MONTHS[8]);        // September
+    // total is unchanged (lossless for YTD sums)
+    const tot = Object.values(out.opex.actual.c1).reduce((s, v) => s + v, 0);
+    expect(tot).toBe(150);
+  });
+  it("handles an empty/missing blob", () => {
+    expect(remapFinanceMonths(null)).toEqual({});
+    expect(remapFinanceMonths({})).toEqual({});
   });
 });

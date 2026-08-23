@@ -5,7 +5,7 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "./api.js";
 import { P, MONTHS, ML, YEARS, uid, fmt, fPct, DEFAULT_OPEX_CATS, CAPEX_CATS, CAPEX_STATUS, normalizeClientData, REV_CATS, COST_CATS } from "./constants.js";
-import { agingBucket, AGING_BUCKETS, depreciation, daysUntil, parseDate, runRateFY, clientRisks, detectAnomalies } from "./calc.js";
+import { agingBucket, AGING_BUCKETS, depreciation, daysUntil, parseDate, runRateFY, clientRisks, detectAnomalies, settlementInfo } from "./calc.js";
 import { exportWorkbook } from "./exportXlsx.js";
 
 // Previous fiscal-year label ("FY26" → "FY25"), or null if it falls before the first tracked year.
@@ -338,20 +338,9 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
   useEffect(()=>{ load(); /* eslint-disable-next-line */ },[year]);
 
   const amt = r => Number(r.total) || (Number(r.amt)||0)+(Number(r.vat)||0) || Number(r.amt) || 0;
-  // Settlement model: a row is "closed" when the paid flag is set (full settle); until then any recorded
-  // partial payments accumulate and the open exposure is the remaining balance.
-  const settleInfo = r => {
-    const total = amt(r);
-    const paidFlag = r.paid==="paid" || r.paid===true;
-    const hasPaidDate = !!(r.paid_date && String(r.paid_date).trim());
-    const pays = Array.isArray(r.payments) ? r.payments : [];
-    const paySum = pays.reduce((s,p)=>s+(Number(p.amount)||0),0);
-    // Fully closed only when the paid flag carries a settlement date (matching the balance sheet, which
-    // keeps paid-without-date rows open) OR recorded payments cover the full amount. This keeps the ledger
-    // and the balance sheet in agreement on legacy/imported "paid" rows that lack a date.
-    const settled = (paidFlag && hasPaidDate) ? total : Math.min(paySum, total);
-    return { total, settled, balance: Math.max(0, total-settled), paidFlag, paySum };
-  };
+  // Settlement model (pure, shared with the balance sheet — see calc.settlementInfo): fully closed only
+  // when the paid flag carries a settlement date OR partial payments cover the amount; else open balance.
+  const settleInfo = settlementInfo;
   // Build ledger entries for the current view across all clients.
   const entries = [];
   Object.entries(data||{}).forEach(([client,cd])=>{

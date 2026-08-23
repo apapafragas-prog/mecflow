@@ -6,42 +6,15 @@
 // (same store as OPEX/CAPEX) — we load the whole blob and save it back, preserving opex/capex.
 import { useState, useEffect, useRef } from "react";
 import { api } from "./api.js";
-import { P, MONTHS, ML, YEARS, uid, fmt, fPct, normalizeClientData, remapMonth, REV_CATS, COST_CATS } from "./constants.js";
-import { groupPnLSeries, nbvAtMonth, monthIdx } from "./calc.js";
+import { P, MONTHS, ML, YEARS, uid, fmt, fPct, normalizeClientData, remapFinanceMonths, REV_CATS, COST_CATS } from "./constants.js";
+import { groupPnLSeries, nbvAtMonth, monthIdx, openBalanceAt, cashEvents } from "./calc.js";
 import { exportWorkbook } from "./exportXlsx.js";
 
 const normYear = (d) => Object.fromEntries(Object.entries(d || {}).map(([c, cd]) => [c, normalizeClientData(cd)]));
-// Remap a finance blob's month-keyed fields (opex actual/budget, pnl interest/tax, capex start month)
-// onto the ACTIVE fiscal year — lossless for YTD sums — so a prior-year blob lines up with MONTHS when
-// computing the board's YoY comparatives. Mirrors normalizeClientData's month healing for client data.
-const remapFinMonths = (d) => {
-  if (!d || typeof d !== "object") return {};
-  const remapCatMap = (obj) => {
-    if (!obj || typeof obj !== "object") return obj;
-    const out = {};
-    for (const [cat, byM] of Object.entries(obj)) {
-      if (byM && typeof byM === "object") { out[cat] = {}; for (const [m, v] of Object.entries(byM)) { const tk = remapMonth(m); out[cat][tk] = (out[cat][tk] || 0) + (Number(v) || 0); } }
-      else out[cat] = byM;
-    }
-    return out;
-  };
-  const remapFlat = (obj) => {
-    if (!obj || typeof obj !== "object") return obj;
-    const out = {}; for (const [m, v] of Object.entries(obj)) { const tk = remapMonth(m); out[tk] = (out[tk] || 0) + (Number(v) || 0); } return out;
-  };
-  const out = { ...d };
-  if (out.opex) out.opex = { ...out.opex, actual: remapCatMap(out.opex.actual), budget: remapCatMap(out.opex.budget) };
-  if (out.pnl) out.pnl = { ...out.pnl, interest: remapFlat(out.pnl.interest), tax: remapFlat(out.pnl.tax) };
-  if (Array.isArray(out.capex)) out.capex = out.capex.map(it => (it && typeof it === "object" ? { ...it, month: remapMonth(it.month) } : it));
-  return out;
-};
 import { Skeleton, AppHeader } from "./ui.jsx";
 import { useT, monthLabel } from "./i18n.jsx";
 
 const grossAmt = r => Number(r.total) || ((Number(r.amt) || 0) + (Number(r.vat) || 0)) || Number(r.amt) || 0;
-const isPaid = r => r.paid === "paid" || r.paid === true;
-// Recorded partial payments (gross, dated) on an AR/AP row; legacy rows have none.
-const rowPayments = r => Array.isArray(r.payments) ? r.payments : [];
 
 const mkDefaultBS = () => ({
   accounts: [
@@ -113,7 +86,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
         if (cancelled) return;
         // groupPnLSeries filters by the ACTIVE FY's month keys, so prior-year data must be remapped onto
         // those keys first (lossless for the YTD totals the board uses) — otherwise every Prior line is 0.
-        setPrev({ series: groupPnLSeries(normYear(pcd || {}), remapFinMonths((pfr && pfr.data) || {}), MONTHS) });
+        setPrev({ series: groupPnLSeries(normYear(pcd || {}), remapFinanceMonths((pfr && pfr.data) || {}), MONTHS) });
       })();
     }
     return () => { cancelled = true; };
@@ -225,34 +198,11 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   // cash-out in their booked month. Running balance = opening cash + cumulative net.
   const cashFlowSeries = () => {
     const termsM = Math.max(0, Math.round((Number(cashTerms) || 0) / 30));
-    // Expected settlement month, clamped INTO the fiscal year: an invoice whose due month falls past
-    // December lands its cash in the last month rather than silently vanishing from the forecast.
-    const shift = (m, n) => { const i = MONTHS.indexOf(m); return i < 0 ? null : MONTHS[Math.min(i + n, MONTHS.length - 1)]; };
-    const paidMonthOf = (i) => { const pm = i.paid_date ? String(i.paid_date).slice(0, 7) : null; return (pm && MONTHS.includes(pm)) ? pm : null; };
-    // Split an invoice's gross into dated cash movements: each recorded partial payment lands in ITS OWN
-    // month; whatever is still outstanding settles at the closure month (paid) or the terms-based expected
-    // month (open). Out-of-year payments still reduce the residual but produce no in-year movement.
-    const cashEvents = (i) => {
-      const gross = grossAmt(i), events = [];
-      let allocated = 0;
-      rowPayments(i).forEach(p => {
-        const amt = Number(p.amount) || 0; if (amt <= 0) return;
-        allocated += amt;
-        const pm = p.date ? String(p.date).slice(0, 7) : null;
-        if (pm && MONTHS.includes(pm)) events.push([pm, amt]);
-      });
-      const residual = gross - allocated;
-      if (Math.abs(residual) > 0.005) {
-        const rm = isPaid(i) ? (paidMonthOf(i) || shift(i.month, termsM)) : shift(i.month, termsM);
-        if (rm) events.push([rm, residual]);
-      }
-      return events;
-    };
     const z = () => { const o = {}; MONTHS.forEach(m => o[m] = 0); return o; };
     const collIn = z(), payOut = z(), lab = z(), opx = z(), cpx = z(), intr = z(), tax = z();
     Object.values(allData || {}).forEach(cd => {
-      (cd?.inv || []).forEach(i => { if (!isActual(i)) return; cashEvents(i).forEach(([m, a]) => { collIn[m] += a; }); });
-      (cd?.sub || []).forEach(i => { if (!isActual(i)) return; cashEvents(i).forEach(([m, a]) => { payOut[m] += a; }); });
+      (cd?.inv || []).forEach(i => { if (!isActual(i)) return; cashEvents(i, MONTHS, termsM).forEach(([m, a]) => { collIn[m] += a; }); });
+      (cd?.sub || []).forEach(i => { if (!isActual(i)) return; cashEvents(i, MONTHS, termsM).forEach(([m, a]) => { payOut[m] += a; }); });
       MONTHS.forEach(m => { if (cd?.lab?.[m]) lab[m] += Object.values(cd.lab[m]).reduce((s, v) => s + (Number(v) || 0), 0); });
     });
     const cats = fin?.opex?.cats || [], act = fin?.opex?.actual || {};
@@ -295,24 +245,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   // Derive VAT from the SAME gross used for AR/AP (gross − net) so the balance identity
   // AR(gross) = equity(net) + VAT holds even when a stored row has total ≠ amt + vat.
   const vatOf = i => grossAmt(i) - (Number(i.amt) || 0);
-  // Outstanding gross balance at the END of month `m`: issued on/before m, less any settlement up to m.
-  // Recorded partial payments dated on/before m reduce it; a full `paid` flag with a date on/before m
-  // closes it entirely. Paid but WITHOUT a usable date (legacy/imported/bulk-set rows) → kept fully OPEN
-  // rather than silently dropped: its net still sits in equity via cumNet, so removing the matching AR/AP
-  // asset would leave the balance sheet off by net+VAT with no visible cause. It surfaces in the aging
-  // ledger as outstanding, prompting the user to stamp the real settlement date.
-  const openBalanceAt = (i, m) => {
-    const mi = monthIdx(m), ii = monthIdx(i.month);
-    if (ii == null || mi == null || ii > mi) return 0;   // not issued yet
-    const gross = grossAmt(i);
-    if (isPaid(i)) {
-      const pm = i.paid_date ? monthIdx(String(i.paid_date).slice(0, 7)) : null;
-      if (pm != null && pm <= mi) return 0;              // fully settled by m
-    }
-    let paidByM = 0;
-    rowPayments(i).forEach(p => { const pmi = p.date ? monthIdx(String(p.date).slice(0, 7)) : null; if (pmi != null && pmi <= mi) paidByM += Number(p.amount) || 0; });
-    return Math.max(0, gross - paidByM);
-  };
+  // openBalanceAt(row, monthKey): outstanding gross at month-end (imported from calc.js — see there).
   // Issued on/before month `m` (regardless of payment). VAT liability accrues on ISSUANCE and stays
   // owed to the state until remitted — it must NOT vanish when the invoice is collected/paid.
   const issuedBy = (i, m) => { const mi = monthIdx(m), ii = monthIdx(i.month); return ii != null && mi != null && ii <= mi; };

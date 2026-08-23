@@ -114,6 +114,31 @@ export const normalizeClientData = (c) => {
   }
   return out;
 };
+
+// Remap a finance blob's month-keyed fields (opex actual/budget, pnl interest/tax, capex start month)
+// onto the ACTIVE fiscal year — lossless for YTD sums — so a prior-year blob lines up with the active
+// MONTHS when computing the board's YoY comparatives. Mirrors normalizeClientData's month healing.
+export const remapFinanceMonths = (d) => {
+  if (!d || typeof d !== "object") return {};
+  const remapCatMap = (obj) => {
+    if (!obj || typeof obj !== "object") return obj;
+    const out = {};
+    for (const [cat, byM] of Object.entries(obj)) {
+      if (byM && typeof byM === "object") { out[cat] = {}; for (const [m, v] of Object.entries(byM)) { const tk = remapMonth(m); out[cat][tk] = (out[cat][tk] || 0) + (Number(v) || 0); } }
+      else out[cat] = byM;
+    }
+    return out;
+  };
+  const remapFlat = (obj) => {
+    if (!obj || typeof obj !== "object") return obj;
+    const out = {}; for (const [m, v] of Object.entries(obj)) { const tk = remapMonth(m); out[tk] = (out[tk] || 0) + (Number(v) || 0); } return out;
+  };
+  const out = { ...d };
+  if (out.opex) out.opex = { ...out.opex, actual: remapCatMap(out.opex.actual), budget: remapCatMap(out.opex.budget) };
+  if (out.pnl) out.pnl = { ...out.pnl, interest: remapFlat(out.pnl.interest), tax: remapFlat(out.pnl.tax) };
+  if (Array.isArray(out.capex)) out.capex = out.capex.map(it => (it && typeof it === "object" ? { ...it, month: remapMonth(it.month) } : it));
+  return out;
+};
 export const SITES = ["Site 1","Site 2","Site 3","Site 4","Site 5"];
 export const REV_CATS = ["CLIENT REVENUE - FM Core","CLIENT REVENUE - FM Extra Works","CLIENT REVENUE - PJMs"];
 export const COST_CATS = ["Subcontractors cost - FM Core","Subcontractors cost - FM Extra Works","Subcontractors cost - PJMs"];

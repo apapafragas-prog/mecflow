@@ -7,6 +7,59 @@ export const monthIdx = (ym) => {
   return m ? (+m[1]) * 12 + (+m[2] - 1) : null;
 };
 
+// Gross (VAT-inclusive) amount of an invoice/sub row: prefer a stored total, else amt + vat.
+export const grossOf = (r) => Number(r.total) || ((Number(r.amt) || 0) + (Number(r.vat) || 0)) || Number(r.amt) || 0;
+
+// AP/AR settlement state of a single document. A row is fully closed only when the paid flag carries a
+// settlement date (matching the balance sheet, which keeps paid-without-date rows open) OR recorded
+// partial payments cover the full amount; otherwise the open exposure is the remaining balance.
+export const settlementInfo = (r) => {
+  const total = grossOf(r);
+  const paidFlag = r.paid === "paid" || r.paid === true;
+  const hasPaidDate = !!(r.paid_date && String(r.paid_date).trim());
+  const pays = Array.isArray(r.payments) ? r.payments : [];
+  const paySum = pays.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const settled = (paidFlag && hasPaidDate) ? total : Math.min(paySum, total);
+  const balance = Math.max(0, total - settled);
+  return { total, settled, balance, paidFlag, paySum, closed: balance <= 0.005, partial: settled > 0.005 && balance > 0.005 };
+};
+
+// Outstanding gross balance of a row at the END of month `monthKey` ("YYYY-MM"): 0 if not yet issued or
+// fully settled by then; recorded partial payments dated on/before the month reduce it; a paid flag with
+// a date on/before the month closes it. Paid-without-date rows stay fully open (legacy/imported guard).
+export const openBalanceAt = (r, monthKey) => {
+  const mi = monthIdx(monthKey), ii = monthIdx(r.month);
+  if (ii == null || mi == null || ii > mi) return 0;
+  const gross = grossOf(r);
+  if (r.paid === "paid" || r.paid === true) {
+    const pm = r.paid_date ? monthIdx(String(r.paid_date).slice(0, 7)) : null;
+    if (pm != null && pm <= mi) return 0;
+  }
+  let paidByM = 0;
+  (Array.isArray(r.payments) ? r.payments : []).forEach(p => { const pmi = p.date ? monthIdx(String(p.date).slice(0, 7)) : null; if (pmi != null && pmi <= mi) paidByM += Number(p.amount) || 0; });
+  return Math.max(0, gross - paidByM);
+};
+
+// Split a document's gross into dated cash movements within `months` (the active FY): each recorded
+// partial payment lands in its own in-year month; whatever is still outstanding settles at the closure
+// month (paid) or the terms-based expected month (open). Out-of-year payments reduce the residual but
+// produce no in-year movement. Returns an array of [monthKey, amount].
+export const cashEvents = (r, months, termsMonths) => {
+  const gross = grossOf(r), events = [];
+  const idx = months.indexOf(r.month);
+  const shift = (n) => idx < 0 ? null : months[Math.min(idx + n, months.length - 1)];
+  const inYear = (d) => { const pm = d ? String(d).slice(0, 7) : null; return (pm && months.includes(pm)) ? pm : null; };
+  let allocated = 0;
+  (Array.isArray(r.payments) ? r.payments : []).forEach(p => { const a = Number(p.amount) || 0; if (a <= 0) return; allocated += a; const pm = inYear(p.date); if (pm) events.push([pm, a]); });
+  const residual = gross - allocated;
+  if (Math.abs(residual) > 0.005) {
+    const paid = r.paid === "paid" || r.paid === true;
+    const rm = paid ? (inYear(r.paid_date) || shift(termsMonths)) : shift(termsMonths);
+    if (rm) events.push([rm, residual]);
+  }
+  return events;
+};
+
 // Straight-line depreciation of a capex item as of the end of the given fiscal-year months.
 export const depreciation = (item, fyMonths) => {
   const amt = Number(item.amount) || 0, life = Number(item.life) || 0;
