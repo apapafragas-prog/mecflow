@@ -72,8 +72,9 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
     return acc;
   },{rev:0,cost:0,lab:0}) : null;
   const prevGM = prevTot ? prevTot.rev-prevTot.cost-prevTot.lab : null;
-  // % change vs prior year; null when there's no comparable base (no prev data or prev was 0).
-  const yoy = (cur,prev)=> (prev==null||!isFinite(prev)||prev===0) ? null : (cur-prev)/Math.abs(prev);
+  // % change vs prior year. Null when there's no comparable base: no prev data, prev is 0, OR prev is
+  // negligible vs the current value (< 5%) — otherwise a near-empty prior year produces absurd % (e.g. 2592%).
+  const yoy = (cur,prev)=> (prev==null||!isFinite(prev)||prev===0||Math.abs(prev) < Math.abs(cur)*0.05) ? null : (cur-prev)/Math.abs(prev);
 
   const exportDashboard = () => {
     const clientsAoa = [["#","Client","Revenue","Cost","Labour","GM","GM %","Invoices","Subs","Status"],
@@ -111,7 +112,7 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
   // Small YoY badge — green ▲ when the metric improved vs prior FY, red ▼ when it worsened.
   const yoyBadge = (d)=> d==null ? null : (
     <span style={{fontSize:11,fontWeight:700,color:d>=0?P.gn:P.rd,marginLeft:6}} title={t("έναντι προηγ. έτους","vs prior year")}>
-      {d>=0?"▲":"▼"} {Math.abs(d*100).toFixed(0)}%
+      {d>=0?"▲":"▼"} {Math.abs(d*100)>999?"999+%":Math.abs(d*100).toFixed(0)+"%"}
     </span>
   );
   const kpi = (l,v,c,pct,delta)=>(
@@ -139,7 +140,7 @@ export function Dashboard({year,setYear,user,onBack,onLogout,onSelectClient}) {
           <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:20}}>
             <div style={{flex:"1 1 250px",minWidth:250,background:"linear-gradient(150deg,#014A34 0%,#003F2D 55%,#012A2D 100%)",color:"#EAF6EF",borderRadius:16,padding:"20px 22px",position:"relative",overflow:"hidden",boxShadow:P.sh}}>
               <div style={{fontFamily:"'Space Mono',ui-monospace,monospace",fontSize:9.5,letterSpacing:".12em",textTransform:"uppercase",color:"#9FD9C4"}}>{t("Ενοποιημένα Έσοδα · FY","Consolidated Revenue · FY")} {year}</div>
-              <div style={{fontSize:32,fontWeight:700,margin:"12px 0 3px",letterSpacing:"-.02em",lineHeight:1}}>€{fmtShort(totRev)}{prevTot&&yoy(totRev,prevTot.rev)!=null&&<span style={{fontSize:13,fontWeight:700,marginLeft:8,color:yoy(totRev,prevTot.rev)>=0?"#7EE8B4":"#F3A6A5"}}>{yoy(totRev,prevTot.rev)>=0?"▲":"▼"} {Math.abs(yoy(totRev,prevTot.rev)*100).toFixed(0)}%</span>}</div>
+              <div style={{fontSize:32,fontWeight:700,margin:"12px 0 3px",letterSpacing:"-.02em",lineHeight:1}}>€{fmtShort(totRev)}{prevTot&&yoy(totRev,prevTot.rev)!=null&&(()=>{const d=yoy(totRev,prevTot.rev);return <span style={{fontSize:13,fontWeight:700,marginLeft:8,color:d>=0?"#7EE8B4":"#F3A6A5"}}>{d>=0?"▲":"▼"} {Math.abs(d*100)>999?"999+%":Math.abs(d*100).toFixed(0)+"%"}</span>;})()}</div>
               <div style={{fontSize:12,color:"#AEE9CF"}}>{active.length}/{rows.length} {t("ενεργοί πελάτες","active clients")} · {t("Μικτό","GM")} {fPct(totRev?totGM/totRev:null)}</div>
               <svg viewBox="0 0 300 40" preserveAspectRatio="none" style={{position:"absolute",left:0,right:0,bottom:0,width:"100%",height:38,opacity:.55}}><path d="M0 28 Q40 8 80 22 T160 18 T240 24 T300 12 V40 H0 Z" fill="rgba(23,232,143,.18)"/><path d="M0 28 Q40 8 80 22 T160 18 T240 24 T300 12" fill="none" stroke="rgba(23,232,143,.55)" strokeWidth="1.5"/></svg>
             </div>

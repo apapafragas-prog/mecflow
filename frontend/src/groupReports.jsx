@@ -416,7 +416,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
     const num = (r, v) => v == null ? "—" : r.pct ? fPct(v) : fmt(v);
     const varE = r => (r.actual != null && r.budget != null) ? r.actual - r.budget : null;
     const varP = r => (varE(r) != null && r.budget) ? varE(r) / Math.abs(r.budget) : null;
-    const yoy = r => (r.actual != null && r.prior) ? (r.actual - r.prior) / Math.abs(r.prior) : null;
+    const yoy = r => (r.actual != null && r.prior && Math.abs(r.prior) >= Math.abs(r.actual) * 0.05) ? (r.actual - r.prior) / Math.abs(r.prior) : null;
     const th = "padding:7px 10px;font-size:11px;font-weight:700;color:#fff;background:#003F2D;white-space:nowrap;text-align:right";
     const head = `<tr><th style="${th};text-align:left">${escp(t("Γραμμή", "Line"))}</th><th style="${th}">${escp(t("Πραγμ. YTD", "Actual YTD"))}</th><th style="${th}">Budget</th><th style="${th}">${escp(t("Διαφ.", "Var"))}</th><th style="${th}">Var %</th><th style="${th}">${escp(t("Πέρσι", "Prior"))}</th><th style="${th}">YoY %</th></tr>`;
     const body = rows.map(r => {
@@ -454,7 +454,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
     const num = (r, v) => v == null ? "—" : r.pct ? fPct(v) : fmt(v);
     const vE = r => (r.actual != null && r.budget != null) ? r.actual - r.budget : null;
     const vP = r => (vE(r) != null && r.budget) ? vE(r) / Math.abs(r.budget) : null;
-    const yy = r => (r.actual != null && r.prior) ? (r.actual - r.prior) / Math.abs(r.prior) : null;
+    const yy = r => (r.actual != null && r.prior && Math.abs(r.prior) >= Math.abs(r.actual) * 0.05) ? (r.actual - r.prior) / Math.abs(r.prior) : null;
     const pnlHead = `<tr><th style="${th};text-align:left">${escp(t("Γραμμή", "Line"))}</th><th style="${th}">${escp(t("Πραγμ. YTD", "Actual YTD"))}</th><th style="${th}">Budget</th><th style="${th}">${escp(t("Διαφ.", "Var"))}</th><th style="${th}">Var %</th><th style="${th}">${escp(t("Πέρσι", "Prior"))}</th><th style="${th}">YoY %</th></tr>`;
     const pnlBody = rows.map(r => { const e = vE(r), p = vP(r), y = yy(r); const b = r.b ? ";font-weight:700;background:#E8F5E9" : ""; return `<tr><td style="${td};text-align:left${b}">${escp(r.l)}</td><td style="${td}${b}">${escp(num(r, r.actual))}</td><td style="${td}${b}">${escp(num(r, r.budget))}</td><td style="${td}${b}">${e == null ? "—" : escp(r.pct ? fPct(e) : fmt(e))}</td><td style="${td}${b}">${p == null ? "—" : escp(fPct(p))}</td><td style="${td}${b}">${escp(num(r, r.prior))}</td><td style="${td}${b}">${y == null ? "—" : escp(fPct(y))}</td></tr>`; }).join("");
 
@@ -666,7 +666,7 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
               const rows = boardData();
               const varE = r => (r.actual != null && r.budget != null) ? r.actual - r.budget : null;
               const varP = r => { const v = varE(r); return (v != null && r.budget) ? v / Math.abs(r.budget) : null; };
-              const yoy = r => (r.actual != null && r.prior) ? (r.actual - r.prior) / Math.abs(r.prior) : null;
+              const yoy = r => (r.actual != null && r.prior && Math.abs(r.prior) >= Math.abs(r.actual) * 0.05) ? (r.actual - r.prior) / Math.abs(r.prior) : null;
               // Favourability: for cost rows an over-run (actual > budget) is bad; for revenue/margin it's good.
               const favColor = (r, delta) => delta == null ? P.tx : ((r.cost ? -delta : delta) >= 0 ? P.gn : P.rd);
               const cell = (r, v) => v == null ? "—" : r.pct ? fPct(v) : F(v);
