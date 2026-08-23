@@ -73,6 +73,8 @@ chk "stale baseVersion (conflict)"  409 "$(code -X PUT "$B/api/data/2026/$C" -H 
 
 echo "── IDOR + param validation ──"
 chk "ops save foreign client"       403 "$(code -X PUT "$B/api/data/2026/Google" -H "$AH_OPS" -H "$CT" -d '{"data":{},"baseVersion":0}')"
+chk "ops reads own report history"  200 "$(code "$B/api/audit/report/2026/$C" -H "$AH_OPS")"
+chk "ops reads foreign history"     403 "$(code "$B/api/audit/report/2026/Google" -H "$AH_OPS")"
 chk "overlong client name"          400 "$(code -X PUT "$B/api/data/2026/$(printf 'x%.0s' {1..90})" -H "$AH_FIN" -H "$CT" -d '{"data":{},"baseVersion":0}')"
 
 echo "── finance blob ──"

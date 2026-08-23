@@ -83,6 +83,8 @@ export default function App() {
   const [overTab,setOverTab] = useState(null);
   const [menuOpen,setMenuOpen] = useState(false);
   const [lockOpen,setLockOpen] = useState(false);
+  const [histOpen,setHistOpen] = useState(false);    // report approval-history modal
+  const [hist,setHist] = useState(null);             // [{user,action,timestamp}] | null=loading
   const [reconcile,setReconcile] = useState(null);   // { parsed } — open Import & Reconcile modal
   const [reconciling,setReconciling] = useState(false);
   const [dupOpen,setDupOpen] = useState(false);      // duplicate-check modal
@@ -572,6 +574,7 @@ export default function App() {
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8,fontSize:13,position:"relative"}}>
           <button onClick={()=>window.dispatchEvent(new Event("mf-open-search"))} title={t("Αναζήτηση (⌘K)","Search (⌘K)")} style={{background:P.of,border:"1px solid "+P.bd,color:P.tx,padding:"7px 12px",borderRadius:10,cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>🔎 <span style={{fontFamily:"'Space Mono',monospace",fontSize:9.5,color:P.tm,border:"1px solid "+P.bd,borderRadius:5,padding:"1px 5px"}}>⌘K</span></button>
+          <button onClick={()=>{ setHistOpen(true); setHist(null); api.reportHistory(year,client).then(setHist).catch(()=>setHist([])); }} title={t("Ιστορικό εγκρίσεων","Approval history")} style={{background:P.of,border:"1px solid "+P.bd,color:P.tx,padding:"7px 12px",borderRadius:10,cursor:"pointer",fontSize:12,fontWeight:600}}>🕓 {t("Ιστορικό","History")}</button>
           {/* Period lock (finance/admin): close a month so its invoices/sub become read-only for everyone */}
           {canLock && (
             <div style={{position:"relative"}}>
@@ -695,6 +698,41 @@ export default function App() {
       {dupOpen && (
         <DuplicateModal inv={inv} sub={sub} setInv={setInv} setSub={setSub} year={year} client={client} onClose={()=>setDupOpen(false)} />
       )}
+      {histOpen && (()=>{
+        const META = {
+          report_submitted: { icon:"📤", el:"Υποβλήθηκε προς έγκριση", en:"Submitted for approval", c:"#B07A17", bg:"#FFF8E1" },
+          report_approved:  { icon:"✓",  el:"Εγκρίθηκε από Finance",   en:"Approved by Finance",     c:P.gn,     bg:"#E8F5E9" },
+          report_rejected:  { icon:"↩",  el:"Απορρίφθηκε — διόρθωση",  en:"Rejected — revise",       c:P.rd,     bg:"#FDECEA" },
+        };
+        const fmtTs = (ts) => { try { return new Date((Number(ts)||0)*1000).toLocaleString(); } catch { return String(ts); } };
+        return (
+        <div onClick={()=>setHistOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:P.wh,borderRadius:14,width:"100%",maxWidth:520,maxHeight:"80vh",display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,0,0,.3)"}}>
+            <div style={{padding:"16px 20px",borderBottom:"1px solid "+P.bd,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div><div style={{fontSize:15,fontWeight:700,color:P.em}}>🕓 {t("Ιστορικό εγκρίσεων","Approval history")}</div><div style={{fontSize:12,color:P.tm,marginTop:2}}>{client} · {year}</div></div>
+              <button onClick={()=>setHistOpen(false)} style={{background:P.of,border:"1px solid "+P.bd,borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:13}}>✕</button>
+            </div>
+            <div style={{padding:"14px 20px",overflowY:"auto"}}>
+              {hist==null && <div style={{color:P.tm,fontSize:13,textAlign:"center",padding:"20px 0"}}>{t("Φόρτωση…","Loading…")}</div>}
+              {hist!=null && hist.length===0 && <div style={{color:P.tm,fontSize:13,textAlign:"center",padding:"20px 0",fontStyle:"italic"}}>{t("Καμία υποβολή/έγκριση ακόμη για αυτόν τον πελάτη/έτος.","No submissions/approvals yet for this client/year.")}</div>}
+              {hist!=null && hist.length>0 && (
+                <div style={{display:"flex",flexDirection:"column",gap:0}}>
+                  {hist.map((h,i)=>{ const m=META[h.action]||{icon:"•",el:h.action,en:h.action,c:P.tm,bg:P.al}; return (
+                    <div key={i} style={{display:"flex",gap:12,alignItems:"flex-start",padding:"10px 0",borderBottom:i<hist.length-1?"1px solid "+P.al:"none"}}>
+                      <span style={{width:28,height:28,borderRadius:8,background:m.bg,color:m.c,display:"grid",placeItems:"center",fontSize:14,flex:"none"}}>{m.icon}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,fontWeight:600,color:m.c}}>{t(m.el,m.en)}</div>
+                        <div style={{fontSize:11.5,color:P.tm,marginTop:1}}>{h.user} · {fmtTs(h.timestamp)}</div>
+                      </div>
+                    </div>
+                  ); })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        );
+      })()}
     </div>
   );
 }

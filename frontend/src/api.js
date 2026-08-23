@@ -119,6 +119,7 @@ export const api = {
 
   // Audit
   audit: () => req("/audit"),
+  reportHistory: (year, client) => req(`/audit/report/${year}/${encodeURIComponent(client)}`),
 
   // Full DB backup (admin) — returns a Blob to download
   backupDb: async () => {

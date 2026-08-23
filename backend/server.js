@@ -632,6 +632,16 @@ app.get("/api/audit", auth, requireRole("admin"), (req, res) => {
   res.json(logs);
 });
 
+// ── Report approval history for one client/year (submitted/approved/rejected) — anyone who can access
+// the client (ops sees their own client's trail; finance/admin see all). Read-only slice of the audit log.
+app.get("/api/audit/report/:year/:client", auth, (req, res) => {
+  const { year, client } = req.params;
+  if (badParam(year) || badParam(client)) return res.status(400).json({ error: "Invalid year/client" });
+  if (!canAccess(req.user, client)) return res.status(403).json({ error: "Access denied" });
+  const rows = db.prepare("SELECT user, action, timestamp FROM audit_log WHERE target = ? AND action IN ('report_submitted','report_approved','report_rejected') ORDER BY timestamp DESC LIMIT 100").all(`${year}/${client}`);
+  res.json(rows);
+});
+
 // ── Database backup (admin only): checkpoint WAL, then stream the SQLite file ──
 app.get("/api/backup", auth, requireRole("admin"), (req, res) => {
   try { db.pragma("wal_checkpoint(TRUNCATE)"); } catch (e) { console.warn("checkpoint before backup failed:", e.message); }
