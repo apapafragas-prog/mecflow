@@ -683,6 +683,47 @@ export function OpexCapex({year,setYear,user,onBack,onLogout}) {
         {/* ── OPEX ── */}
         {loaded && sub==="opex" && (
           <div>
+            {(()=>{
+              const DVZ=["#80BBAD","#435254","#17E88F","#DBD99A","#D2785A","#885073","#A388BF","#1F3765","#3E7CA6","#CAD1D3"];
+              const actTot=cats.reduce((s,c)=>s+catMonthTotal("actual",c.id),0);
+              const budTot=cats.reduce((s,c)=>s+catMonthTotal("budget",c.id),0);
+              const byCat=cats.map((c,idx)=>({label:c.label||t("(χωρίς όνομα)","(unnamed)"),v:catMonthTotal("actual",c.id),color:DVZ[idx%DVZ.length]})).filter(x=>x.v>0).sort((a,b)=>b.v-a.v);
+              const varPct=budTot?(actTot-budTot)/budTot:null;
+              const C=2*Math.PI*52; let acc=0;
+              const legend=byCat.slice(0,7); const restV=byCat.slice(7).reduce((s,x)=>s+x.v,0);
+              return (
+                <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:14}}>
+                  <div style={{flex:"1 1 240px",minWidth:240,background:"linear-gradient(150deg,#014A34 0%,#003F2D 55%,#012A2D 100%)",color:"#EAF6EF",borderRadius:16,padding:"20px 22px",position:"relative",overflow:"hidden",boxShadow:P.sh}}>
+                    <div style={{fontFamily:"'Space Mono',ui-monospace,monospace",fontSize:9.5,letterSpacing:".12em",textTransform:"uppercase",color:"#9FD9C4"}}>{t("OPEX Πραγματικά · FY","OPEX Actual · FY")} {year}</div>
+                    <div style={{fontSize:32,fontWeight:700,margin:"12px 0 3px",letterSpacing:"-.02em",lineHeight:1}}>€{fmt(actTot)}</div>
+                    <div style={{fontSize:12,color:varPct==null?"#AEE9CF":varPct>0?"#F3A6A5":"#7EE8B4"}}>{t("Προϋπ.","Budget")} €{fmt(budTot)}{varPct!=null?` · ${varPct>0?"+":""}${(varPct*100).toFixed(0)}%`:""}</div>
+                    <svg viewBox="0 0 300 40" preserveAspectRatio="none" style={{position:"absolute",left:0,right:0,bottom:0,width:"100%",height:38,opacity:.55}}><path d="M0 28 Q40 8 80 22 T160 18 T240 24 T300 12 V40 H0 Z" fill="rgba(23,232,143,.18)"/><path d="M0 28 Q40 8 80 22 T160 18 T240 24 T300 12" fill="none" stroke="rgba(23,232,143,.55)" strokeWidth="1.5"/></svg>
+                  </div>
+                  <div style={{flex:"2 1 380px",background:P.wh,border:"1px solid "+P.bd,borderRadius:16,padding:"16px 18px",boxShadow:P.sh,display:"flex",gap:20,alignItems:"center",flexWrap:"wrap"}}>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:700,color:P.em,marginBottom:8}}>{t("OPEX ανά κατηγορία","OPEX by category")}</div>
+                      <svg viewBox="0 0 140 140" width="128" height="128" style={{display:"block"}}>
+                        <circle cx="70" cy="70" r="52" fill="none" stroke={P.al} strokeWidth="20"/>
+                        {actTot>0 && byCat.map(s=>{ const seg=s.v/actTot*C; const el=<circle key={s.label} cx="70" cy="70" r="52" fill="none" stroke={s.color} strokeWidth="20" strokeDasharray={`${seg} ${C-seg}`} strokeDashoffset={-acc} transform="rotate(-90 70 70)"/>; acc+=seg; return el; })}
+                        <text x="70" y="66" textAnchor="middle" style={{fontSize:15,fontWeight:800,fill:P.em}}>€{fmt(actTot)}</text>
+                        <text x="70" y="84" textAnchor="middle" style={{fontSize:9,fill:P.tm}}>OPEX</text>
+                      </svg>
+                    </div>
+                    <div style={{flex:1,minWidth:150,display:"flex",flexDirection:"column",gap:6}}>
+                      {legend.map(s=>(
+                        <div key={s.label} style={{display:"flex",alignItems:"center",gap:8,fontSize:12}}>
+                          <span style={{width:9,height:9,borderRadius:2,background:s.color,flex:"none"}} />
+                          <span style={{color:P.tm,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.label}</span>
+                          <span style={{marginLeft:"auto",fontWeight:600,color:P.tx}}>€{fmt(s.v)}</span>
+                        </div>
+                      ))}
+                      {restV>0 && <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12}}><span style={{width:9,height:9,borderRadius:2,background:P.bd,flex:"none"}} /><span style={{color:P.tm}}>{t("Λοιπές","Other")}</span><span style={{marginLeft:"auto",fontWeight:600,color:P.tx}}>€{fmt(restV)}</span></div>}
+                      {!byCat.length && <div style={{fontSize:12,color:P.tm,fontStyle:"italic"}}>{t("Δεν υπάρχουν πραγματικά OPEX ακόμα","No actual OPEX yet")}</div>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:10}}>
               <div style={{display:"flex",gap:0,background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,padding:3}}>
                 {[{v:"actual",l:t("Πραγματικά","Actual")},{v:"budget",l:t("Προϋπολογισμός","Budget")},{v:"variance",l:t("Απόκλιση","Variance")}].map(o=>(
