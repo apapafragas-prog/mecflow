@@ -5,7 +5,7 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "./api.js";
 import { P, MONTHS, ML, YEARS, uid, fmt, fPct, DEFAULT_OPEX_CATS, CAPEX_CATS, CAPEX_STATUS, normalizeClientData, REV_CATS, COST_CATS } from "./constants.js";
-import { agingBucket, AGING_BUCKETS, depreciation, daysUntil, parseDate, runRateFY, clientRisks, detectAnomalies, settlementInfo } from "./calc.js";
+import { agingBucket, AGING_BUCKETS, depreciation, daysUntil, parseDate, runRateFY, clientRisks, detectAnomalies, settlementInfo, grossOf } from "./calc.js";
 import { exportWorkbook } from "./exportXlsx.js";
 
 // Previous fiscal-year label ("FY26" → "FY25"), or null if it falls before the first tracked year.
@@ -362,6 +362,33 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
   const byCp = {};
   open.forEach(e=>{ const k=e.counterparty; if(!byCp[k]) byCp[k]={cp:k,total:0,client:e.client}; byCp[k][e.bucket]=(byCp[k][e.bucket]||0)+e.balance; byCp[k].total+=e.balance; });
   const cpRows = Object.values(byCp).sort((a,b)=>b.total-a.total);
+
+  // ── DSO / DPO (days) — portfolio-wide, both views, regardless of the AR/AP toggle ──
+  const termsForSide = (side,cp) => { const v = cpTerms[side+":"+cp]; return (v!=null && v!=="") ? Number(v) : terms; };
+  let revGross=0, costGross=0, openARb=0, openAPb=0; const arMonths=new Set(), apMonths=new Set();
+  Object.values(data||{}).forEach(cd=>{
+    (cd?.inv||[]).forEach(r=>{ revGross+=grossOf(r); openARb+=settlementInfo(r).balance; if(Number(r.amt)) arMonths.add(r.month); });
+    (cd?.sub||[]).forEach(r=>{ costGross+=grossOf(r); openAPb+=settlementInfo(r).balance; if(Number(r.amt)) apMonths.add(r.month); });
+  });
+  // DSO = open AR / gross sales × days in the active period (months-with-activity × ~30.4).
+  const dso = revGross>0 && arMonths.size ? openARb/revGross*(arMonths.size*30.42) : null;
+  const dpo = costGross>0 && apMonths.size ? openAPb/costGross*(apMonths.size*30.42) : null;
+  const dsoGap = (dso!=null && dpo!=null) ? dso-dpo : null;   // >0 = you collect slower than you pay (cash pressure)
+
+  // ── 13-week working-capital cash forecast: expected AR collections − AP payments, by due week ──
+  const cashForecast = () => {
+    const WK=13; const coll=Array(WK).fill(0), pay=Array(WK).fill(0);
+    const today=new Date(); today.setHours(0,0,0,0);
+    const wk0=new Date(today); wk0.setDate(today.getDate()-((today.getDay()+6)%7));  // Monday of this week
+    const weekOf=(d)=> Math.floor((d-wk0)/(7*86400000));
+    const dueWeek=(dateStr,days)=>{ const dt=parseDate(dateStr); if(!dt) return null; const due=new Date(dt); due.setDate(due.getDate()+(Number(days)||0)); let w=weekOf(due); if(w<0) w=0; return w; };  // overdue → this week
+    Object.entries(data||{}).forEach(([client,cd])=>{
+      (cd?.inv||[]).forEach(r=>{ const b=settlementInfo(r).balance; if(b<=0.005) return; const w=dueWeek(r.date,termsForSide("AR",client)); if(w!=null && w<WK) coll[w]+=b; });
+      (cd?.sub||[]).forEach(r=>{ const b=settlementInfo(r).balance; if(b<=0.005) return; const w=dueWeek(r.date,termsForSide("AP",r.supplier||"—")); if(w!=null && w<WK) pay[w]+=b; });
+    });
+    let run=0;
+    return Array.from({length:WK},(_,w)=>{ const net=coll[w]-pay[w]; run+=net; const from=new Date(wk0); from.setDate(wk0.getDate()+w*7); return {w,from,coll:coll[w],pay:pay[w],net,cum:run}; });
+  };
   // Undated open items age into no bucket; surface an explicit "Undated" column when any exist so the
   // per-counterparty bucket cells always reconcile to the row Total (and to the portfolio KPIs).
   const hasUnknown = open.some(e=>e.bucket==="unknown");
@@ -490,6 +517,22 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
             </div>
           </div>
 
+          {/* DSO / DPO working-capital days */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:12,marginBottom:16}}>
+            <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:14,padding:"14px 16px",boxShadow:P.sh}} title={t("Μέσος χρόνος είσπραξης απαιτήσεων","Days sales outstanding")}>
+              <div style={{fontSize:12,color:P.tm}}>DSO · {t("Ημέρες Είσπραξης","Days receivable")}</div>
+              <div style={{fontSize:22,fontWeight:800,color:P.em,marginTop:5}}>{dso==null?"—":Math.round(dso)+t(" ημ"," d")}</div>
+            </div>
+            <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:14,padding:"14px 16px",boxShadow:P.sh}} title={t("Μέσος χρόνος πληρωμής προμηθευτών","Days payable outstanding")}>
+              <div style={{fontSize:12,color:P.tm}}>DPO · {t("Ημέρες Πληρωμής","Days payable")}</div>
+              <div style={{fontSize:22,fontWeight:800,color:P.em,marginTop:5}}>{dpo==null?"—":Math.round(dpo)+t(" ημ"," d")}</div>
+            </div>
+            <div style={{background:P.wh,border:"1px solid "+P.bd,borderRadius:14,padding:"14px 16px",boxShadow:P.sh}} title={t("DSO − DPO: θετικό = εισπράττεις πιο αργά απ' ό,τι πληρώνεις (πίεση ταμείου)","DSO − DPO: positive = you collect slower than you pay (cash pressure)")}>
+              <div style={{fontSize:12,color:P.tm}}>{t("Χάσμα","Gap")} DSO − DPO</div>
+              <div style={{fontSize:22,fontWeight:800,color:dsoGap==null?P.tx:dsoGap>0?P.rd:P.gn,marginTop:5}}>{dsoGap==null?"—":(dsoGap>0?"+":"")+Math.round(dsoGap)+t(" ημ"," d")}</div>
+            </div>
+          </div>
+
           {/* Per-counterparty aging */}
           <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,marginBottom:16,overflowX:"auto"}}>
             <div style={{padding:"10px 16px",fontSize:13,fontWeight:700,color:P.em,borderBottom:"1px solid "+P.bd}}>{t("Aging ανά","Aging by")} {view==="AR"?t("πελάτη","client"):t("προμηθευτή","supplier")} ({termLabel})</div>
@@ -537,6 +580,56 @@ export function ApArLedger({year,setYear,user,onBack,onLogout,onSelectClient}) {
             </table>
           </div>
           <div style={{fontSize:11,color:P.tm,marginTop:8}}>{t("Aging βάσει","Aging based on")} {termLabel} ({t("ανά αντισυμβαλλόμενο όπου έχει οριστεί","per counterparty where set")}). {t("Το «Μερική» καταχωρεί τμηματική πληρωμή· όταν καλυφθεί το σύνολο, το παραστατικό κλείνει αυτόματα.","'Part' records a partial payment; once the full amount is covered the document closes automatically.")}</div>
+
+          {/* ── 13-week working-capital cash forecast (AR collections − AP payments, by due week) ── */}
+          {(()=>{
+            const fc=cashForecast(); const mag=Math.max(1,...fc.map(x=>Math.max(x.coll,x.pay)));
+            const W=780,H=150,mid=78,top=10,bh=62,x0=30,slot=(W-x0-6)/13,bw=Math.min(20,slot-6);
+            const cumMax=Math.max(1,...fc.map(x=>Math.abs(x.cum)));
+            const cy=v=>mid-(v/cumMax)*58; const cx=i=>x0+i*slot+slot/2;
+            const cumPts=fc.map((x,i)=>`${cx(i)},${Math.max(top,Math.min(H-6,cy(x.cum)))}`).join(" ");
+            const dfmt=d=>`${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}`;
+            return (
+              <div style={{background:P.wh,borderRadius:8,border:"1px solid "+P.bd,boxShadow:P.sh,marginTop:16,padding:16}}>
+                <div style={{fontSize:13,fontWeight:700,color:P.em,marginBottom:2}}>📆 {t("Πρόβλεψη ταμείου 13 εβδομάδων","13-week cash forecast")}</div>
+                <div style={{fontSize:11,color:P.tm,marginBottom:10}}>{t("Αναμενόμενες εισπράξεις (AR) − πληρωμές (AP) ανά εβδομάδα λήξης· ληξιπρόθεσμα στην τρέχουσα εβδομάδα. Κεφάλαιο κίνησης — χωρίς μισθοδοσία/OPEX.","Expected AR collections − AP payments by due week; overdue in the current week. Working capital only — excludes payroll/OPEX.")}</div>
+                <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto",display:"block"}}>
+                  <line x1={x0} y1={mid} x2={W-6} y2={mid} stroke={P.tm} strokeWidth="1"/>
+                  {fc.map((x,i)=>{ const ch=(x.coll/mag)*bh, ph=(x.pay/mag)*bh; return (
+                    <g key={i}>
+                      <rect x={cx(i)-bw/2} y={mid-ch} width={bw} height={ch} rx="3" fill="#80BBAD"><title>{`${t("Εβδ.","Wk")} ${i+1} · ${t("Εισπράξεις","Collections")} €${fmt(x.coll)}`}</title></rect>
+                      <rect x={cx(i)-bw/2} y={mid} width={bw} height={ph} rx="3" fill={P.rd} opacity="0.85"><title>{`${t("Εβδ.","Wk")} ${i+1} · ${t("Πληρωμές","Payments")} €${fmt(x.pay)}`}</title></rect>
+                      {i%2===0 && <text x={cx(i)} y={H-2} textAnchor="middle" style={{fontSize:8.5,fill:P.tm}}>{dfmt(x.from)}</text>}
+                    </g>
+                  ); })}
+                  <polyline points={cumPts} fill="none" stroke={P.em} strokeWidth="2" strokeLinejoin="round"/>
+                  {fc.map((x,i)=><circle key={i} cx={cx(i)} cy={Math.max(top,Math.min(H-6,cy(x.cum)))} r="2.4" fill={P.em}/>)}
+                </svg>
+                <div style={{display:"flex",gap:16,margin:"6px 0 10px",fontSize:10,color:P.tm}}>
+                  <span><span style={{display:"inline-block",width:10,height:10,background:"#80BBAD",borderRadius:2,verticalAlign:"middle",marginRight:4}} />{t("Εισπράξεις","Collections")}</span>
+                  <span><span style={{display:"inline-block",width:10,height:10,background:P.rd,borderRadius:2,verticalAlign:"middle",marginRight:4}} />{t("Πληρωμές","Payments")}</span>
+                  <span><span style={{display:"inline-block",width:14,height:2,background:P.em,verticalAlign:"middle",marginRight:4}} />{t("Σωρευτικό καθαρό","Cumulative net")}</span>
+                </div>
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:520}}>
+                    <thead><tr>{[t("Εβδ.","Wk"),t("Από","From"),t("Εισπράξεις","Collections"),t("Πληρωμές","Payments"),t("Καθαρό","Net"),t("Σωρευτικό","Cumulative")].map((h,i)=>(<th key={i} style={{padding:"6px 10px",fontSize:10.5,fontWeight:700,color:"#fff",background:P.em,textAlign:i<2?"left":"right"}}>{h}</th>))}</tr></thead>
+                    <tbody>
+                      {fc.map((x,i)=>(
+                        <tr key={i} style={{background:i%2===0?P.wh:P.al}}>
+                          <td style={{padding:"5px 10px",borderBottom:"1px solid "+P.bd,color:P.tm}}>{i+1}</td>
+                          <td style={{padding:"5px 10px",borderBottom:"1px solid "+P.bd,color:P.tm}}>{dfmt(x.from)}</td>
+                          <td style={{padding:"5px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",color:x.coll?P.gn:P.tm}}>{x.coll?fmt(x.coll):"-"}</td>
+                          <td style={{padding:"5px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",color:x.pay?P.rd:P.tm}}>{x.pay?fmt(x.pay):"-"}</td>
+                          <td style={{padding:"5px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",fontWeight:600,color:x.net>=0?P.em:P.rd}}>{fmt(x.net)}</td>
+                          <td style={{padding:"5px 10px",borderBottom:"1px solid "+P.bd,textAlign:"right",fontWeight:700,color:x.cum>=0?P.em:P.rd}}>{fmt(x.cum)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
         </>
         )}
       </div>
