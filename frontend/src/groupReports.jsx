@@ -415,6 +415,79 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
     setTimeout(() => { try { w.print(); } catch { /* ignore */ } }, 350);
   };
 
+  // ── Consolidated Board Pack (print-to-PDF): KPIs + P&L + Balance Sheet + Cash Flow in one branded doc ──
+  const exportBoardPack = () => {
+    const escp = s => String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+    const asOf = MONTHS[MONTHS.length - 1];
+    const rev = ytd("rev"), gm = ytd("gm"), ebitda = ytd("ebitda"), net = ytd("net");
+    const LOGO = `<svg viewBox="0 0 81 20.13" style="height:26px"><path fill="#003F2D" d="M33.57,15.41H26.89V12.05h6.86a1.66,1.66,0,0,1,1.49,1.64,1.73,1.73,0,0,1-1.67,1.72m-6.68-11h7A1.64,1.64,0,0,1,35.3,6a1.72,1.72,0,0,1-1.43,1.68h-7Zm9.94,5.37c2.56-.85,3-3,3-4.75,0-2.68-1.89-5-7.48-5H21.94V20.09h10.4C38,20.09,40,17.21,40,14.32a4.91,4.91,0,0,0-3.19-4.58M63.37,0V20.13H81V15.54H68.28V12H79.75V7.63H68.28V4.39H81V0ZM55.79,6.26a1.65,1.65,0,0,1-1.57,1.38H47.34V4.43h6.88a1.57,1.57,0,0,1,1.57,1.4ZM53.12,0H42.47v20.1h4.89V12h5.39a2.8,2.8,0,0,1,2.74,2.85v5.27h4.79V13.62a4.21,4.21,0,0,0-2.9-3.89,4.5,4.5,0,0,0,3-4.44C60.34.94,56.6,0,53.12,0M18.76,15.27c-.07,0-6.69.13-9-.09a5.16,5.16,0,0,1-5-5.31,5.14,5.14,0,0,1,4.82-5.2c1.39-.19,9-.1,9.09-.1h.16L18.9,0h-.16L10.11,0A12.73,12.73,0,0,0,5.93.84,10.25,10.25,0,0,0,2,4a10,10,0,0,0-2,6,12.15,12.15,0,0,0,.16,2A9.8,9.8,0,0,0,5.65,19a14.72,14.72,0,0,0,5.46,1.11l1.63,0h6.17V15.27Z"/></svg>`;
+    const th = "padding:6px 9px;font-size:10.5px;font-weight:700;color:#fff;background:#003F2D;white-space:nowrap;text-align:right";
+    const td = "padding:5px 9px;font-size:10.5px;border-bottom:1px solid #D5DDD8;text-align:right;white-space:nowrap";
+    const kpiCard = (l, v, sub) => `<div style="flex:1;min-width:130px;border:1px solid #E1E7E3;border-radius:10px;padding:11px 13px"><div style="font-size:10px;color:#5F7567;text-transform:uppercase;letter-spacing:.04em">${escp(l)}</div><div style="font-size:19px;font-weight:800;color:#003F2D;margin-top:3px">${escp(v)}</div>${sub ? `<div style="font-size:10px;color:#5F7567;margin-top:2px">${escp(sub)}</div>` : ""}</div>`;
+
+    // ── P&L board rows ──
+    const rows = boardData();
+    const num = (r, v) => v == null ? "—" : r.pct ? fPct(v) : fmt(v);
+    const vE = r => (r.actual != null && r.budget != null) ? r.actual - r.budget : null;
+    const vP = r => (vE(r) != null && r.budget) ? vE(r) / Math.abs(r.budget) : null;
+    const yy = r => (r.actual != null && r.prior) ? (r.actual - r.prior) / Math.abs(r.prior) : null;
+    const pnlHead = `<tr><th style="${th};text-align:left">${escp(t("Γραμμή", "Line"))}</th><th style="${th}">${escp(t("Πραγμ. YTD", "Actual YTD"))}</th><th style="${th}">Budget</th><th style="${th}">${escp(t("Διαφ.", "Var"))}</th><th style="${th}">Var %</th><th style="${th}">${escp(t("Πέρσι", "Prior"))}</th><th style="${th}">YoY %</th></tr>`;
+    const pnlBody = rows.map(r => { const e = vE(r), p = vP(r), y = yy(r); const b = r.b ? ";font-weight:700;background:#E8F5E9" : ""; return `<tr><td style="${td};text-align:left${b}">${escp(r.l)}</td><td style="${td}${b}">${escp(num(r, r.actual))}</td><td style="${td}${b}">${escp(num(r, r.budget))}</td><td style="${td}${b}">${e == null ? "—" : escp(r.pct ? fPct(e) : fmt(e))}</td><td style="${td}${b}">${p == null ? "—" : escp(fPct(p))}</td><td style="${td}${b}">${escp(num(r, r.prior))}</td><td style="${td}${b}">${y == null ? "—" : escp(fPct(y))}</td></tr>`; }).join("");
+
+    // ── Balance sheet as of year-end ──
+    const bsRow = (label, val, bold) => `<tr><td style="${td};text-align:left${bold ? ";font-weight:700;background:#E8F5E9" : ""}">${escp(label)}</td><td style="${td}${bold ? ";font-weight:700;background:#E8F5E9" : ""}">${escp(fmt(val))}</td></tr>`;
+    const secLines = sec => [...derivedIn(sec).map(d => [d.label, d.fn(asOf)]), ...manualIn(sec).map(a => [a.label, Number(bsVal(a.id, asOf)) || 0])];
+    const bsBody = [
+      `<tr><td colspan="2" style="${td};text-align:left;font-weight:700;color:#003F2D;background:#F4F8F5">${escp(t("Ενεργητικό", "Assets"))}</td></tr>`,
+      ...secLines("asset").map(([l, v]) => bsRow(l, v)),
+      bsRow(t("Σύνολο Ενεργητικού", "Total assets"), totalAssets(asOf), true),
+      `<tr><td colspan="2" style="${td};text-align:left;font-weight:700;color:#003F2D;background:#F4F8F5">${escp(t("Υποχρεώσεις & Ίδια Κεφάλαια", "Liabilities & Equity"))}</td></tr>`,
+      ...secLines("liability").map(([l, v]) => bsRow(l, v)),
+      ...secLines("equity").map(([l, v]) => bsRow(l, v)),
+      bsRow(t("Σύνολο Υποχρ. & Ιδ. Κεφ.", "Total liabilities & equity"), totalLE(asOf), true),
+    ].join("");
+    const chk = check(asOf);
+
+    // ── Cash flow (monthly) ──
+    const cf = cashFlowSeries();
+    const cfByM = Object.fromEntries(cf.map(r => [r.m, r]));
+    const cfLines = [
+      [t("Εισπράξεις", "Collections"), "collIn", 1], [t("Πληρωμές προμηθ.", "Supplier payments"), "payOut", -1],
+      [t("Μισθοδοσία", "Payroll"), "lab", -1], ["OPEX", "opx", -1], ["CAPEX", "cpx", -1],
+      [t("Τόκοι", "Interest"), "intr", -1], [t("Φόροι", "Taxes"), "tax", -1],
+    ];
+    const cfHead = `<tr><th style="${th};text-align:left">${escp(t("Ροή", "Flow"))}</th>${MONTHS.map(m => `<th style="${th}">${escp(ML[m] || m)}</th>`).join("")}<th style="${th}">${escp(t("Σύνολο", "Total"))}</th></tr>`;
+    const cfRow = (label, key, sign) => `<tr><td style="${td};text-align:left">${escp(label)}</td>${MONTHS.map(m => `<td style="${td}">${escp(fmt(sign * (cfByM[m]?.[key] || 0)))}</td>`).join("")}<td style="${td};font-weight:700">${escp(fmt(sign * cf.reduce((s, r) => s + (r[key] || 0), 0)))}</td></tr>`;
+    const cfBody = cfLines.map(([l, k, s]) => cfRow(l, k, s)).join("")
+      + `<tr><td style="${td};text-align:left;font-weight:700;background:#E8F5E9">${escp(t("Καθαρή ροή", "Net cash flow"))}</td>${MONTHS.map(m => `<td style="${td};font-weight:700;background:#E8F5E9">${escp(fmt(cfByM[m]?.net || 0))}</td>`).join("")}<td style="${td};font-weight:700;background:#E8F5E9">${escp(fmt(cf.reduce((s, r) => s + r.net, 0)))}</td></tr>`
+      + `<tr><td style="${td};text-align:left;font-weight:700">${escp(t("Ταμείο τέλους", "Closing cash"))}</td>${MONTHS.map(m => `<td style="${td};font-weight:700">${escp(fmt(cfByM[m]?.close || 0))}</td>`).join("")}<td style="${td}">—</td></tr>`;
+
+    const sect = (title, inner, extra = "") => `<div style="margin-top:20px"><div style="font-size:13px;font-weight:800;color:#003F2D;border-left:3px solid #17E88F;padding-left:8px;margin-bottom:8px">${escp(title)}</div>${inner}${extra}</div>`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>CBRE Board Pack — ${escp(year)}</title>
+      <style>@page{size:A4 landscape;margin:14mm} table{width:100%;border-collapse:collapse} body{font-family:Segoe UI,Arial,sans-serif;color:#1A2E23;margin:0}</style></head>
+      <body style="padding:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #003F2D;padding-bottom:10px">
+          <div style="display:flex;align-items:center;gap:12px">${LOGO}<div style="font-size:20px;font-weight:800;color:#003F2D">${escp(t("Πακέτο Διοικητικού Συμβουλίου", "Board Pack"))}</div></div>
+          <div style="font-size:12px;color:#5F7567;text-align:right">${escp(t("Έτος", "FY"))} ${escp(year)} · YTD · ${escp(t("Ενοποιημένα", "Consolidated"))}</div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:14px">
+          ${kpiCard(t("Έσοδα (YTD)", "Revenue (YTD)"), "€" + fmt(rev))}
+          ${kpiCard(t("Μικτό Κέρδος", "Gross Margin"), "€" + fmt(gm), rev ? fPct(gm / rev) : "")}
+          ${kpiCard("EBITDA", "€" + fmt(ebitda), rev ? fPct(ebitda / rev) : "")}
+          ${kpiCard(t("Καθαρό Αποτέλεσμα", "Net result"), "€" + fmt(net), rev ? fPct(net / rev) : "")}
+        </div>
+        ${sect(t("1 · Κατάσταση Αποτελεσμάτων (P&L)", "1 · Profit & Loss (P&L)"), `<table>${pnlHead}${pnlBody}</table>`)}
+        ${sect(`2 · ${t("Ισολογισμός", "Balance Sheet")} — ${t("τέλος", "as of")} ${escp(ML[asOf] || asOf)}`, `<table>${bsBody}</table>`,
+          `<div style="font-size:11px;margin-top:6px;color:${Math.abs(chk) < 1 ? "#2E7D32" : "#AD2A2A"}">${escp(t("Έλεγχος ισοζυγίου", "Balance check"))}: ${escp(fmt(chk))} ${Math.abs(chk) < 1 ? "✓" : "⚠"}</div>`)}
+        ${sect(t("3 · Ταμειακές Ροές (άμεση μέθοδος)", "3 · Cash Flow (direct method)"), `<div style="overflow-x:auto"><table>${cfHead}${cfBody}</table></div>`)}
+        <p style="font-size:10px;color:#5F7567;margin-top:18px;border-top:1px solid #E1E7E3;padding-top:8px">${escp(t("Budget: στόχοι πελατών + OPEX budget. Πέρσι: ενοποιημένο προηγούμενης χρήσης. Ταμειακές ροές βάσει όρων πληρωμής & καταχωρημένων πληρωμών. Δημιουργήθηκε από την πλατφόρμα CBRE Hellas.", "Budget: client targets + OPEX budget. Prior: prior-year consolidated. Cash flow based on payment terms & recorded payments. Generated by the CBRE Hellas platform."))}</p>
+      </body></html>`;
+    const w = window.open("", "_blank");
+    if (!w) { alert(t("Επίτρεψε τα pop-ups για PDF", "Allow pop-ups for the PDF")); return; }
+    w.document.write(html); w.document.close(); w.focus();
+    setTimeout(() => { try { w.print(); } catch { /* ignore */ } }, 400);
+  };
+
   // Data-quality guard: rows whose category isn't one of the canonical REV/COST buckets are counted in
   // the Group/Dashboard totals but DROPPED from the per-client P&L (which filters by category) — so
   // "Group = Σ per-client" silently breaks. Surface them so the user can fix the category.
@@ -437,7 +510,10 @@ export function GroupReports({ year, setYear, user, onBack, onLogout }) {
   return (
     <div style={{ minHeight: "100vh", background: P.of, fontFamily: "Segoe UI,Tahoma,sans-serif" }}>
       <AppHeader user={user} onLogout={onLogout} onBack={onBack} title={`🏢 ${t("Όμιλος P&L / Ισολογισμός", "Group P&L / Balance Sheet")} — ${year}`}
-        right={<span style={{ fontSize: 11, color: P.tm, minWidth: 78, textAlign: "right" }}>{saveLbl}</span>} />
+        right={<>
+          <button onClick={exportBoardPack} title={t("Πλήρες πακέτο: P&L + Ισολογισμός + Ταμειακές ροές", "Full pack: P&L + Balance Sheet + Cash Flow")} style={{ background: P.em, color: "#fff", border: "none", padding: "7px 13px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>📄 {t("Board Pack", "Board Pack")}</button>
+          <span style={{ fontSize: 11, color: P.tm, minWidth: 78, textAlign: "right" }}>{saveLbl}</span>
+        </>} />
 
       <div style={{ maxWidth: 1400, margin: "0 auto", padding: "18px 24px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
