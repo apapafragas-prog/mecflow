@@ -218,7 +218,8 @@ export default function App() {
             dirtyRef.current = false;
             pendingRef.current = null; // a real cross-user conflict — drop the queue, reload instead
             setSaveState("error");
-            alert("⚠️ Αυτός ο πελάτης ενημερώθηκε από άλλον χρήστη.\n\nΗ οθόνη θα φορτώσει τώρα την τελευταία αποθηκευμένη έκδοση. Οι πολύ πρόσφατες αλλαγές σου ΔΕΝ αποθηκεύτηκαν — ξαναπέρασέ τες.");
+            alert(t("⚠️ Αυτός ο πελάτης ενημερώθηκε από άλλον χρήστη.\n\nΗ οθόνη θα φορτώσει τώρα την τελευταία αποθηκευμένη έκδοση. Οι πολύ πρόσφατες αλλαγές σου ΔΕΝ αποθηκεύτηκαν — ξαναπέρασέ τες.",
+              "⚠️ This client was updated by another user.\n\nThe screen will now load the latest saved version. Your most recent changes were NOT saved — please re-enter them."));
             setHydratedKeys(p=>{ const n={...p}; delete n[ckey]; return n; }); // triggers re-hydration
             return false;
           }

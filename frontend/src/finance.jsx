@@ -721,7 +721,7 @@ export function OpexCapex({year,setYear,user,onBack,onLogout}) {
   const opexGrand = (kind)=> cats.reduce((s,c)=>s+catMonthTotal(kind,c.id),0);
 
   const addCat = ()=>{ const l=newCat.trim(); if(!l) return; mutate(n=>n.opex.cats.push({id:uid(),label:l})); setNewCat(""); };
-  const delCat = (id)=>{ if(!confirm("Διαγραφή κατηγορίας και των τιμών της;")) return; mutate(n=>{ n.opex.cats=n.opex.cats.filter(x=>x.id!==id); delete n.opex.budget[id]; delete n.opex.actual[id]; }); };
+  const delCat = (id)=>{ if(!confirm(t("Διαγραφή κατηγορίας και των τιμών της;","Delete this category and its values?"))) return; mutate(n=>{ n.opex.cats=n.opex.cats.filter(x=>x.id!==id); delete n.opex.budget[id]; delete n.opex.actual[id]; }); };
   const renameCat = (id,l)=> mutate(n=>{ const c=n.opex.cats.find(x=>x.id===id); if(c) c.label=l; });
 
   const addCapex = ()=>{ if(!cf.desc||!cf.amount) return; mutate(n=>n.capex.push({id:uid(),desc:cf.desc,cat:cf.cat,amount:parseFloat(cf.amount)||0,month:cf.month,life:parseInt(cf.life)||0,status:cf.status,po:cf.po})); setCf(x=>({...x,desc:"",amount:"",po:""})); };
