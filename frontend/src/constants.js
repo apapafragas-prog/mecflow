@@ -29,8 +29,12 @@ export const LOGOS = {
   "Uber":"uber.com","Medtronic":"medtronic.com","Henkel":"henkel.com","Opella":"opella.com",
   "Kyndryl":"kyndryl.com","Syngenta":"syngenta.com",
 };
-export const logoUrl = (c) => LOGOS[c] ? `https://logo.clearbit.com/${LOGOS[c]}` : null;
-export const logoUrl2 = (c) => LOGOS[c] ? `https://www.google.com/s2/favicons?domain=${LOGOS[c]}&sz=128` : null;
+// Client logos are rendered as coloured initials (see LogoImg). External logo/favicon fetches to
+// Clearbit/Google were removed: they leaked the confidential client roster (corporate domains) + the
+// viewer's IP to uncontracted US third parties on every render. Returning null makes LogoImg use the
+// local initials avatar. (To show real logos later, self-host them as bundled static assets.)
+export const logoUrl = () => null;
+export const logoUrl2 = () => null;
 
 export const REPORT_STATUS = [{v:"draft",l:"Draft",color:"#78909C",bg:"#ECEFF1"},{v:"submitted",l:"Submitted by User",color:"#F57F17",bg:"#FFF8E1"},{v:"approved",l:"Approved by Finance",color:"#2E7D32",bg:"#E8F5E9"},{v:"rejected",l:"Rejected — Revise",color:"#C62828",bg:"#FFEBEE"}];
 

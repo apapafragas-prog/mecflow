@@ -87,7 +87,7 @@ export function ResetPassword({ token }) {
   const go = async () => {
     if (!p1 || !p2) { setErr(t("Συμπλήρωσε και τα δύο πεδία", "Fill in both fields")); return; }
     if (p1 !== p2) { setErr(t("Οι κωδικοί δεν ταιριάζουν", "The passwords don't match")); return; }
-    if (p1.length < 8) { setErr(t("Ο κωδικός πρέπει να έχει 8+ χαρακτήρες", "The password must be 8+ characters")); return; }
+    if (p1.length < 12) { setErr(t("Ο κωδικός πρέπει να έχει 12+ χαρακτήρες", "The password must be 12+ characters")); return; }
     setBusy(true); setErr("");
     try { await api.resetPassword(token, p1); setDone(true); }
     catch (e) { setErr(e.message || t("Αποτυχία επαναφοράς", "Reset failed")); }
@@ -108,7 +108,7 @@ export function ResetPassword({ token }) {
             <div style={{ fontSize: 18, fontWeight: 700, color: P.em }}>🔑 {t("Ορισμός νέου κωδικού", "Set a new password")}</div>
             <div style={{ fontSize: 12.5, color: P.tm, margin: "8px 0 20px", lineHeight: 1.5 }}>{t("Όρισε τον νέο σου κωδικό πρόσβασης.", "Set your new access password.")}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <div><label style={LBL}>{t("Νέος κωδικός (8+ χαρακτήρες)", "New password (8+ characters)")}</label>
+              <div><label style={LBL}>{t("Νέος κωδικός (12+ χαρακτήρες)", "New password (12+ characters)")}</label>
                 <PwField value={p1} onChange={e => { setP1(e.target.value); setErr(""); }} style={INP} onFocus={onFoc} onBlur={onBlur} autoFocus /></div>
               <div><label style={LBL}>{t("Επιβεβαίωση", "Confirm")}</label>
                 <PwField value={p2} onChange={e => { setP2(e.target.value); setErr(""); }} onEnter={go} style={INP} onFocus={onFoc} onBlur={onBlur} /></div>
@@ -134,7 +134,7 @@ export function ForcePw({ onDone, onLogout }) {
   const go = async () => {
     if (!cur || !n1 || !n2) { setErr(t("Συμπλήρωσε όλα τα πεδία", "Fill in all fields")); return; }
     if (n1 !== n2) { setErr(t("Οι νέοι κωδικοί δεν ταιριάζουν", "The new passwords don't match")); return; }
-    if (n1.length < 8) { setErr(t("Ο νέος κωδικός πρέπει να έχει 8+ χαρακτήρες", "The new password must be 8+ characters")); return; }
+    if (n1.length < 12) { setErr(t("Ο νέος κωδικός πρέπει να έχει 12+ χαρακτήρες", "The new password must be 12+ characters")); return; }
     if (n1 === cur) { setErr(t("Ο νέος κωδικός πρέπει να διαφέρει από τον τρέχοντα", "The new password must differ from the current one")); return; }
     setBusy(true); setErr("");
     try {
@@ -153,7 +153,7 @@ export function ForcePw({ onDone, onLogout }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div><label style={LBL}>{t("Τρέχων κωδικός", "Current password")}</label>
             <PwField value={cur} onChange={e => { setCur(e.target.value); setErr(""); }} style={INP} onFocus={onFoc} onBlur={onBlur} /></div>
-          <div><label style={LBL}>{t("Νέος κωδικός (8+ χαρακτήρες)", "New password (8+ characters)")}</label>
+          <div><label style={LBL}>{t("Νέος κωδικός (12+ χαρακτήρες)", "New password (12+ characters)")}</label>
             <PwField value={n1} onChange={e => { setN1(e.target.value); setErr(""); }} style={INP} onFocus={onFoc} onBlur={onBlur} /></div>
           <div><label style={LBL}>{t("Επιβεβαίωση νέου κωδικού", "Confirm new password")}</label>
             <PwField value={n2} onChange={e => { setN2(e.target.value); setErr(""); }} onEnter={go} style={INP} onFocus={onFoc} onBlur={onBlur} /></div>

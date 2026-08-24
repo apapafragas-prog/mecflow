@@ -47,7 +47,7 @@ export const expandFiles = async (fileList, onProg) => {
 const extractPdfText = async (file) => {
   if (!window.pdfjsLib && !(await waitForLib("pdf"))) throw new Error("pdf.js failed to load");
   const buf = await file.arrayBuffer();
-  const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+  const pdf = await window.pdfjsLib.getDocument({ data: buf, isEvalSupported: false }).promise;
   let text = "";
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
@@ -59,7 +59,7 @@ const extractPdfText = async (file) => {
 
 const pdfPageToImage = async (file, pageNum) => {
   const buf = await file.arrayBuffer();
-  const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+  const pdf = await window.pdfjsLib.getDocument({ data: buf, isEvalSupported: false }).promise;
   const page = await pdf.getPage(pageNum || 1);
   const vp = page.getViewport({ scale: 2 });
   const canvas = document.createElement("canvas");

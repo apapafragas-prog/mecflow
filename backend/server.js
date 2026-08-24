@@ -1,4 +1,5 @@
 import express from "express";
+import helmet from "helmet";
 import cors from "cors";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -22,8 +23,11 @@ const PORT = process.env.PORT || 3000;
 // ── JWT secret: fail hard on missing/known-weak values (never boot silently insecure) ──
 const JWT_SECRET = process.env.JWT_SECRET || "";
 const KNOWN_BAD_SECRETS = ["change-me-in-production", "CHANGE-THIS-TO-A-LONG-RANDOM-STRING"];
-if (JWT_SECRET.length < 32 || KNOWN_BAD_SECRETS.includes(JWT_SECRET)) {
-  console.error("FATAL: JWT_SECRET is missing, too short (<32 chars) or a known placeholder.");
+// Reject the shipped .env.example placeholder and any obvious non-secret (a strong guard prevents
+// booting with a publicly known signing key even if the operator copies the example verbatim).
+const PLACEHOLDER_RE = /change|placeholder|example|random-string|your[-_ ]?secret|xxxx/i;
+if (JWT_SECRET.length < 32 || KNOWN_BAD_SECRETS.includes(JWT_SECRET) || PLACEHOLDER_RE.test(JWT_SECRET)) {
+  console.error("FATAL: JWT_SECRET is missing, too short (<32 chars) or a known/placeholder value.");
   console.error("Set a strong random JWT_SECRET in .env, e.g.: openssl rand -hex 48");
   process.exit(1);
 }
@@ -163,6 +167,39 @@ const notifyStatusChange = (year, client, newStatus, submitterName, rejectNote, 
 
 const app = express();
 app.set('trust proxy', 1);
+app.disable('x-powered-by');
+// ── Security headers (helmet) ──────────────────────────────────────────────────────────────────────
+// Strict-but-workable CSP: the SPA and API are same-origin ('self'); inline styles are required (the UI
+// is built with inline styles); the invoice scanner pulls Tesseract.js (OCR) + its WASM/lang data from
+// public CDNs, so those origins are explicitly allow-listed (nothing else can load). frame-ancestors
+// 'none' blocks clickjacking; HSTS forces TLS; object-src 'none'. The file-download route sets its own
+// stricter per-response CSP (default-src 'none'; sandbox), which overrides this for those responses.
+const CDN = ["https://cdnjs.cloudflare.com", "https://unpkg.com", "https://cdn.jsdelivr.net"];
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'wasm-unsafe-eval'", "blob:", ...CDN],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "blob:"],
+      fontSrc: ["'self'", "data:"],
+      connectSrc: ["'self'", "https://tessdata.projectnaptha.com", ...CDN],
+      workerSrc: ["'self'", "blob:"],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      upgradeInsecureRequests: [],
+    },
+  },
+  hsts: { maxAge: 31536000, includeSubDomains: true },   // 1 year; enable preload once verified
+  referrerPolicy: { policy: "no-referrer" },
+  crossOriginOpenerPolicy: { policy: "same-origin" },
+  crossOriginEmbedderPolicy: false,   // would break the CDN-loaded OCR worker
+  crossOriginResourcePolicy: false,   // downloads set their own headers
+}));
+app.use((req, res, next) => { res.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=(), payment=()"); next(); });
 // CORS: explicit origin allowlist from env; default = same-origin only (frontend is served by this server)
 const CORS_ORIGINS = (process.env.CORS_ORIGIN || "").split(",").map(s => s.trim()).filter(s => s && s !== "*");
 // Bearer-token auth (localStorage), not cookies → no credentials needed on CORS.
@@ -195,7 +232,7 @@ const auth = (req, res, next) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
   if (!token) return res.status(401).json({ error: "No token" });
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
+    const payload = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
     // Session revocation: user must still exist and token_version must match
     const u = db.prepare("SELECT id, token_version FROM users WHERE id = ?").get(payload.id);
     if (!u || (u.token_version || 0) !== (payload.tv || 0)) return res.status(401).json({ error: "Session expired" });
@@ -226,13 +263,13 @@ app.post("/api/auth/login", loginIpLimiter, loginLimiter, (req, res) => {
 
 app.post("/api/auth/change-password", auth, (req, res) => {
   const { current, next: nextPwd } = req.body;
-  if (!nextPwd || nextPwd.length < 8) return res.status(400).json({ error: "Password must be 8+ chars" });
+  if (!nextPwd || nextPwd.length < 12) return res.status(400).json({ error: "Password must be at least 12 characters" });
   const u = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
   if (!bcrypt.compareSync(current, u.password_hash)) return res.status(401).json({ error: "Current password wrong" });
   if (nextPwd === current) return res.status(400).json({ error: "New password must differ from current" });
   // Bump token_version → all existing sessions for this user are revoked immediately
   db.prepare("UPDATE users SET password_hash = ?, must_change_password = 0, token_version = COALESCE(token_version,0) + 1 WHERE id = ?")
-    .run(bcrypt.hashSync(nextPwd, 10), req.user.id);
+    .run(bcrypt.hashSync(nextPwd, 12), req.user.id);
   const fresh = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
   const clients = fresh.clients === "ALL" ? "ALL" : JSON.parse(fresh.clients);
   // Issue a new token so THIS session continues seamlessly
@@ -275,14 +312,14 @@ app.post("/api/auth/forgot", forgotLimiter, async (req, res) => {
 app.post("/api/auth/reset", async (req, res) => {
   const { token, password } = req.body || {};
   if (!token || !password) return res.status(400).json({ error: "Λείπει το token ή ο κωδικός" });
-  if (String(password).length < 8) return res.status(400).json({ error: "Ο κωδικός πρέπει να έχει 8+ χαρακτήρες" });
+  if (String(password).length < 12) return res.status(400).json({ error: "Ο κωδικός πρέπει να έχει 12+ χαρακτήρες" });
   const tokenHash = createHmac("sha256", JWT_SECRET).update(String(token)).digest("hex");
   const row = db.prepare("SELECT * FROM password_resets WHERE token_hash = ?").get(tokenHash);
   if (!row || row.used || row.expires_at < Math.floor(Date.now() / 1000)) return res.status(400).json({ error: "Ο σύνδεσμος έληξε ή δεν ισχύει. Ζήτα νέο." });
   const u = db.prepare("SELECT id, username FROM users WHERE id = ?").get(row.user_id);
   if (!u) return res.status(400).json({ error: "Μη έγκυρος σύνδεσμος" });
   db.prepare("UPDATE users SET password_hash = ?, must_change_password = 0, token_version = COALESCE(token_version,0) + 1 WHERE id = ?")
-    .run(bcrypt.hashSync(String(password), 10), u.id);
+    .run(bcrypt.hashSync(String(password), 12), u.id);
   db.prepare("UPDATE password_resets SET used = 1 WHERE user_id = ? AND used = 0").run(u.id); // burn this + any other outstanding tokens
   audit(u.username, "password_reset_completed", null, req);
   res.json({ ok: true });
@@ -298,15 +335,21 @@ app.post("/api/users", auth, requireRole("admin"), (req, res) => {
   const { username, password, name, role, clients, email } = req.body;
   if (!username || !password || !name || !role) return res.status(400).json({ error: "Missing fields" });
   if (!["ops", "finance", "admin"].includes(role)) return res.status(400).json({ error: "Invalid role" });
-  if (password.length < 8) return res.status(400).json({ error: "Password must be 8+ chars" });
+  if (password.length < 12) return res.status(400).json({ error: "Password must be at least 12 characters" });
   try {
     const c = clients === "ALL" ? "ALL" : JSON.stringify(clients || []);
-    db.prepare("INSERT INTO users (username, password_hash, name, email, role, clients) VALUES (?, ?, ?, ?, ?, ?)").run(
-      username.toLowerCase(), bcrypt.hashSync(password, 10), name, String(email || ""), role, c
+    // must_change_password = 1: the admin-chosen password is temporary; the user must set their own on
+    // first login, so the admin never permanently knows another user's credential.
+    db.prepare("INSERT INTO users (username, password_hash, name, email, role, clients, must_change_password) VALUES (?, ?, ?, ?, ?, ?, 1)").run(
+      username.toLowerCase(), bcrypt.hashSync(password, 12), name, String(email || ""), role, c
     );
     audit(req.user.username, "user_created", username, req);
     res.json({ ok: true });
-  } catch (e) { res.status(400).json({ error: e.message }); }
+  } catch (e) {
+    // Don't leak DB/library internals; a duplicate username is the only expected failure.
+    console.error("user_create error:", e.message);
+    res.status(400).json({ error: /UNIQUE|constraint/i.test(e.message) ? "Username already exists" : "Could not create user" });
+  }
 });
 
 // Update an existing user's email / name / client access (admin only)
@@ -358,10 +401,10 @@ app.post("/api/users/:id/reset-password", auth, requireRole("admin"), (req, res)
   const u = db.prepare("SELECT id, username FROM users WHERE id = ?").get(id);
   if (!u) return res.status(404).json({ error: "Not found" });
   let temp = req.body && req.body.password ? String(req.body.password) : "";
-  if (temp && temp.length < 8) return res.status(400).json({ error: "Password must be 8+ chars" });
+  if (temp && temp.length < 12) return res.status(400).json({ error: "Password must be at least 12 characters" });
   if (!temp) temp = "CBRE!" + randomUUID().replace(/-/g, "").slice(0, 8);
   db.prepare("UPDATE users SET password_hash = ?, must_change_password = 1, token_version = COALESCE(token_version,0) + 1 WHERE id = ?")
-    .run(bcrypt.hashSync(temp, 10), id);
+    .run(bcrypt.hashSync(temp, 12), id);
   audit(req.user.username, "password_reset", u.username, req);
   res.json({ ok: true, username: u.username, tempPassword: temp });
 });
@@ -491,7 +534,14 @@ const reportsLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 40, keyGenerat
 app.post("/api/reports/email", auth, requireRole("finance", "admin"), reportsLimiter, async (req, res) => {
   if (!EMAIL_ENABLED) return res.status(503).json({ error: "Η αποστολή email δεν έχει ρυθμιστεί (SMTP)." });
   const { client, year, subtitle, months, rows, recipients, subject } = req.body || {};
-  const to = (Array.isArray(recipients) ? recipients : []).map((e) => String(e).trim()).filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+  let to = (Array.isArray(recipients) ? recipients : []).map((e) => String(e).trim()).filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+  // Optional approved-domain allowlist (REPORT_EMAIL_DOMAINS="cbre.com,cbrehellas.online"): when set, P&L
+  // reports can only be emailed to those domains — prevents exfiltration of financials to arbitrary inboxes.
+  const allowDomains = (process.env.REPORT_EMAIL_DOMAINS || "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+  if (allowDomains.length) {
+    const rejected = to.filter(e => !allowDomains.includes(e.split("@")[1].toLowerCase()));
+    if (rejected.length) return res.status(403).json({ error: "Παραλήπτες εκτός εγκεκριμένων domains: " + rejected.join(", ") });
+  }
   if (!to.length) return res.status(400).json({ error: "Δεν δόθηκαν έγκυροι παραλήπτες" });
   if (!Array.isArray(rows) || !rows.length) return res.status(400).json({ error: "Κενή αναφορά" });
   if (to.length > 20 || rows.length > 200) return res.status(400).json({ error: "Πολύ μεγάλο αίτημα" });
@@ -587,7 +637,7 @@ app.get("/api/files/:year/:client/:id/download", (req, res) => {
     const token = req.headers.authorization?.replace("Bearer ", "");
     if (!token) return res.status(401).json({ error: "No token" });
     let payload;
-    try { payload = jwt.verify(token, JWT_SECRET); } catch { return res.status(401).json({ error: "Invalid token" }); }
+    try { payload = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] }); } catch { return res.status(401).json({ error: "Invalid token" }); }
     const u = db.prepare("SELECT id, token_version FROM users WHERE id = ?").get(payload.id);
     if (!u || (u.token_version || 0) !== (payload.tv || 0)) return res.status(401).json({ error: "Session expired" });
     if (!canAccess(payload, client)) return res.status(403).json({ error: "Access denied" });
@@ -836,7 +886,7 @@ Convert EU decimals: "1.234,56" → 1234.56`;
     });
   } catch (e) {
     console.error("Extract invoice error:", e.message);
-    res.status(500).json({ error: e.message || "Extraction failed" });
+    res.status(500).json({ error: "Extraction failed" });
   }
 });
 
@@ -868,7 +918,7 @@ Rules:
     res.json(data);
   } catch (e) {
     console.error("Extract contract error:", e.message);
-    res.status(500).json({ error: e.message || "Extraction failed" });
+    res.status(500).json({ error: "Extraction failed" });
   }
 });
 
@@ -909,7 +959,7 @@ ${JSON.stringify(context, null, 2)}`;
     res.json({ text });
   } catch (e) {
     console.error("Insights error:", e.message);
-    res.status(500).json({ error: e.message || "AI insight failed" });
+    res.status(500).json({ error: "AI insight failed" });
   }
 });
 
@@ -980,6 +1030,14 @@ if (fs.existsSync(PUBLIC_DIR)) {
   app.use(express.static(PUBLIC_DIR));
   app.get("*", (req, res) => res.sendFile(join(PUBLIC_DIR, "index.html")));
 }
+
+// Global error handler — never leak stack traces or library internals to clients.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error("Unhandled error:", err && err.message, err && err.stack);
+  if (res.headersSent) return;
+  res.status(500).json({ error: "Internal server error" });
+});
 
 app.listen(PORT, () => {
   console.log(`✓ CBRE Backend running on port ${PORT}`);

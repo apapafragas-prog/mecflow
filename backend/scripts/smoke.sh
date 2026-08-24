@@ -83,9 +83,17 @@ chk "finance envelope ok"           200 "$(code -X PUT "$B/api/finance/2026" -H 
 chk "ops CANNOT read finance"       403 "$(code "$B/api/finance/2026" -H "$AH_OPS")"
 
 echo "── L8/L7: user create role + audit clamp ──"
-chk "admin create bad role"         400 "$(code -X POST "$B/api/users" -H "$AH_ADM" -H "$CT" -d '{"username":"zz","password":"password123","name":"ZZ","role":"Admin","clients":[]}')"
-chk "admin create valid role"       200 "$(code -X POST "$B/api/users" -H "$AH_ADM" -H "$CT" -d '{"username":"zz","password":"password123","name":"ZZ","role":"ops","clients":[]}')"
+chk "admin create bad role"         400 "$(code -X POST "$B/api/users" -H "$AH_ADM" -H "$CT" -d '{"username":"zz","password":"password123456","name":"ZZ","role":"Admin","clients":[]}')"
+chk "admin create valid role"       200 "$(code -X POST "$B/api/users" -H "$AH_ADM" -H "$CT" -d '{"username":"zz","password":"password123456","name":"ZZ","role":"ops","clients":[]}')"
 chk "audit limit=-1 (no crash)"     200 "$(code "$B/api/audit?limit=-1" -H "$AH_ADM")"
+
+echo "── security headers ──"
+HDRS="$(curl -sI "$B/api/health")"
+hdr(){ echo "$HDRS" | grep -qi "$2" && echo present || echo missing; }
+chk "CSP header present"             present "$(hdr csp 'content-security-policy')"
+chk "HSTS header present"            present "$(hdr hsts 'strict-transport-security')"
+chk "X-Content-Type-Options nosniff" present "$(hdr xcto 'x-content-type-options: nosniff')"
+chk "frame-ancestors none (CSP)"    present "$(echo "$HDRS" | grep -qi "frame-ancestors 'none'" && echo present || echo missing)"
 
 echo ""
 echo "RESULT: $PASS passed, $FAIL failed"
