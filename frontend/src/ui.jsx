@@ -1,7 +1,90 @@
 // Reusable leaf UI components, extracted from App.jsx. Shared by every screen.
 import { useState, useRef, useEffect, useMemo } from "react";
 import { P, fmt, logoUrl, logoUrl2 } from "./constants.js";
+import { api } from "./api.js";
 import { useT } from "./i18n.jsx";
+
+// ── MFA (two-factor) self-service enrollment modal ────────────────────────────────────────────────
+// Opens on the "mf-open-mfa" window event. Setup → scan QR / enter secret → confirm code → backup codes.
+// Also lets an enrolled user disable MFA (password + current code). All state lives on the server.
+export function MfaSettings() {
+  const { t } = useT();
+  const [open, setOpen] = useState(false);
+  const [enabled, setEnabled] = useState(null);   // null=loading
+  const [setup, setSetup] = useState(null);        // {secret, otpauth, qr}
+  const [code, setCode] = useState("");
+  const [pw, setPw] = useState("");
+  const [backup, setBackup] = useState(null);      // shown once after enable
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const reset = () => { setSetup(null); setCode(""); setPw(""); setBackup(null); setErr(""); };
+  useEffect(() => {
+    const onOpen = () => { setOpen(true); reset(); setEnabled(null); api.mfaStatus().then(r => setEnabled(!!r.enabled)).catch(() => setEnabled(false)); };
+    window.addEventListener("mf-open-mfa", onOpen);
+    return () => window.removeEventListener("mf-open-mfa", onOpen);
+  }, []);
+  if (!open) return null;
+  const startSetup = async () => { setBusy(true); setErr(""); try { setSetup(await api.mfaSetup()); } catch (e) { setErr(e.message || "error"); } finally { setBusy(false); } };
+  const confirm = async () => { setBusy(true); setErr(""); try { const r = await api.mfaEnable(code.trim()); setBackup(r.backupCodes || []); setEnabled(true); } catch (e) { setErr(e.message || t("Λάθος κωδικός", "Wrong code")); } finally { setBusy(false); } };
+  const disable = async () => { setBusy(true); setErr(""); try { await api.mfaDisable(pw, code.trim()); setEnabled(false); reset(); } catch (e) { setErr(e.message || t("Αποτυχία", "Failed")); } finally { setBusy(false); } };
+  const box = { width: "100%", padding: "9px 11px", border: "1px solid " + P.bd, borderRadius: 8, fontSize: 14, outline: "none", boxSizing: "border-box", background: P.ip };
+  const primary = { background: P.em, color: "#fff", border: "none", padding: "9px 16px", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer" };
+  return (
+    <div onMouseDown={() => setOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.42)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2100, padding: 16 }}>
+      <div onMouseDown={e => e.stopPropagation()} style={{ background: P.wh, borderRadius: 14, width: "100%", maxWidth: 440, maxHeight: "88vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid " + P.bd, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: P.em }}>🔐 {t("Έλεγχος δύο παραγόντων (MFA)", "Two-factor authentication (MFA)")}</div>
+          <button onClick={() => setOpen(false)} style={{ background: P.of, border: "1px solid " + P.bd, borderRadius: 8, padding: "5px 11px", cursor: "pointer" }}>✕</button>
+        </div>
+        <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
+          {enabled == null && <div style={{ color: P.tm, textAlign: "center" }}>{t("Φόρτωση…", "Loading…")}</div>}
+
+          {backup && (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: P.gn, marginBottom: 6 }}>✓ {t("Το MFA ενεργοποιήθηκε", "MFA enabled")}</div>
+              <div style={{ fontSize: 12, color: P.tm, marginBottom: 8 }}>{t("Φύλαξε αυτούς τους backup κωδικούς σε ασφαλές μέρος — κάθε ένας χρησιμοποιείται μία φορά αν χάσεις το τηλέφωνό σου.", "Save these backup codes somewhere safe — each works once if you lose your phone.")}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, fontFamily: "monospace", fontSize: 13, background: P.of, border: "1px solid " + P.bd, borderRadius: 8, padding: 12 }}>
+                {backup.map((c, i) => <div key={i}>{c}</div>)}
+              </div>
+              <button onClick={() => setOpen(false)} style={{ ...primary, marginTop: 14, width: "100%" }}>{t("Τέλος", "Done")}</button>
+            </div>
+          )}
+
+          {!backup && enabled === false && !setup && (
+            <>
+              <div style={{ fontSize: 13, color: P.tx }}>{t("Πρόσθεσε ένα δεύτερο επίπεδο ασφαλείας με μια εφαρμογή authenticator (Google Authenticator, Microsoft Authenticator, κ.λπ.).", "Add a second layer of security with an authenticator app (Google Authenticator, Microsoft Authenticator, etc.).")}</div>
+              {err && <div style={{ color: P.rd, fontSize: 12 }}>{err}</div>}
+              <button onClick={startSetup} disabled={busy} style={{ ...primary, opacity: busy ? .6 : 1 }}>{busy ? "…" : t("Ενεργοποίηση MFA", "Enable MFA")}</button>
+            </>
+          )}
+
+          {!backup && setup && (
+            <>
+              <div style={{ fontSize: 12, color: P.tm }}>{t("1) Σκάναρε το QR με την εφαρμογή authenticator (ή βάλε το κλειδί χειροκίνητα):", "1) Scan the QR with your authenticator app (or enter the key manually):")}</div>
+              {setup.qr && <div style={{ textAlign: "center" }}><img src={setup.qr} alt="QR" style={{ width: 190, height: 190, border: "1px solid " + P.bd, borderRadius: 10 }} /></div>}
+              <div style={{ fontFamily: "monospace", fontSize: 12, background: P.of, border: "1px solid " + P.bd, borderRadius: 8, padding: "8px 10px", wordBreak: "break-all", textAlign: "center" }}>{setup.secret}</div>
+              <div style={{ fontSize: 12, color: P.tm }}>{t("2) Βάλε τον 6ψήφιο κωδικό που εμφανίζεται:", "2) Enter the 6-digit code it shows:")}</div>
+              <input value={code} onChange={e => { setCode(e.target.value); setErr(""); }} onKeyDown={e => e.key === "Enter" && confirm()} placeholder="123456" inputMode="numeric" autoFocus style={{ ...box, letterSpacing: 4, fontSize: 18, textAlign: "center" }} />
+              {err && <div style={{ color: P.rd, fontSize: 12 }}>{err}</div>}
+              <button onClick={confirm} disabled={busy} style={{ ...primary, opacity: busy ? .6 : 1 }}>{busy ? t("Έλεγχος…", "Verifying…") : t("Επιβεβαίωση & ενεργοποίηση", "Confirm & enable")}</button>
+            </>
+          )}
+
+          {!backup && enabled === true && !setup && (
+            <>
+              <div style={{ fontSize: 13, color: P.gn, fontWeight: 600 }}>✓ {t("Το MFA είναι ενεργό στον λογαριασμό σου.", "MFA is active on your account.")}</div>
+              <div style={{ fontSize: 12, color: P.tm }}>{t("Για απενεργοποίηση, επιβεβαίωσε με τον κωδικό σου και έναν τρέχοντα κωδικό MFA.", "To disable, confirm with your password and a current MFA code.")}</div>
+              <input type="password" value={pw} onChange={e => { setPw(e.target.value); setErr(""); }} placeholder={t("Κωδικός πρόσβασης", "Password")} style={box} />
+              <input value={code} onChange={e => { setCode(e.target.value); setErr(""); }} placeholder={t("Κωδικός MFA", "MFA code")} inputMode="numeric" style={box} />
+              {err && <div style={{ color: P.rd, fontSize: 12 }}>{err}</div>}
+              <button onClick={disable} disabled={busy} style={{ background: P.rd, color: "#fff", border: "none", padding: "9px 16px", borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: busy ? .6 : 1 }}>{busy ? "…" : t("Απενεργοποίηση MFA", "Disable MFA")}</button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Global search palette (⌘K / Ctrl-K) ──────────────────────────────────────
 // Cross-client fuzzy search over clients, invoices, subcontractor bills and contracts for the active
@@ -168,6 +251,7 @@ export function AppHeader({ user, onLogout, onBack, backLabel, title, sub, right
           <span style={{ width: 32, height: 32, borderRadius: "50%", background: "linear-gradient(135deg,#0A5A40," + P.ac + ")", color: "#fff", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 600, flex: "none" }}>{initials}</span>
           <span style={{ fontSize: 13, color: P.tx, fontWeight: 500 }}>{user?.name}</span>
         </span>
+        <button onClick={() => window.dispatchEvent(new Event("mf-open-mfa"))} title={t("Ασφάλεια / MFA", "Security / MFA")} style={{ background: P.of, border: "1px solid " + P.bd, color: P.tx, padding: "6px 10px", borderRadius: 10, cursor: "pointer", fontSize: 13 }}>🔐</button>
         <button onClick={onLogout} style={{ background: P.of, border: "1px solid " + P.bd, color: P.tx, padding: "6px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12 }}>{t("Αποσύνδεση", "Logout")}</button>
       </div>
     </div>

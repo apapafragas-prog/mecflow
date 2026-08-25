@@ -178,6 +178,8 @@ export function Login({ onLogin }) {
   const [fUser, setFUser] = useState("");
   const [fMsg, setFMsg] = useState("");
   const [fBusy, setFBusy] = useState(false);
+  const [mfaTok, setMfaTok] = useState("");   // MFA challenge token (set when password step returns mfaRequired)
+  const [mfaCode, setMfaCode] = useState("");
   const sendForgot = async () => {
     if (!fUser.trim()) { setFMsg(t("Βάλε username ή email", "Enter a username or email")); return; }
     setFBusy(true); setFMsg("");
@@ -190,23 +192,43 @@ export function Login({ onLogin }) {
         : (e.message || t("Κάτι πήγε στραβά", "Something went wrong")));
     } finally { setFBusy(false); }
   };
+  const finishLogin = (r) => { if (r.token) setToken(r.token); onLogin({ user: r.user.username, name: r.user.name, role: r.user.role, clients: r.user.clients, mustChange: !!r.user.must_change_password }); };
   const go = async () => {
     if (!u || !c) { setErr(t("Δώσε όνομα χρήστη και κωδικό", "Enter username and password")); return; }
     setBusy(true); setErr("");
     try {
       const r = await api.login(u.trim().toLowerCase(), c);
-      if (r.token) setToken(r.token);
-      onLogin({ user: r.user.username, name: r.user.name, role: r.user.role, clients: r.user.clients, mustChange: !!r.user.must_change_password });
+      if (r.mfaRequired) { setMfaTok(r.mfaToken); setBusy(false); return; }   // second factor needed
+      finishLogin(r);
     } catch (e) {
       setErr(e.message || t("Λάθος στοιχεία", "Invalid credentials"));
     } finally {
       setBusy(false);
     }
   };
+  const verifyMfa = async () => {
+    if (!mfaCode.trim()) { setErr(t("Βάλε τον κωδικό", "Enter the code")); return; }
+    setBusy(true); setErr("");
+    try { finishLogin(await api.mfaVerify(mfaTok, mfaCode.trim())); }
+    catch (e) { setErr(e.message || t("Λάθος κωδικός", "Invalid code")); setBusy(false); }
+  };
   return (
     <AuthShell>
       <BrandCard>
         <div style={{ position: "absolute", top: -46, right: 8 }}><LangToggle dark /></div>
+        {mfaTok ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 15 }}>
+            <div style={{ fontSize: 13, color: P.tm }}>{t("Έλεγχος ταυτότητας δύο παραγόντων", "Two-factor authentication")}</div>
+            <div>
+              <label style={LBL}>{t("Κωδικός εφαρμογής (6 ψηφία) ή backup code", "Authenticator code (6 digits) or backup code")}</label>
+              <input value={mfaCode} onChange={e => { setMfaCode(e.target.value); setErr(""); }} onKeyDown={e => e.key === "Enter" && verifyMfa()} placeholder="123456" autoFocus inputMode="numeric" autoComplete="one-time-code"
+                style={{ ...INP, letterSpacing: 4, fontSize: 18, textAlign: "center" }} onFocus={onFoc} onBlur={onBlur} />
+            </div>
+            {err && <div style={{ color: P.rd, fontSize: 12, padding: "2px 0" }}>{err}</div>}
+            <button onClick={verifyMfa} disabled={busy} style={{ ...BTN, marginTop: 2, cursor: busy ? "wait" : "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? t("Έλεγχος…", "Verifying…") : t("Επαλήθευση", "Verify")}</button>
+            <button type="button" onClick={() => { setMfaTok(""); setMfaCode(""); setErr(""); }} style={{ background: "none", border: "none", color: P.tm, fontSize: 12, cursor: "pointer" }}>← {t("Πίσω", "Back")}</button>
+          </div>
+        ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 15 }}>
           <div>
             <label style={LBL}>{t("Όνομα χρήστη", "Username")}</label>
@@ -236,6 +258,7 @@ export function Login({ onLogin }) {
             </div>
           )}
         </div>
+        )}
       </BrandCard>
       <div style={{ textAlign: "center", fontSize: 11, color: "rgba(255,255,255,.55)", marginTop: 18 }}>
         {t("Μόνο για εξουσιοδοτημένους υπαλλήλους CBRE Hellas", "Authorised CBRE Hellas employees only")}

@@ -95,6 +95,12 @@ chk "HSTS header present"            present "$(hdr hsts 'strict-transport-secur
 chk "X-Content-Type-Options nosniff" present "$(hdr xcto 'x-content-type-options: nosniff')"
 chk "frame-ancestors none (CSP)"    present "$(echo "$HDRS" | grep -qi "frame-ancestors 'none'" && echo present || echo missing)"
 
+echo "── MFA (TOTP) end-to-end ──"
+MFA_OUT="$(B="$B" TOK="$TOK_ADM" USER="antonis" PASS="$SEED_PW" node scripts/mfa-e2e.mjs 2>&1)"
+echo "$MFA_OUT"
+PASS=$((PASS + $(echo "$MFA_OUT" | grep -c 'PASS:')))
+FAIL=$((FAIL + $(echo "$MFA_OUT" | grep -c 'FAIL:')))
+
 echo ""
 echo "RESULT: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || { echo "--- server log tail ---"; tail -8 "$LOG"; }

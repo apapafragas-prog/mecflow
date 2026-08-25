@@ -14,7 +14,7 @@ export const getToken = () => token;
 // On these endpoints a 401 means "bad credentials" (wrong password) and must surface as an error
 // for the screen to show — NOT trigger the global session-expired logout+reload (which on the
 // change-password screen looks like an infinite loop: wrong current password → reload → same screen).
-const AUTH_ERROR_PATHS = ["/auth/login", "/auth/change-password", "/auth/forgot", "/auth/reset"];
+const AUTH_ERROR_PATHS = ["/auth/login", "/auth/change-password", "/auth/forgot", "/auth/reset", "/auth/mfa/verify"];
 
 const req = async (path, opts = {}) => {
   const headers = { ...(opts.headers || {}) };
@@ -45,6 +45,12 @@ export const api = {
   // Forgot/reset password (email self-service via Resend)
   forgotPassword: (username) => req("/auth/forgot", { method: "POST", body: JSON.stringify({ username }) }),
   resetPassword: (token, password) => req("/auth/reset", { method: "POST", body: JSON.stringify({ token, password }) }),
+  // MFA (TOTP)
+  mfaVerify: (mfaToken, code) => req("/auth/mfa/verify", { method: "POST", body: JSON.stringify({ mfaToken, code }) }),
+  mfaStatus: () => req("/auth/mfa/status"),
+  mfaSetup: () => req("/auth/mfa/setup", { method: "POST" }),
+  mfaEnable: (code) => req("/auth/mfa/enable", { method: "POST", body: JSON.stringify({ code }) }),
+  mfaDisable: (password, code) => req("/auth/mfa/disable", { method: "POST", body: JSON.stringify({ password, code }) }),
 
   // Users (admin)
   listUsers: () => req("/users"),

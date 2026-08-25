@@ -12,7 +12,7 @@ import {
   uid, CLIENTS, MONTHS, ML, setFiscalYear, normalizeClientData, currentFyLabel,
   REV_CATS, COST_CATS, LAB_ROWS, LAB_ALL_ROWS, LAB_EW_KEY, LAB_PJM_KEY, mkLab, mkAlloc, P, YEARS,
 } from "./constants.js";
-import { LogoImg, LangToggle, GlobalSearch } from "./ui.jsx";
+import { LogoImg, LangToggle, GlobalSearch, MfaSettings } from "./ui.jsx";
 import { Login, ForcePw, ResetPassword } from "./auth.jsx";
 import { PnL, InvTab, SubTab, AccTab, LabTab, POTracker } from "./reportTabs.jsx";
 import { parseWorkbookFile, ReconcileModal } from "./importReconcile.jsx";
@@ -323,7 +323,7 @@ export default function App() {
     </div>
   ) : null;
   const searchEl = <GlobalSearch data={yd} onNavigate={navChat} canFinance={user.role==="finance"||user.role==="admin"} myClients={user.clients} />;
-  const withChat = (screen) => <>{screen}{scanPill}{chatEl}{searchEl}</>;
+  const withChat = (screen) => <>{screen}{scanPill}{chatEl}{searchEl}<MfaSettings /></>;
 
   if (!client && dashOpen)
     return withChat(<Dashboard year={year} setYear={setYear} user={user} onBack={()=>setDashOpen(false)} onLogout={logout} onSelectClient={c=>{setDashOpen(false);setClient(c);setTab("contracts");}} />);
@@ -656,6 +656,7 @@ export default function App() {
             <span style={{width:32,height:32,borderRadius:"50%",background:"linear-gradient(135deg,#0A5A40,"+P.ac+")",color:"#fff",display:"grid",placeItems:"center",fontSize:12,fontWeight:600,flex:"none"}}>{(user.name||user.user||"?").split(/\s+/).filter(Boolean).map(s=>s[0]).slice(0,2).join("").toUpperCase()||"?"}</span>
             <span style={{fontSize:13,color:P.tx,fontWeight:500}}>{user.name}</span>
           </span>
+          <button onClick={()=>window.dispatchEvent(new Event("mf-open-mfa"))} title={t("Ασφάλεια / MFA","Security / MFA")} style={{background:P.of,border:"1px solid "+P.bd,color:P.tx,padding:"6px 10px",borderRadius:10,cursor:"pointer",fontSize:13}}>🔐</button>
           <button onClick={logout} style={{background:P.of,border:"1px solid "+P.bd,color:P.tx,padding:"6px 12px",borderRadius:10,cursor:"pointer",fontSize:12}}>{t("Αποσύνδεση","Logout")}</button>
         </div>
       </div>

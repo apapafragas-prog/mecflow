@@ -6,13 +6,14 @@ import jwt from "jsonwebtoken";
 import Database from "better-sqlite3";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
-import { randomUUID, createHmac, timingSafeEqual } from "crypto";
+import { randomUUID, randomBytes, createHmac, timingSafeEqual } from "crypto";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import fs from "fs";
 import "dotenv/config";
 import Anthropic from "@anthropic-ai/sdk";
 import nodemailer from "nodemailer";
+import QRCode from "qrcode";
 import { validateAmounts } from "./lib/validate.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -44,6 +45,10 @@ const tableCols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map(c => c.
 if (!tableCols("users").includes("must_change_password")) db.exec("ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0");
 if (!tableCols("users").includes("token_version")) db.exec("ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 0");
 if (!tableCols("users").includes("email")) db.exec("ALTER TABLE users ADD COLUMN email TEXT DEFAULT ''");
+// MFA (TOTP): per-user secret (base32), enabled flag, and bcrypt-hashed one-time backup codes (JSON).
+if (!tableCols("users").includes("totp_secret")) db.exec("ALTER TABLE users ADD COLUMN totp_secret TEXT DEFAULT ''");
+if (!tableCols("users").includes("totp_enabled")) db.exec("ALTER TABLE users ADD COLUMN totp_enabled INTEGER DEFAULT 0");
+if (!tableCols("users").includes("totp_backup")) db.exec("ALTER TABLE users ADD COLUMN totp_backup TEXT DEFAULT ''");
 if (!tableCols("client_data").includes("version")) db.exec("ALTER TABLE client_data ADD COLUMN version INTEGER DEFAULT 0");
 // Password-reset tokens (email self-service flow). Only the HMAC of the token is stored.
 db.exec(`CREATE TABLE IF NOT EXISTS password_resets (
@@ -233,6 +238,8 @@ const auth = (req, res, next) => {
   if (!token) return res.status(401).json({ error: "No token" });
   try {
     const payload = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
+    // Reject the short-lived MFA-challenge token here — it only authorises /api/auth/mfa/verify.
+    if (payload.mfa) return res.status(401).json({ error: "MFA not completed" });
     // Session revocation: user must still exist and token_version must match
     const u = db.prepare("SELECT id, token_version FROM users WHERE id = ?").get(payload.id);
     if (!u || (u.token_version || 0) !== (payload.tv || 0)) return res.status(401).json({ error: "Session expired" });
@@ -246,6 +253,32 @@ const requireRole = (...roles) => (req, res, next) => {
   next();
 };
 
+// Issue the full session JWT for an authenticated user (shared by login and MFA verify).
+const issueToken = (u) => {
+  const clients = u.clients === "ALL" ? "ALL" : JSON.parse(u.clients);
+  const token = jwt.sign({ id: u.id, username: u.username, name: u.name, role: u.role, clients, tv: u.token_version || 0 }, JWT_SECRET, { expiresIn: "24h" });
+  return { token, clients };
+};
+
+// ── TOTP (RFC 6238) — implemented on top of Node crypto, no third-party auth dependency ──
+const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+const b32encode = (buf) => { let bits = 0, val = 0, out = ""; for (const b of buf) { val = (val << 8) | b; bits += 8; while (bits >= 5) { out += B32[(val >>> (bits - 5)) & 31]; bits -= 5; } } if (bits > 0) out += B32[(val << (5 - bits)) & 31]; return out; };
+const b32decode = (str) => { let bits = 0, val = 0; const out = []; for (const c of String(str).replace(/=+$/, "").toUpperCase()) { const idx = B32.indexOf(c); if (idx < 0) continue; val = (val << 5) | idx; bits += 5; if (bits >= 8) { out.push((val >>> (bits - 8)) & 0xff); bits -= 8; } } return Buffer.from(out); };
+const totpAt = (secretB32, counter) => {
+  const key = b32decode(secretB32); const buf = Buffer.alloc(8); buf.writeBigInt64BE(BigInt(counter));
+  const h = createHmac("sha1", key).update(buf).digest(); const off = h[h.length - 1] & 0xf;
+  const code = ((h[off] & 0x7f) << 24) | ((h[off + 1] & 0xff) << 16) | ((h[off + 2] & 0xff) << 8) | (h[off + 3] & 0xff);
+  return String(code % 1000000).padStart(6, "0");
+};
+// Accept a ±1 step window (±30s) for clock drift; constant-ish comparison via exact string match.
+const totpVerify = (secretB32, token, window = 1) => {
+  if (!secretB32 || !/^\d{6}$/.test(String(token || ""))) return false;
+  const t = Math.floor(Date.now() / 1000 / 30);
+  for (let w = -window; w <= window; w++) if (totpAt(secretB32, t + w) === String(token)) return true;
+  return false;
+};
+const genBackupCodes = () => Array.from({ length: 10 }, () => randomBytes(5).toString("hex")); // 10 x 10-hex codes
+
 // ── Auth endpoints ──
 app.post("/api/auth/login", loginIpLimiter, loginLimiter, (req, res) => {
   const { username, password } = req.body;
@@ -255,10 +288,73 @@ app.post("/api/auth/login", loginIpLimiter, loginLimiter, (req, res) => {
     audit(username, "login_failed", null, req);
     return res.status(401).json({ error: "Invalid credentials" });
   }
-  const clients = u.clients === "ALL" ? "ALL" : JSON.parse(u.clients);
-  const token = jwt.sign({ id: u.id, username: u.username, name: u.name, role: u.role, clients, tv: u.token_version || 0 }, JWT_SECRET, { expiresIn: "24h" });
+  // If MFA is enabled, password is only the first factor: issue a short-lived challenge token and require
+  // a TOTP/backup code at /api/auth/mfa/verify before any real session token is granted.
+  if (u.totp_enabled) {
+    const mfaToken = jwt.sign({ id: u.id, mfa: true }, JWT_SECRET, { expiresIn: "5m" });
+    audit(u.username, "login_mfa_challenge", null, req);
+    return res.json({ mfaRequired: true, mfaToken });
+  }
+  const { token, clients } = issueToken(u);
   audit(u.username, "login_success", null, req);
   res.json({ token, user: { username: u.username, name: u.name, role: u.role, clients, must_change_password: !!u.must_change_password } });
+});
+
+// ── MFA verify: second factor after password. Consumes a TOTP code or a one-time backup code. ──
+const mfaVerifyLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, keyGenerator: (req) => req.ip, message: { error: "Too many attempts" } });
+app.post("/api/auth/mfa/verify", loginIpLimiter, mfaVerifyLimiter, (req, res) => {
+  const { mfaToken, code } = req.body || {};
+  let payload;
+  try { payload = jwt.verify(mfaToken, JWT_SECRET, { algorithms: ["HS256"] }); } catch { return res.status(401).json({ error: "MFA session expired — log in again" }); }
+  if (!payload.mfa) return res.status(401).json({ error: "Invalid MFA session" });
+  const u = db.prepare("SELECT * FROM users WHERE id = ?").get(payload.id);
+  if (!u || !u.totp_enabled) return res.status(401).json({ error: "MFA not enabled" });
+  let ok = totpVerify(u.totp_secret, code);
+  if (!ok) {
+    // Fall back to a one-time backup code (bcrypt-hashed); consume it on use.
+    let list; try { list = JSON.parse(u.totp_backup || "[]"); } catch { list = []; }
+    const idx = list.findIndex(h => bcrypt.compareSync(String(code || "").trim(), h));
+    if (idx >= 0) { ok = true; list.splice(idx, 1); db.prepare("UPDATE users SET totp_backup = ? WHERE id = ?").run(JSON.stringify(list), u.id); }
+  }
+  if (!ok) { audit(u.username, "mfa_failed", null, req); return res.status(401).json({ error: "Invalid code" }); }
+  const { token, clients } = issueToken(u);
+  audit(u.username, "login_success", null, req);
+  res.json({ token, user: { username: u.username, name: u.name, role: u.role, clients, must_change_password: !!u.must_change_password } });
+});
+
+// ── MFA enrollment (self-service; requires an authenticated session) ──
+app.post("/api/auth/mfa/setup", auth, async (req, res) => {
+  const u = db.prepare("SELECT username FROM users WHERE id = ?").get(req.user.id);
+  const secret = b32encode(randomBytes(20));
+  db.prepare("UPDATE users SET totp_secret = ? WHERE id = ?").run(secret, req.user.id);  // stored but not enabled yet
+  const label = encodeURIComponent(`MECflow:${u.username}`);
+  const otpauth = `otpauth://totp/${label}?secret=${secret}&issuer=MECflow&digits=6&period=30`;
+  let qr = null; try { qr = await QRCode.toDataURL(otpauth, { margin: 1, width: 200 }); } catch { /* client can show the secret */ }
+  res.json({ secret, otpauth, qr });
+});
+app.post("/api/auth/mfa/enable", auth, (req, res) => {
+  const { code } = req.body || {};
+  const u = db.prepare("SELECT totp_secret FROM users WHERE id = ?").get(req.user.id);
+  if (!u.totp_secret) return res.status(400).json({ error: "Run setup first" });
+  if (!totpVerify(u.totp_secret, code)) return res.status(400).json({ error: "Wrong code — check your authenticator app" });
+  const backup = genBackupCodes();
+  db.prepare("UPDATE users SET totp_enabled = 1, totp_backup = ? WHERE id = ?").run(JSON.stringify(backup.map(c => bcrypt.hashSync(c, 10))), req.user.id);
+  audit(u.username || req.user.username, "mfa_enabled", null, req);
+  res.json({ ok: true, backupCodes: backup });   // shown once
+});
+app.post("/api/auth/mfa/disable", auth, (req, res) => {
+  const { password, code } = req.body || {};
+  const u = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+  if (!bcrypt.compareSync(String(password || ""), u.password_hash)) return res.status(401).json({ error: "Password wrong" });
+  if (u.totp_enabled && !totpVerify(u.totp_secret, code)) return res.status(400).json({ error: "Wrong code" });
+  db.prepare("UPDATE users SET totp_enabled = 0, totp_secret = '', totp_backup = '' WHERE id = ?").run(req.user.id);
+  audit(req.user.username, "mfa_disabled", null, req);
+  res.json({ ok: true });
+});
+// Report MFA state for the current user (so the UI can show enrolled/not).
+app.get("/api/auth/mfa/status", auth, (req, res) => {
+  const u = db.prepare("SELECT totp_enabled FROM users WHERE id = ?").get(req.user.id);
+  res.json({ enabled: !!(u && u.totp_enabled) });
 });
 
 app.post("/api/auth/change-password", auth, (req, res) => {
