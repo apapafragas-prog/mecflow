@@ -1,10 +1,13 @@
-version: "3.8"
-
 services:
   cbre:
     build: .
     container_name: cbre-reporting
     restart: unless-stopped
+    # Published on the host so the Cloudflare tunnel (which targets 192.168.1.158:3300) keeps working.
+    # ⚠ HARDENING (do together with a tunnel-config change): for full segmentation, attach the
+    #   cloudflared container to the "cbre" network below and point it at http://cbre:3000, then remove
+    #   this "ports" line entirely (no host port at all) — OR bind loopback-only ("127.0.0.1:3300:3000")
+    #   and repoint the tunnel to http://127.0.0.1:3300. Either removes LAN exposure of the app.
     ports:
       - "3300:3000"
     environment:
@@ -21,11 +24,29 @@ services:
       - SMTP_PASS=${SMTP_PASS:-}
       - SMTP_FROM=${SMTP_FROM:-}
       - APP_BASE_URL=${APP_BASE_URL:-https://cbre.mecflow.gr}
+      - REPORT_EMAIL_DOMAINS=${REPORT_EMAIL_DOMAINS:-}
     volumes:
       - ./data:/data
+    # ── Container hardening ──
+    read_only: true                     # immutable root FS — only /data (volume) and /tmp (tmpfs) are writable
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL                             # drop all Linux capabilities (the app needs none)
+    security_opt:
+      - no-new-privileges:true          # a child process can never gain more privileges than its parent
+    mem_limit: 512m                     # cap memory so a bug/abuse can't OOM the whole NAS
+    cpus: "1.0"
+    pids_limit: 256
+    networks:
+      - cbre                            # dedicated network — NOT shared with hr-portal or other apps
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
+
+networks:
+  cbre:
+    name: cbre-net
