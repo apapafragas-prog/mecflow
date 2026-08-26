@@ -17,8 +17,7 @@ RUN npm install --omit=dev
 # NOTE: pin the base image by digest (node:20-alpine@sha256:...) in CI for reproducible, attested builds.
 FROM node:20-alpine
 WORKDIR /app
-# su-exec lets the entrypoint fix the data-volume ownership as root, then drop to the unprivileged 'node' user.
-RUN apk add --no-cache su-exec
+# Runs as the unprivileged 'node' user (set in docker-compose.yml). No privilege-drop tooling needed.
 COPY --from=backend-deps /app/node_modules ./node_modules
 COPY backend/package.json ./
 COPY backend/server.js backend/init-db.js ./
@@ -32,5 +31,5 @@ ENV PORT=3000
 ENV DATA_DIR=/data
 EXPOSE 3000
 
-# Entrypoint fixes /data ownership, runs first-time DB init, then execs the server as the 'node' user.
+# Entrypoint verifies /data is writable, runs first-time DB init, then execs the server (as 'node').
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

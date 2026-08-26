@@ -28,19 +28,16 @@ services:
     volumes:
       - ./data:/data
     # ── Container hardening ──
+    # Runs as the unprivileged 'node' user (uid 1000). The /data host folder must be owned by 1000 — do this
+    # once on an existing install:  sudo chown -R 1000:1000 /volume1/docker/cbre/data
+    user: "node"
     read_only: true                     # immutable root FS — only /data (volume) and /tmp (tmpfs) are writable
     tmpfs:
       - /tmp
     cap_drop:
-      - ALL                             # drop ALL Linux capabilities…
-    cap_add:                            # …then re-add ONLY the four the entrypoint needs to fix /data
-      - CHOWN                           #   ownership (CHOWN + DAC_OVERRIDE) and drop root → 'node'
-      - DAC_OVERRIDE                     #   (SETUID + SETGID for su-exec). The long-running server runs as
-      - SETUID                          #   the unprivileged 'node' user with no effective privileges.
-      - SETGID
+      - ALL                             # drop ALL Linux capabilities — the app needs none (non-root already)
     security_opt:
-      - no-new-privileges:true          # block *gaining* privileges (setuid binaries, file caps); dropping
-                                        # root → node via su-exec is unaffected.
+      - no-new-privileges:true          # a process can never gain more privileges than it starts with
     mem_limit: 512m                     # cap memory so a bug/abuse can't OOM the whole NAS
     # NOTE: "cpus" and "pids_limit" are intentionally omitted — Synology DSM kernels lack the CPU CFS
     # scheduler and PIDs-limit cgroups, so those are rejected/discarded here. Enforce CPU/PID limits at
