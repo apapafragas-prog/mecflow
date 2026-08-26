@@ -32,9 +32,15 @@ services:
     tmpfs:
       - /tmp
     cap_drop:
-      - ALL                             # drop all Linux capabilities (the app needs none)
+      - ALL                             # drop ALL Linux capabilities…
+    cap_add:                            # …then re-add ONLY the four the entrypoint needs to fix /data
+      - CHOWN                           #   ownership (CHOWN + DAC_OVERRIDE) and drop root → 'node'
+      - DAC_OVERRIDE                     #   (SETUID + SETGID for su-exec). The long-running server runs as
+      - SETUID                          #   the unprivileged 'node' user with no effective privileges.
+      - SETGID
     security_opt:
-      - no-new-privileges:true          # a child process can never gain more privileges than its parent
+      - no-new-privileges:true          # block *gaining* privileges (setuid binaries, file caps); dropping
+                                        # root → node via su-exec is unaffected.
     mem_limit: 512m                     # cap memory so a bug/abuse can't OOM the whole NAS
     # NOTE: "cpus" and "pids_limit" are intentionally omitted — Synology DSM kernels lack the CPU CFS
     # scheduler and PIDs-limit cgroups, so those are rejected/discarded here. Enforce CPU/PID limits at
