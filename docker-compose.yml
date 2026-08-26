@@ -36,7 +36,8 @@ services:
     security_opt:
       - no-new-privileges:true          # a child process can never gain more privileges than its parent
     mem_limit: 512m                     # cap memory so a bug/abuse can't OOM the whole NAS
-    cpus: "1.0"
+    # NOTE: "cpus" is intentionally omitted — Synology DSM kernels lack the CPU CFS scheduler cgroup,
+    # so a cpus limit fails with "NanoCPUs can not be set". Enforce CPU limits at the enterprise host instead.
     pids_limit: 256
     networks:
       - cbre                            # dedicated network — NOT shared with hr-portal or other apps
